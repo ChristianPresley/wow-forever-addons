@@ -12,7 +12,7 @@ use wfam_core::version::compare_versions;
 use wfam_core::{Error, Result};
 
 const USAGE: &str = "\
-Usage: wfam <command> [options]
+Usage: wfam <command> [options]   (in this repository: cargo wfam <command> [options])
 
 Commands:
   detect            list the WoW: Forever installs

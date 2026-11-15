@@ -9,6 +9,8 @@ on:
     paths:
       - 'addons/**'
       - 'tools/**'
+      - 'client/core/**'
+      - 'Cargo.lock'
       - '.github/workflows/publish.yml'
   workflow_dispatch:
 
@@ -24,12 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run build:marketplace
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo dev lint
+      - run: cargo dev marketplace
       - name: Upload to the marketplace release
         env:
           GH_TOKEN: ${{ github.token }}

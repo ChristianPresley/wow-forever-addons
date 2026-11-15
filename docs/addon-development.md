@@ -55,8 +55,8 @@ Rules that follow from the Mainline API:
 
 1. Make `addons/<Name>/` with `<Name>.toc`, the Lua files and `addon.json`.
 2. List each Lua file in the TOC.
-3. Run `npm test`. The lint checks the TOC, `addon.json` and the Lua syntax.
-4. Run `npm run link` and test in the game with `/reload`.
+3. Run `cargo dev lint`. It checks the TOC, `addon.json` and the Lua syntax.
+4. Run `cargo link-addons` and test in the game with `/reload`.
 5. Push to `main`. The publish workflow adds the addon to the marketplace.
 
 ## Test status

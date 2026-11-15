@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "src-tauri"]
+members = ["client/core", "client/src-tauri", "tools"]
 resolver = "2"
 
 [workspace.package]

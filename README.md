@@ -18,40 +18,53 @@ Each addon has a page in the game's Options window, under AddOns.
 
 ## Repository layout
 
+Everything outside the addons is Rust, in one Cargo workspace.
+
 | Path | Language | Contents |
 |---|---|---|
 | `addons/<Name>/` | Lua | One folder for each addon: `<Name>.toc`, the Lua files, and `addon.json` with the marketplace text |
-| `client/core/` | Rust | Install detection, the marketplace reader and the install logic, with the `wfam` command line and the tests |
+| `client/core/` | Rust | Install detection, the marketplace reader and the install logic, with the `wfam` command line |
 | `client/src-tauri/` | Rust | The desktop app (Tauri 2). It wraps `client/core` in commands for the window |
-| `client/ui/` | HTML, CSS, JavaScript | The window of the desktop app. Plain files, no build step |
-| `tools/` | Node | Addon lint, marketplace build and the icon source |
+| `client/ui/` | HTML, CSS, JavaScript | The window of the desktop app, which Tauri shows in a webview. Plain files, no build step |
+| `tools/` | Rust | Repository tools: addon lint, marketplace build and the icon source |
+| `.cargo/config.toml` | | Short names for the commands below |
 | `.github/workflows/` | | Tests on each push, and the marketplace publish |
 
 ## Requirements
 
-- [Node](https://nodejs.org) 22 or later, for the tools and the Tauri command line.
-- [Rust](https://rustup.rs) (stable), for the addon manager.
+- [Rust](https://rustup.rs) (stable).
 - On Windows: the Visual Studio 2022 Build Tools with the "Desktop development with C++" workload. WebView2 is part of Windows 11.
+- For the desktop app, the Tauri command line:
+
+```bash
+cargo install tauri-cli --version "^2" --locked
+```
+
+## Commands
+
+Run these from any folder of the repository.
+
+| Command | What it does |
+|---|---|
+| `cargo dev lint` | Checks the TOC, `addon.json`, the file list and the Lua syntax of each addon |
+| `cargo dev marketplace` | Writes one ZIP for each addon and an `index.json` to `dist/marketplace/` |
+| `cargo dev icon <out.png>` | Draws the source image of the app icon |
+| `cargo wfam <command>` | The addon manager on the command line: `detect`, `list`, `market`, `install <id>`, `uninstall <id>` |
+| `cargo link-addons` | Links each addon folder into the game, so the game loads your working copy |
+| `cargo unlink-addons` | Removes those links |
+| `cargo test -p wfam-core -p wfam-dev` | Runs the tests of the manager core and the tools |
+| `cargo tauri dev` | Builds and starts the desktop app in development mode |
+| `cargo tauri build` | Makes a release build and a Windows installer in `target/release/bundle/` |
 
 ## Use the addon manager
 
 ```bash
-npm install
+cargo dev marketplace
 ```
 
 ```bash
-npm --prefix client install
+cargo tauri dev
 ```
-
-```bash
-npm run build:marketplace
-```
-
-```bash
-npm run client
-```
-
-`npm run client` builds and starts the app in development mode. `npm run client:build` makes a release build and a Windows installer in `client/target/release/bundle/`.
 
 The manager finds installs from the Battle.net product database, the registry, and the usual folders on each drive. If it finds nothing, use **Add folder…** and select your World of Warcraft folder. It installs only into the `_forever_` flavor.
 
@@ -63,20 +76,20 @@ The manager finds installs from the Battle.net product database, the registry, a
 The same operations are available on the command line:
 
 ```bash
-npm run wfam -- detect
+cargo wfam detect
 ```
 
 ```bash
-npm run wfam -- market
+cargo wfam market
 ```
 
 ```bash
-npm run wfam -- install forever-quests
+cargo wfam install forever-quests
 ```
 
 ## The marketplace
 
-`npm run build:marketplace` writes one ZIP for each addon and an `index.json` to `dist/marketplace/`. The publish workflow uploads these files to the GitHub release with the tag `marketplace`. The manager reads the index from that release:
+`cargo dev marketplace` writes one ZIP for each addon and an `index.json` to `dist/marketplace/`. The publish workflow uploads these files to the GitHub release with the tag `marketplace`. The manager reads the index from that release:
 
 `https://github.com/ChristianPresley/wow-forever-addons/releases/download/marketplace/index.json`
 
@@ -87,15 +100,9 @@ A development build of the manager uses the local `dist/marketplace/index.json` 
 See [docs/addon-development.md](docs/addon-development.md) for the facts about the Forever client and the steps to add an addon.
 
 ```bash
-npm run link
+cargo link-addons
 ```
 
-This command links each addon folder into `_forever_\Interface\AddOns`, so the game loads your working copy. Type `/reload` in the game after a change. `npm run unlink` removes the links.
-
-```bash
-npm test
-```
-
-This command checks the TOC files and the Lua syntax of each addon, and runs the tests of `client/core`.
+This command links each addon folder into `_forever_\Interface\AddOns`. Type `/reload` in the game after a change. `cargo unlink-addons` removes the links.
 
 Not affiliated with Blizzard Entertainment. World of Warcraft is a trademark of Blizzard Entertainment, Inc.

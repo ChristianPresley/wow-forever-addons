@@ -1,0 +1,9 @@
+# Short names for the commands of this repository. Run them from any folder in it.
+[alias]
+# The addon manager on the command line: cargo wfam detect | list | market | install <id> | ...
+wfam = "run --quiet -p wfam-core --bin wfam --"
+# Repository tools: cargo dev lint | marketplace | icon <out.png>
+dev = "run --quiet -p wfam-dev --"
+# Link the addons of this repository into the game, and remove the links again.
+link-addons = "run --quiet -p wfam-core --bin wfam -- link addons"
+unlink-addons = "run --quiet -p wfam-core --bin wfam -- unlink addons"

@@ -1,6 +1,5 @@
-node_modules/
-dist/
 target/
+dist/
 client/src-tauri/gen/
 *.log
 .DS_Store

@@ -152,7 +152,7 @@ fn check_replaceable(addons_dir: &Path, folder: &str, allow_unmanaged: bool) -> 
     if is_link(&target) {
         return Err(Error::new(
             ErrorCode::Linked,
-            format!("{folder} is a link to a development copy. Remove the link first (npm run unlink)."),
+            format!("{folder} is a link to a development copy. Remove the link first (cargo unlink-addons)."),
         ));
     }
     if !allow_unmanaged && read_manifest(&target).is_none() {

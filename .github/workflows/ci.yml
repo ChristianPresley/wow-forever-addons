@@ -7,20 +7,15 @@ on:
 
 jobs:
   test:
-    name: Addon lint and core tests
+    name: Addon lint and tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: client
-      - run: npm ci
-      - run: npm test
-      - run: npm run build:marketplace
+      - run: cargo dev lint
+      - run: cargo test -p wfam-core -p wfam-dev
+      - run: cargo dev marketplace
 
   app:
     name: Desktop app (Windows)
@@ -29,7 +24,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: client
-      - run: cargo test --manifest-path client/Cargo.toml -p wfam-core
-      - run: cargo build --manifest-path client/Cargo.toml -p forever-addon-manager
+      - run: cargo test -p wfam-core -p wfam-dev
+      - run: cargo build -p forever-addon-manager

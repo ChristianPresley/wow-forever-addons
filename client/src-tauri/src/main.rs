@@ -101,7 +101,7 @@ fn open_addons_folder(service: Shared<'_>, install_id: String) -> CommandResult<
 }
 
 /// The marketplace to use when the user chose none. A debug build that runs from the
-/// repository prefers a locally built marketplace: run "npm run build:marketplace".
+/// repository prefers a locally built marketplace: run "cargo dev marketplace".
 fn default_source() -> String {
     if let Ok(source) = std::env::var("WFAM_SOURCE") {
         if !source.trim().is_empty() {
