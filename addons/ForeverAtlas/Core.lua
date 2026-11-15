@@ -43,7 +43,7 @@ function ns.SetIcon(texture, look)
   texture:SetVertexColor(color and color[1] or 1, color and color[2] or 1, color and color[3] or 1, 1)
 end
 
--- Options. Each key is a boolean in ForeverAtlasDB.options.
+-- Options, in ForeverAtlasDB.options. The type of the default is the type of the option.
 ns.defaults = {
   coords = true,
   announce = false,
@@ -52,6 +52,13 @@ ns.defaults = {
   hudLock = false,
   pins = true,
   notes = true,
+  arrow = true, -- the direction arrow of the newest waypoint
+  arrivalYards = 5, -- a waypoint is reached, and removed, within this distance
+}
+
+-- Lowest and highest value of each number option.
+ns.limits = {
+  arrivalYards = { 2, 50 },
 }
 
 local watchers = {}
@@ -66,7 +73,16 @@ function ns.GetOption(key)
 end
 
 function ns.SetOption(key, value)
-  value = value and true or false
+  local default = ns.defaults[key]
+  if type(default) == "number" then
+    local limit = ns.limits[key]
+    value = math.floor((tonumber(value) or default) + 0.5)
+    if limit then
+      value = math.max(limit[1], math.min(limit[2], value))
+    end
+  else
+    value = value and true or false
+  end
   ForeverAtlasDB.options[key] = value
   for _, fn in ipairs(watchers) do
     local ok, err = pcall(fn, key, value)
@@ -76,8 +92,20 @@ function ns.SetOption(key, value)
   end
 end
 
+local movable = {}
+
+-- Puts every movable frame back where it was at first.
+function ns.ResetFrames()
+  wipe(ForeverAtlasDB.frames)
+  for _, entry in ipairs(movable) do
+    entry.frame:ClearAllPoints()
+    entry.frame:SetPoint(entry.point, UIParent, entry.point, entry.x, entry.y)
+  end
+end
+
 -- Makes a frame movable with the left button and keeps its place in ForeverAtlasDB.frames[key].
 function ns.MakeMovable(frame, key, point, x, y)
+  movable[#movable + 1] = { frame = frame, point = point, x = x, y = y }
   local saved = ForeverAtlasDB.frames[key]
   frame:ClearAllPoints()
   if type(saved) == "table" and type(saved[1]) == "string" and usable(saved[3]) and usable(saved[4]) then
@@ -139,7 +167,7 @@ loader:SetScript("OnEvent", function(self, event, name)
   end
   local options = tableAt(ForeverAtlasDB, "options")
   for key, value in pairs(ns.defaults) do
-    if type(options[key]) ~= "boolean" then
+    if type(options[key]) ~= type(value) then
       options[key] = value
     end
   end

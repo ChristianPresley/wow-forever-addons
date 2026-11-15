@@ -38,10 +38,44 @@ fn lua_errors(source: &str) -> Vec<String> {
     })
 }
 
+/// The file with the builder of the settings page. Each addon has an identical copy.
+const SETTINGS_KIT: &str = "SettingsKit.lua";
+
+/// Checks that the addon has a page in the Options window of the game, built with the
+/// settings kit. `reference` is the kit of the first addon: all copies must be the same.
+fn settings_problems(addon: &Addon, reference: &mut Option<(String, Vec<u8>)>) -> Vec<String> {
+    let mut problems = Vec::new();
+    let read = |file: &str| fs::read(addon.dir.join(file)).unwrap_or_default();
+    let kit = addon.files.iter().find(|file| file.eq_ignore_ascii_case(SETTINGS_KIT));
+    match kit {
+        None => problems.push(format!("{SETTINGS_KIT} is missing. Each addon needs a settings page: see docs/addon-development.md.")),
+        Some(file) => {
+            // Line endings can differ between checkouts.
+            let content: Vec<u8> = read(file).into_iter().filter(|byte| *byte != b'\r').collect();
+            match reference {
+                None => *reference = Some((addon.folder.clone(), content)),
+                Some((first, expected)) if *expected != content => {
+                    problems.push(format!("{SETTINGS_KIT} is not the same as the copy in {first}. Keep the copies identical."));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    let builds_page = addon.files.iter().filter(|file| file.to_lowercase().ends_with(".lua") && !file.eq_ignore_ascii_case(SETTINGS_KIT)).any(|file| {
+        let source = String::from_utf8_lossy(&read(file)).into_owned();
+        source.contains("ns.NewSettingsPage(") && source.contains(":Register()")
+    });
+    if !builds_page {
+        problems.push("no file builds the settings page: call ns.NewSettingsPage and page:Register (see docs/addon-development.md).".to_string());
+    }
+    problems
+}
+
 /// Returns one line for each problem. An empty list means that all addons are good.
 pub fn lint(addons: &[Addon]) -> Vec<String> {
     let mut problems = Vec::new();
     let mut ids = HashSet::new();
+    let mut settings_kit = None;
 
     for addon in addons {
         let mut fail = |message: String| problems.push(format!("{}: {message}", addon.folder));
@@ -74,6 +108,10 @@ pub fn lint(addons: &[Addon]) -> Vec<String> {
                     }
                 }
             }
+        }
+
+        for problem in settings_problems(addon, &mut settings_kit) {
+            fail(problem);
         }
 
         let present: HashSet<String> = addon.files.iter().map(|file| file.to_lowercase()).collect();
@@ -149,8 +187,18 @@ mod tests {
 
         fs::create_dir_all(tmp.path().join("NoToc")).unwrap();
 
+        // An addon with no settings page, and one with a changed copy of the kit.
+        write_addon(tmp.path(), "Plain", "plain", "print(1)\n");
+        fs::remove_file(tmp.path().join("Plain").join("SettingsKit.lua")).unwrap();
+        fs::remove_file(tmp.path().join("Plain").join("Settings.lua")).unwrap();
+        fs::write(tmp.path().join("Plain").join("Plain.toc"), "## Interface: 16001\n## Title: Plain\n## Version: 1.0.0\n\nCore.lua\n").unwrap();
+        fs::write(tmp.path().join("Twin").join("SettingsKit.lua"), "-- a changed copy\n").unwrap();
+
         let problems = problems_of(tmp.path()).join("\n");
         for expected in [
+            "Plain: SettingsKit.lua is missing.",
+            "Plain: no file builds the settings page",
+            "Twin: SettingsKit.lua is not the same as the copy in Broken.",
             "Broken: ## Interface must include 16001.",
             "Broken: ## Title is missing.",
             "Broken: ## Version must have the form 1.2.3.",

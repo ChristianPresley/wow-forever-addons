@@ -1,0 +1,255 @@
+local _, ns = ...
+
+-- The kinds of things that a compass can point to.
+--
+-- Each kind has a function find(mapID, add, addWorld) that reports the things it knows now:
+--   add(x, y, name, onMapID)   a point of a map, x and y from 0 to 1; onMapID is mapID if left out
+--   addWorld(continent, north, west, name)   a world position in yards
+-- mapID is the map the player is on. ns.FindTargets turns all of them into world positions.
+
+local function questsOnMap(mapID)
+  if not (C_QuestLog and C_QuestLog.GetQuestsOnMap) then
+    return {}
+  end
+  local ok, list = pcall(C_QuestLog.GetQuestsOnMap, mapID)
+  return ok and type(list) == "table" and list or {}
+end
+
+local function questName(questID)
+  local name = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID)
+  return type(name) == "string" and name ~= "" and name or "Quest"
+end
+
+local function isComplete(questID)
+  return C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID) and true or false
+end
+
+-- Quests of the log with a point on the map. wantComplete chooses the turn-ins or the objectives.
+local function logQuests(mapID, add, wantComplete)
+  for _, quest in ipairs(questsOnMap(mapID)) do
+    if quest.questID and quest.x and quest.y and isComplete(quest.questID) == wantComplete then
+      add(quest.x, quest.y, questName(quest.questID))
+    end
+  end
+end
+
+-- The game sends the quests that an area offers after a request. One request for each map, and
+-- again after a while, is enough.
+local requested = {}
+
+local function questGivers(mapID, add)
+  if not (C_QuestLine and C_QuestLine.GetAvailableQuestLines) then
+    return
+  end
+  local now = GetTime()
+  if C_QuestLine.RequestQuestLinesForMap and (not requested[mapID] or now - requested[mapID] > 60) then
+    requested[mapID] = now
+    pcall(C_QuestLine.RequestQuestLinesForMap, mapID)
+  end
+  local ok, list = pcall(C_QuestLine.GetAvailableQuestLines, mapID)
+  if not ok or type(list) ~= "table" then
+    return
+  end
+  local sameFloor = Enum and Enum.QuestLineFloorLocation and Enum.QuestLineFloorLocation.Same
+  local seen = {}
+  for _, quest in ipairs(list) do
+    local id = quest.questID
+    if id and quest.x and quest.y and not quest.isHidden and not quest.inProgress and not seen[id]
+      and (quest.floorLocation == nil or sameFloor == nil or quest.floorLocation == sameFloor) then
+      seen[id] = true
+      add(quest.x, quest.y, type(quest.questName) == "string" and quest.questName or "Quest giver")
+    end
+  end
+end
+
+local function trackedQuest(mapID, add)
+  local tracked = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+  if not tracked or tracked == 0 then
+    return
+  end
+  for _, quest in ipairs(questsOnMap(mapID)) do
+    if quest.questID == tracked and quest.x and quest.y then
+      add(quest.x, quest.y, questName(tracked))
+    end
+  end
+end
+
+-- Vignettes are the game's markers for rare enemies, treasures and events near the player.
+local function rares(mapID, add)
+  if not (C_VignetteInfo and C_VignetteInfo.GetVignettes and C_VignetteInfo.GetVignetteInfo and C_VignetteInfo.GetVignettePosition) then
+    return
+  end
+  for _, guid in ipairs(C_VignetteInfo.GetVignettes() or {}) do
+    local info = C_VignetteInfo.GetVignetteInfo(guid)
+    if info and not info.isDead then
+      local ok, position = pcall(C_VignetteInfo.GetVignettePosition, guid, mapID)
+      if ok and position then
+        local x, y = position:GetXY()
+        add(x, y, type(info.name) == "string" and info.name ~= "" and info.name or "Rare")
+      end
+    end
+  end
+end
+
+-- The continent that a map is on, or the map itself.
+local function continentOf(mapID)
+  local continentType = Enum and Enum.UIMapType and Enum.UIMapType.Continent
+  local current = mapID
+  for _ = 1, 6 do
+    local info = current and C_Map.GetMapInfo(current)
+    if not info or not continentType then
+      return mapID
+    end
+    if info.mapType == continentType then
+      return current
+    end
+    current = info.parentMapID
+  end
+  return mapID
+end
+
+local function flightMasters(mapID, add)
+  if not (C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap) then
+    return
+  end
+  -- The continent map lists the flight masters of all its zones.
+  local onMap = continentOf(mapID)
+  local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, onMap)
+  if not ok or type(nodes) ~= "table" then
+    return
+  end
+  local factions = Enum and Enum.FlightPathFaction
+  local other
+  if factions then
+    local mine = UnitFactionGroup("player")
+    other = mine == "Alliance" and factions.Horde or mine == "Horde" and factions.Alliance or nil
+  end
+  for _, node in ipairs(nodes) do
+    if node.position and (other == nil or node.faction ~= other) then
+      local x, y = node.position:GetXY()
+      add(x, y, type(node.name) == "string" and node.name or "Flight master", onMap)
+    end
+  end
+end
+
+local function partyMembers(_, _, addWorld)
+  for i = 1, 4 do
+    local unit = "party" .. i
+    if UnitExists(unit) then
+      local continent, north, west = ns.UnitWorld(unit)
+      if continent then
+        local name = UnitName(unit)
+        addWorld(continent, north, west, type(name) == "string" and name or "Party member")
+      end
+    end
+  end
+end
+
+local function corpse(mapID, add)
+  if not (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") and C_DeathInfo and C_DeathInfo.GetCorpseMapPosition) then
+    return
+  end
+  local ok, position = pcall(C_DeathInfo.GetCorpseMapPosition, mapID)
+  if ok and position then
+    local x, y = position:GetXY()
+    add(x, y, "Your corpse")
+  end
+end
+
+local function mapPin(_, add)
+  if not (C_Map.GetUserWaypoint) then
+    return
+  end
+  local ok, point = pcall(C_Map.GetUserWaypoint)
+  if ok and point and point.uiMapID and point.position then
+    local x, y = point.position:GetXY()
+    add(x, y, "Map pin", point.uiMapID)
+  end
+end
+
+-- A kind whose places the addon learns (Places.lua).
+local function learned(kind)
+  return function(_, add)
+    for _, place in ipairs(ns.Places(kind)) do
+      add(place.x, place.y, place.name, place.mapID)
+    end
+  end
+end
+
+local LEARNED = "The addon learns these places as you visit them, for all your characters."
+
+ns.KINDS = {
+  { key = "questObjectives", name = "Quest objectives", find = function(mapID, add) logQuests(mapID, add, false) end,
+    hint = "The quests of your log that still have something to do in this zone." },
+  { key = "questTurnIns", name = "Quest turn-ins", find = function(mapID, add) logQuests(mapID, add, true) end,
+    hint = "The quests of your log that are ready to turn in." },
+  { key = "questGivers", name = "Quest givers", find = questGivers,
+    hint = "The quests that you can start in this zone." },
+  { key = "trackedQuest", name = "Tracked quest", find = trackedQuest,
+    hint = "The quest that you track on the map (the one with the arrow)." },
+  { key = "rares", name = "Rare enemies and treasures", find = rares,
+    hint = "The rare enemies, treasures and events that the game marks near you." },
+  { key = "vendor", name = "Vendors", find = learned("vendor"), learned = true, hint = LEARNED },
+  { key = "repair", name = "Repairers", find = learned("repair"), learned = true, hint = LEARNED },
+  { key = "flight", name = "Flight masters", find = flightMasters,
+    hint = "The flight masters of your faction on this continent." },
+  { key = "mailbox", name = "Mailboxes", find = learned("mailbox"), learned = true, hint = LEARNED },
+  { key = "trainer", name = "Trainers", find = learned("trainer"), learned = true, hint = LEARNED },
+  { key = "bank", name = "Bankers", find = learned("bank"), learned = true, hint = LEARNED },
+  { key = "auction", name = "Auctioneers", find = learned("auction"), learned = true, hint = LEARNED },
+  { key = "party", name = "Party members", find = partyMembers,
+    hint = "The members of your party. The game hides them in instances." },
+  { key = "corpse", name = "Your corpse", find = corpse,
+    hint = "Your corpse, while you are a ghost." },
+  { key = "mapPin", name = "Map pin", find = mapPin,
+    hint = "The pin that you put on the world map." },
+}
+
+ns.KindByKey = {}
+for _, kind in ipairs(ns.KINDS) do
+  ns.KindByKey[kind.key] = kind
+end
+
+-- World positions of map points are the same each time, so they are kept.
+local cache, cached = {}, 0
+
+local function worldOf(mapID, x, y)
+  local id = mapID .. ":" .. x .. ":" .. y
+  local known = cache[id]
+  if known == nil then
+    local continent, north, west = ns.WorldPosition(mapID, x, y)
+    known = continent and { continent, north, west } or false
+    if cached > 4000 then
+      cache, cached = {}, 0
+    end
+    cache[id] = known
+    cached = cached + 1
+  end
+  return known
+end
+
+-- The things of a kind that are known now: { { continent, north, west, name }, ... }.
+function ns.FindTargets(kindKey)
+  local kind = ns.KindByKey[kindKey]
+  local mapID = ns.PlayerMap()
+  local targets = {}
+  if not kind or not mapID then
+    return targets
+  end
+  local function add(x, y, name, onMapID)
+    if ns.Usable(x) and ns.Usable(y) then
+      local world = worldOf(onMapID or mapID, x, y)
+      if world then
+        targets[#targets + 1] = { world[1], world[2], world[3], name }
+      end
+    end
+  end
+  local function addWorld(continent, north, west, name)
+    targets[#targets + 1] = { continent, north, west, name }
+  end
+  local ok, err = pcall(kind.find, mapID, add, addWorld)
+  if not ok then
+    geterrorhandler()(err)
+  end
+  return targets
+end

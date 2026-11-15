@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: Forever Compass
+## Notes: Up to four compasses on screen. Each one points to the nearest thing of a kind you choose: quest givers, quest objectives, turn-ins, rare enemies, vendors, flight masters and more.
+## Author: Christian Presley
+## Version: 0.1.0
+## Category: Map
+## SavedVariables: ForeverCompassDB
+## X-Website: https://github.com/ChristianPresley/wow-forever-addons
+
+Core.lua
+Places.lua
+Trackers.lua
+Compass.lua
+SettingsKit.lua
+Settings.lua
+Commands.lua

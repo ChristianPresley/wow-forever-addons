@@ -2,7 +2,7 @@
 ## Title: Forever Atlas
 ## Notes: Coordinates on the map and on screen, waypoints with a direction arrow, map notes, and pins for every area you have visited.
 ## Author: Christian Presley
-## Version: 0.2.0
+## Version: 0.3.0
 ## Category: Map
 ## SavedVariables: ForeverAtlasDB
 ## SavedVariablesPerCharacter: ForeverAtlasCharDB
@@ -16,5 +16,6 @@ Waypoints.lua
 Hud.lua
 Visited.lua
 Notes.lua
+SettingsKit.lua
 Settings.lua
 Commands.lua

@@ -11,6 +11,9 @@ local function help()
   print("  /fah stack - turn the tooltip stack value (auction) on or off")
   print("  /fah stackvendor - turn the tooltip stack value (vendor) on or off")
   print("  /fah undercut [amount] - set the undercut of the posting helper, for example 1, 50c, 5s or 1g")
+  print("  /fah helper - turn the price helper on the sell tab on or off")
+  print("  /fah scanbutton - turn the full scan button on or off")
+  print("  /fah days [number] - set how many days of prices are kept")
   print("  /fah options - open the settings page")
   print("  /fah clear - delete the stored prices of this realm")
   print("  /fah help - show this list")
@@ -43,7 +46,17 @@ local TOGGLES = {
   vendor = { key = "tooltipVendor", name = "tooltip vendor price" },
   stack = { key = "tooltipStack", name = "tooltip stack value (auction)" },
   stackvendor = { key = "tooltipStackVendor", name = "tooltip stack value (vendor)" },
+  helper = { key = "sellHelper", name = "price helper on the sell tab" },
+  scanbutton = { key = "scanButton", name = "full scan button" },
 }
+
+-- /fah days 21
+local function days(rest)
+  if tonumber(rest) then
+    ns.SetOption("historyDays", tonumber(rest))
+  end
+  ns.Print("prices are kept for " .. ns.GetOption("historyDays") .. " days. Change it with /fah days 21.")
+end
 
 local UNITS = { [""] = 1, c = 1, s = 100, g = 10000 }
 
@@ -80,6 +93,8 @@ SlashCmdList["FOREVERAUCTIONS"] = function(input)
     ns.Print(toggle.name .. " " .. (ns.GetOption(toggle.key) and "on" or "off") .. ".")
   elseif command == "undercut" then
     undercut(rest)
+  elseif command == "days" then
+    days(rest)
   elseif command == "options" or command == "config" or command == "settings" then
     ns.OpenOptions()
   elseif command == "clear" then

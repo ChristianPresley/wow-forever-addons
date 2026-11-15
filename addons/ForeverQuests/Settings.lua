@@ -1,73 +1,83 @@
 local _, ns = ...
 
--- The "Forever Quests" page in the Options window of the game: one checkbox for each option.
+-- The "Forever Quests" page in the Options window of the game. Every option of the addon is here.
 
-local category
-local boxes = {}
+local SECTIONS = {
+  { "Automation", { "autoAccept", "autoTurnIn" } },
+  { "Alerts", { "announce", "sound" } },
+  { "Quest log and tracker", { "zoneLog", "zoneTracker" } },
+  { "Party and rewards", { "partyProgress", "rewardHelper" } },
+}
 
-local function refresh()
-  for key, box in pairs(boxes) do
-    box:SetChecked(ns.GetOption(key))
-  end
-end
+local page
 
-local function createPanel()
-  local panel = CreateFrame("Frame")
-  panel:Hide()
-
-  local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-  title:SetPoint("TOPLEFT", 16, -16)
-  title:SetText("Forever Quests")
-
-  local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-  subtitle:SetText("These settings are for all your characters. You can also change them with /fq.")
-
-  for i, option in ipairs(ns.OPTIONS) do
-    local box = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
-    box:SetSize(26, 26)
-    box:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -62 - (i - 1) * 44)
-    box:SetScript("OnClick", function(self)
-      ns.SetOption(option.key, self:GetChecked() and true or false)
-    end)
-
-    local label = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", box, "TOPRIGHT", 4, -3)
-    label:SetText(option.text)
-
-    local hint = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -3)
-    hint:SetText(option.hint)
-
-    boxes[option.key] = box
+local function build()
+  local byKey = {}
+  for _, option in ipairs(ns.OPTIONS) do
+    byKey[option.key] = option
   end
 
-  panel:SetScript("OnShow", refresh)
-  return panel
-end
-
-local function register()
-  if not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory) then
-    return
+  page = ns.NewSettingsPage("Forever Quests", "These settings are for all your characters. You can also change them with /fq.")
+  local placed = {}
+  local function check(option)
+    placed[option.key] = true
+    page:Check({
+      label = option.text,
+      hint = option.hint,
+      get = function()
+        return ns.GetOption(option.key)
+      end,
+      set = function(value)
+        ns.SetOption(option.key, value)
+      end,
+    })
   end
-  category = Settings.RegisterCanvasLayoutCategory(createPanel(), "Forever Quests")
-  Settings.RegisterAddOnCategory(category)
-  ns.OnOptionChanged(refresh)
+  for _, section in ipairs(SECTIONS) do
+    page:Header(section[1])
+    for _, key in ipairs(section[2]) do
+      if byKey[key] then
+        check(byKey[key])
+      end
+    end
+  end
+  -- An option that no section names still gets a checkbox.
+  local other = false
+  for _, option in ipairs(ns.OPTIONS) do
+    if not placed[option.key] then
+      if not other then
+        page:Header("Other")
+        other = true
+      end
+      check(option)
+    end
+  end
+
+  page:Header("Quest turn-ins")
+  page:Info(function()
+    local session, total = ns.session, ForeverQuestsCharDB
+    return string.format(
+      "This session: %d quests, %d experience, %s.   This character: %d quests, %d experience, %s.",
+      session.quests, session.xp, ns.Money(session.money), total.quests, total.xp, ns.Money(total.money)
+    )
+  end)
+  page:Buttons({
+    {
+      label = "Reset the totals",
+      hint = "Sets the quest, experience and money totals of this character back to zero.",
+      confirm = "Set the quest turn-in totals of this character back to zero?",
+      click = function()
+        for _, totals in ipairs({ ns.session, ForeverQuestsCharDB }) do
+          totals.quests, totals.xp, totals.money = 0, 0, 0
+        end
+      end,
+    },
+  })
 end
 
 -- /fq options
 function ns.OpenOptions()
-  local id = category and (category.GetID and category:GetID() or category.ID)
-  if not (id and Settings and Settings.OpenToCategory) then
-    ns.Print("the options page is not available. Type /fq for the settings.")
-    return
-  end
-  if InCombatLockdown and InCombatLockdown() then
-    ns.Print("the options page cannot open in combat.")
-    return
-  end
-  if not pcall(Settings.OpenToCategory, id) then
-    ns.Print("the options page did not open. Type /fq for the settings.")
+  if not (page and page:Open()) then
+    ns.Print("the options page cannot open now. Type /fq for the settings.")
   end
 end
 
@@ -75,7 +85,11 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(self)
   self:UnregisterEvent("PLAYER_LOGIN")
-  if not pcall(register) then
-    category = nil
+  if pcall(build) and page:Register() then
+    ns.OnOptionChanged(function()
+      page:Refresh()
+    end)
+  else
+    page = nil
   end
 end)

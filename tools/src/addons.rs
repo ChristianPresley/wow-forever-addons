@@ -80,9 +80,13 @@ pub mod testing {
     pub fn write_addon(addons_dir: &Path, folder: &str, id: &str, lua: &str) {
         let dir = addons_dir.join(folder);
         fs::create_dir_all(dir.join("lib")).unwrap();
-        let toc = format!("## Interface: 16001\n## Title: {folder}\n## Version: 1.2.3\n## Author: Tester\n\nCore.lua\nlib\\Util.lua\n");
+        let toc = format!(
+            "## Interface: 16001\n## Title: {folder}\n## Version: 1.2.3\n## Author: Tester\n\nCore.lua\nlib\\Util.lua\nSettingsKit.lua\nSettings.lua\n"
+        );
         fs::write(dir.join(format!("{folder}.toc")), toc).unwrap();
         fs::write(dir.join("Core.lua"), lua).unwrap();
+        fs::write(dir.join("SettingsKit.lua"), "local _, ns = ...\nfunction ns.NewSettingsPage() end\n").unwrap();
+        fs::write(dir.join("Settings.lua"), "local _, ns = ...\nlocal page = ns.NewSettingsPage(\"Test\")\npage:Register()\n").unwrap();
         fs::write(dir.join("lib").join("Util.lua"), "local _, ns = ...\nns.util = true\n").unwrap();
         fs::write(dir.join(".hidden"), "not packaged").unwrap();
         let meta = format!(r#"{{"id":"{id}","category":"Test","summary":"A summary.","description":"A description."}}"#);
@@ -107,6 +111,6 @@ mod tests {
         assert_eq!(alpha.toc.as_ref().unwrap().version, "1.2.3");
         assert_eq!(alpha.meta.as_ref().unwrap().id, "alpha");
         // addon.json and dotfiles stay out of the package.
-        assert_eq!(alpha.files, ["Alpha.toc", "Core.lua", "lib/Util.lua"]);
+        assert_eq!(alpha.files, ["Alpha.toc", "Core.lua", "Settings.lua", "SettingsKit.lua", "lib/Util.lua"]);
     }
 }

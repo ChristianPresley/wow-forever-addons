@@ -371,6 +371,14 @@ local function restorePosition()
   frame:SetPoint("CENTER")
 end
 
+-- Puts the window back in the middle of the screen.
+function ns.ResetHistoryPosition()
+  ForeverAuctionsDB.options.window = nil
+  if frame then
+    restorePosition()
+  end
+end
+
 local function createHeader(parent, column)
   local header = CreateFrame("Button", nil, parent)
   header.column = column

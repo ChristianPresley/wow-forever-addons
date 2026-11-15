@@ -2,7 +2,7 @@
 ## Title: Forever Auctions
 ## Notes: Remembers auction house prices, scans all listings, helps you price your auctions and shows prices in item tooltips.
 ## Author: Christian Presley
-## Version: 0.2.0
+## Version: 0.3.0
 ## Category: Auctions
 ## SavedVariables: ForeverAuctionsDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons
@@ -13,5 +13,6 @@ FullScan.lua
 SellHelper.lua
 Tooltip.lua
 History.lua
+SettingsKit.lua
 Options.lua
 Commands.lua

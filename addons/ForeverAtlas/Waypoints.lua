@@ -5,7 +5,6 @@ local _, ns = ...
 -- so they are known only where the game gives the player's position.
 
 local INTERVAL = 0.05
-local ARRIVAL_YARDS = 5
 local WORLD_MAP = 947
 local PIN_LOOK = { atlas = "Waypoint-MapPin-Tracked", texture = "Interface\\Minimap\\Ping\\ping5" }
 
@@ -91,16 +90,19 @@ local function update()
     arrow:Hide()
     return
   end
+  -- With the arrow turned off, the waypoint is still followed, so that arrival removes it.
+  local showArrow = ns.GetOption("arrow")
   arrow.label:SetText(waypoint.label)
   if ns.Usable(continent) and continent ~= target[1] then
     arrow.texture:Hide()
     arrow.distance:SetText("on another continent")
-    arrow:Show()
+    arrow:SetShown(showArrow)
     return
   end
   local dNorth, dWest = target[2] - north, target[3] - west
   local yards = math.sqrt(dNorth * dNorth + dWest * dWest)
-  if yards <= ARRIVAL_YARDS then
+  local arrival = ns.GetOption("arrivalYards")
+  if yards <= (type(arrival) == "number" and arrival or 5) then
     ns.Print("arrived at " .. describe(waypoint) .. ".")
     ns.RemoveWaypoint(waypoint)
     return
@@ -114,7 +116,7 @@ local function update()
   else
     arrow.texture:Hide()
   end
-  arrow:Show()
+  arrow:SetShown(showArrow)
 end
 
 local function build()

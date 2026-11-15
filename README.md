@@ -12,9 +12,10 @@ Addons are written in Lua. The game loads the `.toc` and `.lua` files of each ad
 |---|---|---|---|
 | Forever Auctions | [addons/ForeverAuctions](addons/ForeverAuctions) | Records auction house prices as you browse, or all at once with the full scan button. Shows auction, vendor and stack values in item tooltips, suggests an undercut price when you post, and has a searchable price history window | `/fah` |
 | Forever Atlas | [addons/ForeverAtlas](addons/ForeverAtlas) | Shows coordinates on the world map and on screen. Sets waypoints with a direction arrow (`/way 45.2 61.8`), keeps your own map notes (Alt-click the map), and pins each area a character has visited | `/fatlas` |
+| Forever Compass | [addons/ForeverCompass](addons/ForeverCompass) | Puts up to four compasses on screen. Each one points to the nearest thing of a kind you choose, with its name and distance: quest objectives, turn-ins, quest givers, rare enemies, flight masters, party members and more. Vendors, repairers, trainers, bankers, auctioneers and mailboxes are learned as you visit them | `/fcompass` |
 | Forever Quests | [addons/ForeverQuests](addons/ForeverQuests) | Tells you when a quest is ready to turn in, and can accept and turn in quests for you (off by default). Can show only the quests of your current zone in the quest log and the tracker (`/fq zone`). Shows the vendor price of each reward choice, shares objective progress with party members, and counts quest experience | `/fq` |
 
-Each addon has a page in the game's Options window, under AddOns.
+Each addon has a full settings page in the game's Options window, under AddOns. This is a requirement for every addon in the repository, and the lint checks it.
 
 ## Repository layout
 
@@ -46,7 +47,7 @@ Run these from any folder of the repository.
 
 | Command | What it does |
 |---|---|
-| `cargo dev lint` | Checks the TOC, `addon.json`, the file list and the Lua syntax of each addon |
+| `cargo dev lint` | Checks the TOC, `addon.json`, the file list, the settings page and the Lua syntax of each addon |
 | `cargo dev marketplace` | Writes one ZIP for each addon and an `index.json` to `dist/marketplace/` |
 | `cargo dev icon <out.png>` | Draws the source image of the app icon |
 | `cargo wfam <command>` | The addon manager on the command line: `detect`, `list`, `market`, `install <id>`, `uninstall <id>` |

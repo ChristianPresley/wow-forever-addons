@@ -1,7 +1,5 @@
 local _, ns = ...
 
-ns.HISTORY_DAYS = 14
-
 local DAY = 86400
 
 -- Options and their defaults. A saved option of the wrong type gets its default again.
@@ -11,6 +9,14 @@ ns.DEFAULTS = {
   tooltipStack = true, -- auction value of the stack
   tooltipStackVendor = true, -- vendor value of the stack
   undercut = 1, -- copper below the lowest price, for the posting helper
+  sellHelper = true, -- the price helper on the sell tab of the auction house
+  scanButton = true, -- the full scan button on the auction house window
+  historyDays = 14, -- days of daily lows kept for each item
+}
+
+-- Lowest and highest value of the number options that have a range.
+ns.LIMITS = {
+  historyDays = { 3, 30 },
 }
 
 local optionListeners = {}
@@ -34,8 +40,15 @@ function ns.SetOption(key, value)
   if not ForeverAuctionsDB then
     return
   end
-  if key == "undercut" then
-    value = math.max(0, math.floor((tonumber(value) or ns.DEFAULTS.undercut) + 0.5))
+  local default = ns.DEFAULTS[key]
+  if type(default) == "number" then
+    local limit = ns.LIMITS[key]
+    value = math.max(0, math.floor((tonumber(value) or default) + 0.5))
+    if limit then
+      value = math.max(limit[1], math.min(limit[2], value))
+    end
+  elseif type(default) == "boolean" then
+    value = value and true or false
   end
   ForeverAuctionsDB.options[key] = value
   for _, listener in ipairs(optionListeners) do
@@ -92,7 +105,7 @@ function ns.Record(itemID, price)
     entry.days[day] = price
   end
   for d in pairs(entry.days) do
-    if d < day - ns.HISTORY_DAYS then
+    if d < day - ns.GetOption("historyDays") then
       entry.days[d] = nil
     end
   end
@@ -172,6 +185,8 @@ loader:SetScript("OnEvent", function(self, _, name)
     end
   end
   db.options.undercut = math.max(0, math.floor(db.options.undercut + 0.5))
+  local days = ns.LIMITS.historyDays
+  db.options.historyDays = math.max(days[1], math.min(days[2], math.floor(db.options.historyDays + 0.5)))
   -- Time of the last full scan request. The server's limit is per account, so this is not per realm.
   if type(db.scan) ~= "table" then
     db.scan = {}

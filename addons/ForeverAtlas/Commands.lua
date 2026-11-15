@@ -9,6 +9,9 @@ local function help()
   print("  /fatlas note <text> - add a map note where you stand (Alt-click the world map to add one there)")
   print("  /fatlas hud - turn the on-screen coordinates on or off")
   print("  /fatlas lock - lock or unlock the on-screen coordinates and the waypoint arrow")
+  print("  /fatlas arrow - turn the waypoint arrow on or off")
+  print("  /fatlas arrive 10 - remove a waypoint when you are within 10 yards")
+  print("  /fatlas reset - put the read-out and the arrow back where they were at first")
   print("  /fatlas pins - turn the visited-area pins on the world map on or off")
   print("  /fatlas notes - show or hide your map notes")
   print("  /fatlas coords - turn the world map coordinates on or off")
@@ -57,7 +60,17 @@ local TOGGLES = {
   lock = { "hudLock", "frame lock" },
   pins = { "pins", "visited-area pins" },
   notes = { "notes", "map notes" },
+  arrow = { "arrow", "waypoint arrow" },
 }
+
+-- /fatlas arrive 10
+local function arrive(rest)
+  local yards = tonumber(rest)
+  if yards then
+    ns.SetOption("arrivalYards", yards)
+  end
+  ns.Print("a waypoint is removed when you are within " .. ns.GetOption("arrivalYards") .. " yards. Change it with /fatlas arrive 10.")
+end
 
 SLASH_FOREVERATLAS1 = "/fatlas"
 SLASH_FOREVERATLAS2 = "/foreveratlas"
@@ -74,6 +87,11 @@ SlashCmdList["FOREVERATLAS"] = function(input)
     ns.WaypointCommand(rest)
   elseif command == "note" then
     ns.NoteCommand(rest)
+  elseif command == "arrive" then
+    arrive(rest)
+  elseif command == "reset" then
+    ns.ResetFrames()
+    ns.Print("the read-out and the arrow are back where they were at first.")
   elseif command == "options" or command == "config" then
     ns.OpenSettings()
   elseif TOGGLES[command] then

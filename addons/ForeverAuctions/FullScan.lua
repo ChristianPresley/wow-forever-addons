@@ -339,6 +339,19 @@ local function createButton()
   end)
 end
 
+-- The button can be turned off. /fah scan works without it.
+ns.OnOptionChanged(function(key, value)
+  if key == "scanButton" and holder then
+    holder:SetShown(value)
+  end
+end)
+
+-- Time of the last full scan request, or nil.
+function ns.LastScanTime()
+  local last = ForeverAuctionsDB and ForeverAuctionsDB.scan and ForeverAuctionsDB.scan.requested
+  return type(last) == "number" and last or nil
+end
+
 ns.SafeRegister(events, "AUCTION_HOUSE_SHOW")
 ns.SafeRegister(events, "AUCTION_HOUSE_CLOSED")
 events:SetScript("OnEvent", function(_, event)
@@ -349,6 +362,9 @@ events:SetScript("OnEvent", function(_, event)
       if not ok then
         holder = nil
       end
+    end
+    if holder then
+      holder:SetShown(ns.GetOption("scanButton"))
     end
     updateButton()
   elseif event == "AUCTION_HOUSE_CLOSED" then
