@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
+    <title>Forever Addon Manager</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">F</div>
+        <div>
+          <div class="brand-name">Forever</div>
+          <div class="brand-sub">Addon Manager</div>
+        </div>
+      </div>
+
+      <div class="side-heading">Game installs</div>
+      <ul class="installs" id="installs"></ul>
+
+      <div class="side-actions">
+        <button class="ghost" id="add-install">Add folder…</button>
+        <button class="ghost" id="rescan">Scan again</button>
+      </div>
+
+      <div class="source">
+        <div class="side-heading">Marketplace source</div>
+        <div class="source-value" id="source-value"></div>
+        <button class="link" id="change-source">Change</button>
+        <form class="source-form" id="source-form" hidden>
+          <input id="source-input" type="text" spellcheck="false" placeholder="https://… or a path to index.json" />
+          <div class="row">
+            <button type="submit">Save</button>
+            <button type="button" class="ghost" id="source-default">Use default</button>
+          </div>
+        </form>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="header">
+        <div>
+          <h1 id="install-title">No install selected</h1>
+          <div class="path" id="install-path"></div>
+        </div>
+        <button class="ghost" id="open-folder" hidden>Open AddOns folder</button>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab" data-tab="market" aria-selected="true">Marketplace</button>
+        <button class="tab" data-tab="installed" aria-selected="false">Installed <span class="count" id="installed-count"></span></button>
+        <div class="spacer"></div>
+        <button id="update-all" hidden>Update all</button>
+      </nav>
+
+      <div class="notice" id="notice" hidden></div>
+      <section class="list" id="list"></section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

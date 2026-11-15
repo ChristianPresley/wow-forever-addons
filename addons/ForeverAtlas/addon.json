@@ -1,0 +1,6 @@
+{
+  "id": "forever-atlas",
+  "category": "Map & Exploration",
+  "summary": "Player and cursor coordinates on the world map, and a record of every area you have visited.",
+  "description": "Forever Atlas adds the player and cursor coordinates that the built-in world map leaves out. It also keeps a per-character record of each area you walk into, with the place you first entered it, and reports how much of the current zone you have explored. Type /fatlas for commands."
+}

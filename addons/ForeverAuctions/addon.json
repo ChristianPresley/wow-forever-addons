@@ -1,0 +1,6 @@
+{
+  "id": "forever-auctions",
+  "category": "Auction House",
+  "summary": "Remembers the prices you see at the auction house and shows them in item tooltips.",
+  "description": "Every time you browse or search the auction house, Forever Auctions records the lowest price of each item it sees, per realm and faction. Item tooltips then show the last known price, how old it is, and a 14-day average. Type /fah for commands."
+}

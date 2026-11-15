@@ -1,0 +1,42 @@
+name: Publish marketplace
+
+# Builds the addon packages and the index, and uploads them to the rolling
+# "marketplace" release. The addon manager reads the index from that release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'addons/**'
+      - 'tools/**'
+      - 'client/src/core/**'
+      - '.github/workflows/publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-marketplace
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:marketplace
+      - name: Upload to the marketplace release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view marketplace >/dev/null 2>&1 || gh release create marketplace \
+            --title "Addon marketplace" \
+            --notes "Packages and index for the Forever Addon Manager. This release is updated automatically." \
+            --latest=false
+          gh release upload marketplace dist/marketplace/* --clobber

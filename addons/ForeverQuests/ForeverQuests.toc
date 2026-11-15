@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: Forever Quests
+## Notes: Tells you when a quest is ready to turn in, optionally accepts and turns in quests for you, and counts the experience you earn from quests.
+## Author: Christian Presley
+## Version: 0.1.0
+## Category: Quests
+## SavedVariables: ForeverQuestsDB
+## SavedVariablesPerCharacter: ForeverQuestsCharDB
+## X-Website: https://github.com/ChristianPresley/wow-forever-addons
+
+Core.lua
+Automation.lua
+Progress.lua
+Commands.lua

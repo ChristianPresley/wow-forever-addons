@@ -1,0 +1,19 @@
+{
+  "name": "wow-forever-addon-manager",
+  "productName": "Forever Addon Manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Finds World of Warcraft: Forever installs and installs or updates addons from the marketplace.",
+  "type": "module",
+  "main": "src/main.mjs",
+  "bin": {
+    "wfam": "bin/wfam.mjs"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "electron": "^45.3.2"
+  }
+}

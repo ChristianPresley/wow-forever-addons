@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: Forever Auctions
+## Notes: Remembers the prices you see at the auction house and shows them in item tooltips.
+## Author: Christian Presley
+## Version: 0.1.0
+## Category: Auctions
+## SavedVariables: ForeverAuctionsDB
+## X-Website: https://github.com/ChristianPresley/wow-forever-addons
+
+Core.lua
+Scanner.lua
+Tooltip.lua
+Commands.lua

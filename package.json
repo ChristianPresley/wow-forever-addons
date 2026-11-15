@@ -1,0 +1,17 @@
+{
+  "name": "wow-forever-addons",
+  "private": true,
+  "type": "module",
+  "description": "Addons for World of Warcraft: Forever, plus the addon manager that installs them.",
+  "scripts": {
+    "lint": "node tools/lint-addons.mjs",
+    "build:marketplace": "node tools/build-marketplace.mjs",
+    "test": "npm run lint && node --test \"client/test/*.test.mjs\"",
+    "link": "node tools/link-addons.mjs",
+    "unlink": "node tools/link-addons.mjs --unlink",
+    "client": "npm --prefix client start"
+  },
+  "devDependencies": {
+    "luaparse": "^0.3.1"
+  }
+}
