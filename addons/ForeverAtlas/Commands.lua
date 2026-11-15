@@ -5,8 +5,15 @@ local function help()
   print("  /fatlas zone - show how much of the current zone you have visited")
   print("  /fatlas list - list the areas visited in the current zone")
   print("  /fatlas where - print your coordinates")
+  print("  /fatlas way 45.2 61.8 - set a waypoint (also /way; /fatlas way for more)")
+  print("  /fatlas note <text> - add a map note where you stand (Alt-click the world map to add one there)")
+  print("  /fatlas hud - turn the on-screen coordinates on or off")
+  print("  /fatlas lock - lock or unlock the on-screen coordinates and the waypoint arrow")
+  print("  /fatlas pins - turn the visited-area pins on the world map on or off")
+  print("  /fatlas notes - show or hide your map notes")
   print("  /fatlas coords - turn the world map coordinates on or off")
   print("  /fatlas announce - turn the first-visit chat message on or off")
+  print("  /fatlas options - open the settings page")
 end
 
 local function zoneSummary()
@@ -39,25 +46,38 @@ local function where()
 end
 
 local function toggle(option, label)
-  local options = ForeverAtlasDB.options
-  options[option] = not options[option]
-  ns.Print(label .. " " .. (options[option] and "on" or "off") .. ".")
+  ns.SetOption(option, not ns.GetOption(option))
+  ns.Print(label .. " " .. (ns.GetOption(option) and "on" or "off") .. ".")
 end
+
+local TOGGLES = {
+  coords = { "coords", "world map coordinates" },
+  announce = { "announce", "first-visit messages" },
+  hud = { "hud", "on-screen coordinates" },
+  lock = { "hudLock", "frame lock" },
+  pins = { "pins", "visited-area pins" },
+  notes = { "notes", "map notes" },
+}
 
 SLASH_FOREVERATLAS1 = "/fatlas"
 SLASH_FOREVERATLAS2 = "/foreveratlas"
 SlashCmdList["FOREVERATLAS"] = function(input)
-  local command = (input or ""):match("^(%S*)"):lower()
+  local command, rest = (input or ""):match("^%s*(%S*)%s*(.-)%s*$")
+  command = command:lower()
   if command == "zone" then
     zoneSummary()
   elseif command == "list" then
     list()
   elseif command == "where" then
     where()
-  elseif command == "coords" then
-    toggle("coords", "world map coordinates")
-  elseif command == "announce" then
-    toggle("announce", "first-visit messages")
+  elseif command == "way" then
+    ns.WaypointCommand(rest)
+  elseif command == "note" then
+    ns.NoteCommand(rest)
+  elseif command == "options" or command == "config" then
+    ns.OpenSettings()
+  elseif TOGGLES[command] then
+    toggle(TOGGLES[command][1], TOGGLES[command][2])
   else
     help()
   end

@@ -7,12 +7,79 @@ end
 -- Totals of this play session. The lifetime totals are in ForeverQuestsCharDB.
 ns.session = { quests = 0, xp = 0, money = 0 }
 
-local DEFAULTS = {
-  autoAccept = false,
-  autoTurnIn = false,
-  announce = true,
-  sound = true,
+-- Every option: the key in ForeverQuestsDB.options, the word after /fq, the name in chat messages,
+-- and the label and the explanation on the options page.
+ns.OPTIONS = {
+  {
+    key = "autoAccept", command = "accept", label = "automatic accept", default = false,
+    text = "Accept quests automatically",
+    hint = "Hold Shift while you talk to an NPC to skip it once. Repeatable quests are not accepted.",
+  },
+  {
+    key = "autoTurnIn", command = "turnin", label = "automatic turn-in", default = false,
+    text = "Turn in quests automatically",
+    hint = "A quest with a choice of rewards is never completed for you.",
+  },
+  {
+    key = "announce", command = "announce", label = "chat messages", default = true,
+    text = "Chat messages",
+    hint = "A message when an objective is done or a quest is ready to turn in.",
+  },
+  {
+    key = "sound", command = "sound", label = "quest-ready sound", default = true,
+    text = "Quest-ready sound",
+    hint = "A sound when a quest is ready to turn in.",
+  },
+  {
+    key = "questLevels", command = "levels", label = "quest levels", default = true,
+    text = "Quest levels",
+    hint = "The level in front of quest names in the quest log and the tracker, coloured by difficulty.",
+  },
+  {
+    key = "partyProgress", command = "share", label = "party progress", default = true,
+    text = "Party progress",
+    hint = "Share objective progress with party members who also use Forever Quests.",
+  },
+  {
+    key = "rewardHelper", command = "rewards", label = "reward sell prices", default = true,
+    text = "Reward sell prices",
+    hint = "The vendor sell price on each reward choice, with the most valuable one marked.",
+  },
 }
+
+local listeners = {}
+
+-- The function is called with the key and the new value after an option changes.
+function ns.OnOptionChanged(listener)
+  listeners[#listeners + 1] = listener
+end
+
+function ns.GetOption(key)
+  return ForeverQuestsDB and ForeverQuestsDB.options and ForeverQuestsDB.options[key] and true or false
+end
+
+function ns.SetOption(key, value)
+  if not (ForeverQuestsDB and ForeverQuestsDB.options) then
+    return
+  end
+  value = value and true or false
+  ForeverQuestsDB.options[key] = value
+  for _, listener in ipairs(listeners) do
+    listener(key, value)
+  end
+end
+
+-- True for a value that an addon can show but not calculate with (see docs/addon-development.md).
+function ns.IsSecret(value)
+  return issecretvalue ~= nil and issecretvalue(value) or false
+end
+
+function ns.Money(copper)
+  if GetMoneyString then
+    return GetMoneyString(copper, true)
+  end
+  return string.format("%dg %ds %dc", math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100)
+end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
@@ -23,9 +90,10 @@ loader:SetScript("OnEvent", function(self, _, name)
   self:UnregisterEvent("ADDON_LOADED")
   ForeverQuestsDB = ForeverQuestsDB or {}
   ForeverQuestsDB.options = ForeverQuestsDB.options or {}
-  for key, value in pairs(DEFAULTS) do
-    if ForeverQuestsDB.options[key] == nil then
-      ForeverQuestsDB.options[key] = value
+  -- An option that the saved data does not have yet gets its default.
+  for _, option in ipairs(ns.OPTIONS) do
+    if ForeverQuestsDB.options[option.key] == nil then
+      ForeverQuestsDB.options[option.key] = option.default
     end
   end
   ForeverQuestsCharDB = ForeverQuestsCharDB or {}

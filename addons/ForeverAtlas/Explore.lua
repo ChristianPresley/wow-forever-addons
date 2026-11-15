@@ -23,6 +23,7 @@ local function record()
   local mapID = C_Map.GetBestMapForUnit("player")
   local x, y = ns.PlayerPosition(mapID)
   zones[zone][area] = { t = time(), mapID = mapID, x = x, y = y }
+  ns.RefreshPins()
   if ForeverAtlasDB.options.announce then
     ns.Print("first visit to " .. area .. " (" .. zone .. ").")
   end

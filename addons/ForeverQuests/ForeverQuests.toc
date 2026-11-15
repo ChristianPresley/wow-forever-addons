@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Forever Quests
-## Notes: Tells you when a quest is ready to turn in, optionally accepts and turns in quests for you, and counts the experience you earn from quests.
+## Notes: Quest-ready alerts, optional automatic accept and turn-in, quest levels, party progress, reward sell prices and quest experience totals.
 ## Author: Christian Presley
-## Version: 0.1.0
+## Version: 0.2.0
 ## Category: Quests
 ## SavedVariables: ForeverQuestsDB
 ## SavedVariablesPerCharacter: ForeverQuestsCharDB
@@ -11,4 +11,8 @@
 Core.lua
 Automation.lua
 Progress.lua
+Levels.lua
+Party.lua
+Rewards.lua
+Settings.lua
 Commands.lua

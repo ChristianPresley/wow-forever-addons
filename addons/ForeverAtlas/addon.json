@@ -1,6 +1,6 @@
 {
   "id": "forever-atlas",
   "category": "Map & Exploration",
-  "summary": "Player and cursor coordinates on the world map, and a record of every area you have visited.",
-  "description": "Forever Atlas adds the player and cursor coordinates that the built-in world map leaves out. It also keeps a per-character record of each area you walk into, with the place you first entered it, and reports how much of the current zone you have explored. Type /fatlas for commands."
+  "summary": "Coordinates on the map and on screen, waypoints with a direction arrow, map notes, and pins for every area you have visited.",
+  "description": "Forever Atlas shows your coordinates on the world map and in a small movable read-out on screen. Set a waypoint with /way 45.2 61.8 and follow the arrow, which shows the distance in yards. Alt-click the world map to add your own notes. The addon also records each area you walk into and shows it as a pin on the map. Type /fatlas for commands."
 }

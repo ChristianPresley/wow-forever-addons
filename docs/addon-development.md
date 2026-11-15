@@ -15,6 +15,18 @@ These facts are from a live install of client build 1.60.1.70938 (November 2026)
 | Project constant | `WOW_PROJECT_CAMELOT` |
 | API family | Mainline (patch 12.1.5): `C_AuctionHouse`, `C_QuestLog`, `C_Map`, `C_GossipInfo`, `TooltipDataProcessor` |
 
+Where to check an API before you use it:
+
+- **Blizzard's UI source:** the `forever` branch of [Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source/tree/forever). Forever-specific code is in the `Camelot` folders.
+- **Addons that work on this client:** read how the addons in your own `Interface\AddOns` folder call the API. Learn from them, but do not copy their code.
+
+What the client does and does not have:
+
+- The quest log is the Mainline one on the world map (`QuestScrollFrame`), and the tracker is `QuestObjectiveTracker`. There is no `QuestLogFrame` or `QuestWatchFrame`.
+- The game writes the quest level in front of quest names itself, for example `[12] Wanted: Hogger`.
+- The auction house is the Mainline one (`AuctionHouseFrame`), with `C_AuctionHouse.ReplicateItems` for a full scan.
+- An options page is a frame registered with `Settings.RegisterCanvasLayoutCategory` and `Settings.RegisterAddOnCategory`.
+
 Rules that follow from the Mainline API:
 
 - **Secret values.** In combat, some API results (health, auras, threat, names) are secret: an addon can show them, but cannot calculate with them or compare them. Check with `issecretvalue(value)` before you use a number from a combat-related API.

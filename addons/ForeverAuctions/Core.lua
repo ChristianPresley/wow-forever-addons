@@ -4,8 +4,52 @@ ns.HISTORY_DAYS = 14
 
 local DAY = 86400
 
+-- Options and their defaults. A saved option of the wrong type gets its default again.
+ns.DEFAULTS = {
+  tooltip = true, -- auction price and average
+  tooltipVendor = true, -- vendor sell price
+  tooltipStack = true, -- auction value of the stack
+  tooltipStackVendor = true, -- vendor value of the stack
+  undercut = 1, -- copper below the lowest price, for the posting helper
+}
+
+local optionListeners = {}
+local readyCallbacks = {}
+
 function ns.Print(msg)
   print("|cffd8a657Forever Auctions|r: " .. tostring(msg))
+end
+
+function ns.GetOption(key)
+  local options = ForeverAuctionsDB and ForeverAuctionsDB.options
+  local value = options and options[key]
+  if value == nil then
+    return ns.DEFAULTS[key]
+  end
+  return value
+end
+
+-- Every change of an option goes through here, so the settings page and the slash commands stay in sync.
+function ns.SetOption(key, value)
+  if not ForeverAuctionsDB then
+    return
+  end
+  if key == "undercut" then
+    value = math.max(0, math.floor((tonumber(value) or ns.DEFAULTS.undercut) + 0.5))
+  end
+  ForeverAuctionsDB.options[key] = value
+  for _, listener in ipairs(optionListeners) do
+    listener(key, value)
+  end
+end
+
+function ns.OnOptionChanged(listener)
+  optionListeners[#optionListeners + 1] = listener
+end
+
+-- Runs callback once the saved variables are loaded.
+function ns.OnReady(callback)
+  readyCallbacks[#readyCallbacks + 1] = callback
 end
 
 local function realmKey()
@@ -38,6 +82,9 @@ function ns.Record(itemID, price)
     entry = { days = {} }
     prices[itemID] = entry
   end
+  if type(entry.days) ~= "table" then
+    entry.days = {}
+  end
   entry.price = price
   entry.seen = now
   local low = entry.days[day]
@@ -51,18 +98,32 @@ function ns.Record(itemID, price)
   end
 end
 
+-- Low, high, average and number of the stored daily lows of an entry. Without daily lows all three are the latest price.
+function ns.DayStats(entry)
+  local low, high, sum, count = nil, nil, 0, 0
+  if type(entry.days) == "table" then
+    for _, price in pairs(entry.days) do
+      if type(price) == "number" then
+        low = (not low or price < low) and price or low
+        high = (not high or price > high) and price or high
+        sum = sum + price
+        count = count + 1
+      end
+    end
+  end
+  if count == 0 then
+    return entry.price, entry.price, entry.price, 0
+  end
+  return low, high, math.floor(sum / count + 0.5), count
+end
+
 -- Returns the entry and the average of the daily lows, or nil.
 function ns.Lookup(itemID)
   local entry = ns.Prices()[itemID]
   if not entry or not entry.price then
     return nil
   end
-  local sum, count = 0, 0
-  for _, low in pairs(entry.days) do
-    sum = sum + low
-    count = count + 1
-  end
-  local average = count > 0 and math.floor(sum / count + 0.5) or entry.price
+  local _, _, average, count = ns.DayStats(entry)
   return entry, average, count
 end
 
@@ -77,7 +138,7 @@ function ns.Money(copper)
 end
 
 function ns.Age(timestamp)
-  local seconds = math.max(0, time() - timestamp)
+  local seconds = math.max(0, time() - (timestamp or 0))
   if seconds < 3600 then
     return string.format("%dm ago", math.floor(seconds / 60))
   elseif seconds < DAY then
@@ -102,8 +163,20 @@ loader:SetScript("OnEvent", function(self, _, name)
   local db = ForeverAuctionsDB
   db.version = 1
   db.realms = db.realms or {}
-  db.options = db.options or {}
-  if db.options.tooltip == nil then
-    db.options.tooltip = true
+  if type(db.options) ~= "table" then
+    db.options = {}
+  end
+  for key, default in pairs(ns.DEFAULTS) do
+    if type(db.options[key]) ~= type(default) then
+      db.options[key] = default
+    end
+  end
+  db.options.undercut = math.max(0, math.floor(db.options.undercut + 0.5))
+  -- Time of the last full scan request. The server's limit is per account, so this is not per realm.
+  if type(db.scan) ~= "table" then
+    db.scan = {}
+  end
+  for _, callback in ipairs(readyCallbacks) do
+    callback()
   end
 end)

@@ -1,14 +1,20 @@
 ## Interface: 16001
 ## Title: Forever Atlas
-## Notes: Player and cursor coordinates on the world map, and a record of every area you have visited.
+## Notes: Coordinates on the map and on screen, waypoints with a direction arrow, map notes, and pins for every area you have visited.
 ## Author: Christian Presley
-## Version: 0.1.0
+## Version: 0.2.0
 ## Category: Map
 ## SavedVariables: ForeverAtlasDB
 ## SavedVariablesPerCharacter: ForeverAtlasCharDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons
 
 Core.lua
+Pins.lua
 Coords.lua
 Explore.lua
+Waypoints.lua
+Hud.lua
+Visited.lua
+Notes.lua
+Settings.lua
 Commands.lua

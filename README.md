@@ -10,9 +10,11 @@ Addons are written in Lua. The game loads the `.toc` and `.lua` files of each ad
 
 | Addon | Folder | What it does | Command |
 |---|---|---|---|
-| Forever Auctions | [addons/ForeverAuctions](addons/ForeverAuctions) | Records the lowest price of each item you see at the auction house, and shows the price, its age and a 14-day average in item tooltips | `/fah` |
-| Forever Atlas | [addons/ForeverAtlas](addons/ForeverAtlas) | Shows player and cursor coordinates on the world map, and records each area a character visits | `/fatlas` |
-| Forever Quests | [addons/ForeverQuests](addons/ForeverQuests) | Tells you when a quest is ready to turn in, can accept and turn in quests for you (off by default), and counts quest experience | `/fq` |
+| Forever Auctions | [addons/ForeverAuctions](addons/ForeverAuctions) | Records auction house prices as you browse, or all at once with the full scan button. Shows auction, vendor and stack values in item tooltips, suggests an undercut price when you post, and has a searchable price history window | `/fah` |
+| Forever Atlas | [addons/ForeverAtlas](addons/ForeverAtlas) | Shows coordinates on the world map and on screen. Sets waypoints with a direction arrow (`/way 45.2 61.8`), keeps your own map notes (Alt-click the map), and pins each area a character has visited | `/fatlas` |
+| Forever Quests | [addons/ForeverQuests](addons/ForeverQuests) | Tells you when a quest is ready to turn in, and can accept and turn in quests for you (off by default). Colours quest levels by difficulty, shows the vendor price of each reward choice, shares objective progress with party members, and counts quest experience | `/fq` |
+
+Each addon has a page in the game's Options window, under AddOns.
 
 ## Repository layout
 

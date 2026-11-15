@@ -12,7 +12,12 @@ local function snapshot()
     if info and not info.isHeader and not info.isHidden and info.questID then
       local objectives = {}
       for j, objective in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
-        objectives[j] = { text = objective.text, finished = objective.finished and true or false }
+        objectives[j] = {
+          text = objective.text,
+          finished = objective.finished and true or false,
+          have = objective.numFulfilled,
+          need = objective.numRequired,
+        }
       end
       quests[info.questID] = {
         title = info.title,
@@ -60,6 +65,10 @@ local function update()
     report(previous, current)
   end
   previous = current
+  ns.quests = current
+  if ns.OnQuestSnapshot then
+    ns.OnQuestSnapshot(current)
+  end
 end
 
 local frame = CreateFrame("Frame")
