@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import luaparse from 'luaparse';
 
-import { FOREVER_INTERFACE } from '../client/src/core/toc.mjs';
 import { readAddons } from './lib/addons.mjs';
+import { FOREVER_INTERFACE } from './lib/toc.mjs';
 
 const problems = [];
 const addons = await readAddons();

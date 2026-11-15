@@ -1,7 +1,17 @@
-// Window logic of the Forever Addon Manager.
+// Window logic of the Forever Addon Manager. The page runs in the Tauri webview.
 'use strict';
 
-const api = window.wfam;
+// The commands of the Rust side (client/src-tauri/src/main.rs).
+const invoke = window.__TAURI__.core.invoke;
+const api = {
+  scan: () => invoke('scan'),
+  marketplace: () => invoke('marketplace'),
+  install: (installId, addonId, allowUnmanaged) => invoke('install', { installId, addonId, allowUnmanaged }),
+  uninstall: (installId, folders, allowUnmanaged) => invoke('uninstall', { installId, folders, allowUnmanaged }),
+  addInstall: () => invoke('add_install'),
+  setSource: (source) => invoke('set_source', { source }),
+  openAddonsFolder: (installId) => invoke('open_addons_folder', { installId }),
+};
 
 const state = {
   installs: [],
@@ -30,14 +40,37 @@ function h(tag, props = {}, ...children) {
   return node;
 }
 
+// A failed command rejects with { message, code }. This turns it into an Error.
 async function call(promise) {
-  const result = await promise;
-  if (!result.ok) {
-    const error = new Error(result.error);
-    error.code = result.code;
+  try {
+    return await promise;
+  } catch (failure) {
+    const error = new Error(failure?.message ?? String(failure));
+    error.code = failure?.code ?? null;
     throw error;
   }
-  return result.data;
+}
+
+/** Asks a yes-or-no question in a dialog. Resolves to true if the user agrees. */
+function ask(title, text, yesLabel) {
+  const dialog = $('confirm');
+  $('confirm-title').textContent = title;
+  $('confirm-text').textContent = text;
+  $('confirm-yes').textContent = yesLabel;
+  return new Promise((resolve) => {
+    const finish = (answer) => {
+      $('confirm-yes').onclick = null;
+      $('confirm-no').onclick = null;
+      dialog.onclose = null;
+      if (dialog.open) dialog.close();
+      resolve(answer);
+    };
+    $('confirm-yes').onclick = () => finish(true);
+    $('confirm-no').onclick = () => finish(false);
+    dialog.onclose = () => finish(false);
+    dialog.showModal();
+    $('confirm-no').focus();
+  });
 }
 
 function compareVersions(a, b) {
@@ -110,14 +143,16 @@ async function run(action, successMessage) {
 
 async function installOne(install, addon) {
   try {
-    await call(api.install(install.id, addon.id, {}));
+    await call(api.install(install.id, addon.id, false));
   } catch (error) {
     if (error.code !== 'UNMANAGED') throw error;
-    const replace = window.confirm(
-      `${addon.name} is already in your AddOns folder, but this manager did not install it.\n\nReplace that copy with version ${addon.version} from the marketplace?`,
+    const replace = await ask(
+      `Replace ${addon.name}?`,
+      `${addon.name} is already in your AddOns folder, but this manager did not install it. Replace that copy with version ${addon.version} from the marketplace?`,
+      'Replace',
     );
     if (!replace) throw new Error(`${addon.name} was not changed.`);
-    await call(api.install(install.id, addon.id, { allowUnmanaged: true }));
+    await call(api.install(install.id, addon.id, true));
   }
 }
 
@@ -137,13 +172,13 @@ function updateAll() {
   }, `${outdated.length} addon(s) updated. Type /reload in the game to load them.`);
 }
 
-function uninstall(name, folders, managed) {
+async function uninstall(name, folders, managed) {
   const question = managed
-    ? `Remove ${name} from this install?\n\nIts settings in the WTF folder stay.`
-    : `${name} was not installed by this manager.\n\nDelete its folder from AddOns anyway? Its settings in the WTF folder stay.`;
-  if (!window.confirm(question)) return;
+    ? `This deletes the addon folder from this install. Its settings in the WTF folder stay.`
+    : `${name} was not installed by this manager. This deletes its folder from AddOns. Its settings in the WTF folder stay.`;
+  if (!(await ask(`Remove ${name}?`, question, 'Remove'))) return;
   const target = selectedInstall();
-  run(() => call(api.uninstall(target.id, folders, { allowUnmanaged: !managed })), `${name} was removed.`);
+  run(() => call(api.uninstall(target.id, folders, !managed)), `${name} was removed.`);
 }
 
 // ---- Rendering ----

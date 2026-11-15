@@ -9,7 +9,6 @@ on:
     paths:
       - 'addons/**'
       - 'tools/**'
-      - 'client/src/core/**'
       - '.github/workflows/publish.yml'
   workflow_dispatch:
 
@@ -29,7 +28,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm test
+      - run: npm run lint
       - run: npm run build:marketplace
       - name: Upload to the marketplace release
         env:

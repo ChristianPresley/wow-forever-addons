@@ -6,6 +6,8 @@ Addons for **World of Warcraft: Forever**, and the **Forever Addon Manager**, a 
 
 ## Addons
 
+Addons are written in Lua. The game loads the `.toc` and `.lua` files of each addon folder and nothing else.
+
 | Addon | Folder | What it does | Command |
 |---|---|---|---|
 | Forever Auctions | [addons/ForeverAuctions](addons/ForeverAuctions) | Records the lowest price of each item you see at the auction house, and shows the price, its age and a 14-day average in item tooltips | `/fah` |
@@ -14,13 +16,20 @@ Addons for **World of Warcraft: Forever**, and the **Forever Addon Manager**, a 
 
 ## Repository layout
 
-| Path | Contents |
-|---|---|
-| `addons/<Name>/` | One folder for each addon: `<Name>.toc`, the Lua files, and `addon.json` with the marketplace text |
-| `client/` | The Forever Addon Manager (Electron) and its command-line form `wfam` |
-| `client/src/core/` | Install detection, the ZIP reader and writer, and the install logic. No dependencies |
-| `tools/` | Lint, marketplace build, and the development link script |
-| `.github/workflows/` | Tests on each push, and the marketplace publish |
+| Path | Language | Contents |
+|---|---|---|
+| `addons/<Name>/` | Lua | One folder for each addon: `<Name>.toc`, the Lua files, and `addon.json` with the marketplace text |
+| `client/core/` | Rust | Install detection, the marketplace reader and the install logic, with the `wfam` command line and the tests |
+| `client/src-tauri/` | Rust | The desktop app (Tauri 2). It wraps `client/core` in commands for the window |
+| `client/ui/` | HTML, CSS, JavaScript | The window of the desktop app. Plain files, no build step |
+| `tools/` | Node | Addon lint, marketplace build and the icon source |
+| `.github/workflows/` | | Tests on each push, and the marketplace publish |
+
+## Requirements
+
+- [Node](https://nodejs.org) 22 or later, for the tools and the Tauri command line.
+- [Rust](https://rustup.rs) (stable), for the addon manager.
+- On Windows: the Visual Studio 2022 Build Tools with the "Desktop development with C++" workload. WebView2 is part of Windows 11.
 
 ## Use the addon manager
 
@@ -40,27 +49,27 @@ npm run build:marketplace
 npm run client
 ```
 
+`npm run client` builds and starts the app in development mode. `npm run client:build` makes a release build and a Windows installer in `client/target/release/bundle/`.
+
 The manager finds installs from the Battle.net product database, the registry, and the usual folders on each drive. If it finds nothing, use **Add folder…** and select your World of Warcraft folder. It installs only into the `_forever_` flavor.
 
-- An addon that the manager installed has a `.wfam.json` file in its folder. The manager updates and removes these without a question.
+- An addon that the manager installed has a `.wfam.json` file in its folder. The manager updates these without a question.
 - An addon that you installed by hand is not changed unless you confirm it.
 - A development link (see below) is never changed.
 - Each package is checked against the SHA-256 in the marketplace index before it is installed.
 
-If Electron does not start after the install, run `node client/node_modules/electron/install.js` one time to download its binary.
-
 The same operations are available on the command line:
 
 ```bash
-node client/bin/wfam.mjs detect
+npm run wfam -- detect
 ```
 
 ```bash
-node client/bin/wfam.mjs market
+npm run wfam -- market
 ```
 
 ```bash
-node client/bin/wfam.mjs install forever-quests
+npm run wfam -- install forever-quests
 ```
 
 ## The marketplace
@@ -69,7 +78,7 @@ node client/bin/wfam.mjs install forever-quests
 
 `https://github.com/ChristianPresley/wow-forever-addons/releases/download/marketplace/index.json`
 
-The repository must be public for this URL to work without a sign-in. When you start the manager from the repository and `dist/marketplace/index.json` exists, the manager uses that local index. You can also set a different source in the app, or with the `WFAM_SOURCE` environment variable.
+A development build of the manager uses the local `dist/marketplace/index.json` when that file exists. You can also set a different source in the app, or with the `WFAM_SOURCE` environment variable.
 
 ## Develop an addon
 
@@ -85,6 +94,6 @@ This command links each addon folder into `_forever_\Interface\AddOns`, so the g
 npm test
 ```
 
-This command checks the TOC files and the Lua syntax of each addon, and runs the tests of the client.
+This command checks the TOC files and the Lua syntax of each addon, and runs the tests of `client/core`.
 
 Not affiliated with Blizzard Entertainment. World of Warcraft is a trademark of Blizzard Entertainment, Inc.

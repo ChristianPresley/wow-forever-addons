@@ -2,7 +2,6 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
     <title>Forever Addon Manager</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -57,6 +56,15 @@
       <div class="notice" id="notice" hidden></div>
       <section class="list" id="list"></section>
     </main>
+
+    <dialog class="confirm" id="confirm">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <div class="confirm-actions">
+        <button class="ghost" id="confirm-no">Cancel</button>
+        <button id="confirm-yes"></button>
+      </div>
+    </dialog>
 
     <script src="app.js"></script>
   </body>

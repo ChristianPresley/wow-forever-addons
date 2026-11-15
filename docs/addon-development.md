@@ -49,4 +49,4 @@ Rules that follow from the Mainline API:
 
 ## Test status
 
-The lint and the client tests run without the game. The addons themselves need a test in the game: no automated test loads them in a WoW client.
+The lint and the tests of the manager run without the game. The addons themselves need a test in the game: no automated test loads them in a WoW client.

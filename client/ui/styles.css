@@ -13,6 +13,7 @@
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 14px;
   color: var(--text);
+  color-scheme: dark;
 }
 
 * {
@@ -339,6 +340,34 @@ h1 {
   display: flex;
   gap: 8px;
   flex: none;
+}
+.confirm {
+  width: min(440px, calc(100vw - 48px));
+  padding: 20px 22px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+.confirm::backdrop {
+  background: rgba(8, 9, 11, 0.6);
+}
+.confirm h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.confirm p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
 }
 .empty {
   margin: 48px auto;

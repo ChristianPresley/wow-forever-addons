@@ -1,0 +1,14 @@
+[workspace]
+members = ["core", "src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+repository = "https://github.com/ChristianPresley/wow-forever-addons"
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true

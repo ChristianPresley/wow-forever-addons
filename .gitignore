@@ -1,5 +1,7 @@
 node_modules/
 dist/
+target/
+client/src-tauri/gen/
 *.log
 .DS_Store
 Thumbs.db

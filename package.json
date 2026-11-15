@@ -6,10 +6,12 @@
   "scripts": {
     "lint": "node tools/lint-addons.mjs",
     "build:marketplace": "node tools/build-marketplace.mjs",
-    "test": "npm run lint && node --test \"client/test/*.test.mjs\"",
-    "link": "node tools/link-addons.mjs",
-    "unlink": "node tools/link-addons.mjs --unlink",
-    "client": "npm --prefix client start"
+    "test": "npm run lint && cargo test --manifest-path client/Cargo.toml -p wfam-core",
+    "wfam": "cargo run --quiet --manifest-path client/Cargo.toml --bin wfam --",
+    "link": "npm run --silent wfam -- link addons",
+    "unlink": "npm run --silent wfam -- unlink addons",
+    "client": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build"
   },
   "devDependencies": {
     "luaparse": "^0.3.1"

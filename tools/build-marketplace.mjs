@@ -5,9 +5,11 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { INDEX_SCHEMA } from '../client/src/core/marketplace.mjs';
-import { createZip } from '../client/src/core/zip.mjs';
 import { REPO_ROOT, readAddons } from './lib/addons.mjs';
+import { createZip } from './lib/zip.mjs';
+
+// The manager accepts this schema only: INDEX_SCHEMA in client/core/src/marketplace.rs.
+const INDEX_SCHEMA = 1;
 
 const OUT_DIR = path.join(REPO_ROOT, 'dist', 'marketplace');
 

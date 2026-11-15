@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseToc } from '../../client/src/core/toc.mjs';
+import { parseToc } from './toc.mjs';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const ADDONS_DIR = path.join(REPO_ROOT, 'addons');
