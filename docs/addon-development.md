@@ -23,7 +23,7 @@ Where to check an API before you use it:
 What the client does and does not have:
 
 - The quest log is the Mainline one on the world map (`QuestScrollFrame`), and the tracker is `QuestObjectiveTracker`. There is no `QuestLogFrame` or `QuestWatchFrame`.
-- The game writes the quest level in front of quest names itself, for example `[12] Wanted: Hogger`.
+- The game writes the quest level in front of quest names itself, for example `[12] Wanted: Hogger`, and colours the title by difficulty, in the quest log and in the tracker. An addon does not need to add either.
 - The auction house is the Mainline one (`AuctionHouseFrame`), with `C_AuctionHouse.ReplicateItems` for a full scan.
 - An options page is a frame registered with `Settings.RegisterCanvasLayoutCategory` and `Settings.RegisterAddOnCategory`.
 

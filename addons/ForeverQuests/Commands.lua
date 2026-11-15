@@ -14,6 +14,7 @@ local function status()
   for _, option in ipairs(ns.OPTIONS) do
     print("  " .. option.command .. " - " .. option.label .. ": " .. onOff(ns.GetOption(option.key)))
   end
+  print("  zone - current zone only, in the quest log and the tracker together")
   print("  stats - quests, experience and money from turn-ins")
   print("  party - the progress of your party on the quests you share")
   print("  options - open the options page")
@@ -37,6 +38,8 @@ SlashCmdList["FOREVERQUESTS"] = function(input)
   if option then
     ns.SetOption(option.key, not ns.GetOption(option.key))
     ns.Print(option.label .. " " .. onOff(ns.GetOption(option.key)) .. ".")
+  elseif command == "zone" then
+    ns.Print("current zone only " .. onOff(ns.ToggleZoneFilter()) .. ".")
   elseif command == "stats" then
     stats()
   elseif command == "party" then

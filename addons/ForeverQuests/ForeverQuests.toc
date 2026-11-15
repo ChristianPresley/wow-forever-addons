@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Forever Quests
-## Notes: Quest-ready alerts, optional automatic accept and turn-in, quest levels, party progress, reward sell prices and quest experience totals.
+## Notes: Quest-ready alerts, optional automatic accept and turn-in, a current-zone filter, party progress, reward sell prices and quest experience totals.
 ## Author: Christian Presley
-## Version: 0.2.0
+## Version: 0.3.0
 ## Category: Quests
 ## SavedVariables: ForeverQuestsDB
 ## SavedVariablesPerCharacter: ForeverQuestsCharDB
@@ -11,8 +11,8 @@
 Core.lua
 Automation.lua
 Progress.lua
-Levels.lua
 Party.lua
 Rewards.lua
+ZoneFilter.lua
 Settings.lua
 Commands.lua

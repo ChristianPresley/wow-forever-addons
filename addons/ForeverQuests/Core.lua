@@ -31,11 +31,6 @@ ns.OPTIONS = {
     hint = "A sound when a quest is ready to turn in.",
   },
   {
-    key = "questLevels", command = "levels", label = "quest levels", default = true,
-    text = "Quest levels",
-    hint = "The level in front of quest names in the quest log and the tracker, coloured by difficulty.",
-  },
-  {
     key = "partyProgress", command = "share", label = "party progress", default = true,
     text = "Party progress",
     hint = "Share objective progress with party members who also use Forever Quests.",
@@ -44,6 +39,16 @@ ns.OPTIONS = {
     key = "rewardHelper", command = "rewards", label = "reward sell prices", default = true,
     text = "Reward sell prices",
     hint = "The vendor sell price on each reward choice, with the most valuable one marked.",
+  },
+  {
+    key = "zoneLog", command = "zonelog", label = "current zone only in the quest log", default = false,
+    text = "Quest log: current zone only",
+    hint = "Hide the quests of other zones in the quest log. Also in the settings menu of the quest log.",
+  },
+  {
+    key = "zoneTracker", command = "zonetracker", label = "current zone only in the tracker", default = false,
+    text = "Tracker: current zone only",
+    hint = "Track the quests of your zone and untrack the others. Your own tracking comes back when you turn this off.",
   },
 }
 
