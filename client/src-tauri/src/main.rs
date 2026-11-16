@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use wfam_core::marketplace::{Index, MarketAddon, DEFAULT_SOURCE};
-use wfam_core::service::{ScanResult, Service};
+use wfam_core::service::{ScanResult, Service, UpdateReport};
 
 /// What the window receives when a command fails.
 #[derive(Serialize)]
@@ -82,6 +82,17 @@ fn set_source(service: Shared<'_>, source: String) -> CommandResult<()> {
     Ok(lock(&service).set_source(&source)?)
 }
 
+/// Updates every addon that the manager installed, in every install.
+#[tauri::command(async)]
+fn update_all(service: Shared<'_>) -> CommandResult<UpdateReport> {
+    Ok(lock(&service).update_all(None)?)
+}
+
+#[tauri::command(async)]
+fn set_auto_update(service: Shared<'_>, enabled: bool) -> CommandResult<()> {
+    Ok(lock(&service).set_auto_update(enabled)?)
+}
+
 fn open_in_file_manager(folder: &Path) -> std::io::Result<()> {
     let program = if cfg!(windows) {
         "explorer"
@@ -128,7 +139,7 @@ fn main() {
             app.manage(Mutex::new(service));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![scan, marketplace, install, uninstall, add_install, set_source, open_addons_folder])
+        .invoke_handler(tauri::generate_handler![scan, marketplace, install, uninstall, add_install, set_source, open_addons_folder, update_all, set_auto_update])
         .run(tauri::generate_context!())
         .expect("the Forever Addon Manager could not start");
 }

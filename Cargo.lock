@@ -902,7 +902,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "forever-addon-manager"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "tauri",
@@ -4392,7 +4392,7 @@ dependencies = [
 
 [[package]]
 name = "wfam-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4405,7 +4405,7 @@ dependencies = [
 
 [[package]]
 name = "wfam-dev"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "full_moon",
  "png 0.17.16",

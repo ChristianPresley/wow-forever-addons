@@ -1,5 +1,6 @@
 //! The operations of the manager. The desktop app and the command line both use this.
 
+use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,14 +10,49 @@ use crate::addons::{install_addon, list_installed, uninstall_addon, InstalledAdd
 use crate::detect::{detect_installs, DetectOptions, Install};
 use crate::error::{Error, Result};
 use crate::marketplace::{download_package, load_index, Index, MarketAddon};
+use crate::version::compare_versions;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     /// World of Warcraft folders that the user added by hand.
     pub extra_roots: Vec<PathBuf>,
     /// Marketplace that the user chose. `None` means the default one.
     pub source: Option<String>,
+    /// Install each available update without a question. On unless the user turns it off.
+    pub auto_update: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { extra_roots: Vec::new(), source: None, auto_update: true }
+    }
+}
+
+/// One addon that `Service::update_all` updated.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedAddon {
+    pub install_id: String,
+    pub addon_id: String,
+    pub name: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// One addon that `Service::update_all` could not update.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedUpdate {
+    pub install_id: String,
+    pub name: String,
+    pub message: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct UpdateReport {
+    pub updated: Vec<UpdatedAddon>,
+    pub failed: Vec<FailedUpdate>,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,6 +68,7 @@ pub struct ScanResult {
     pub installs: Vec<InstallState>,
     pub source: String,
     pub is_default_source: bool,
+    pub auto_update: bool,
 }
 
 pub struct Service {
@@ -78,7 +115,58 @@ impl Service {
             .iter()
             .map(|install| InstallState { addons: list_installed(&install.addons_dir), install: install.clone() })
             .collect();
-        ScanResult { installs, source: self.source().to_string(), is_default_source: self.settings.source.is_none() }
+        ScanResult {
+            installs,
+            source: self.source().to_string(),
+            is_default_source: self.settings.source.is_none(),
+            auto_update: self.settings.auto_update,
+        }
+    }
+
+    pub fn set_auto_update(&mut self, enabled: bool) -> Result<()> {
+        self.settings.auto_update = enabled;
+        self.save_settings()
+    }
+
+    /// Updates each addon that the manager installed and that is older than the marketplace
+    /// version, in `only_install` or, with `None`, in every install.
+    ///
+    /// It reads the marketplace again first. It never touches a copy that the user installed
+    /// by hand or a development link, and it installs nothing that is not there already.
+    /// One addon that fails does not stop the others.
+    pub fn update_all(&mut self, only_install: Option<&str>) -> Result<UpdateReport> {
+        let index = self.marketplace()?;
+        let scan = self.scan();
+        let mut report = UpdateReport::default();
+        for state in &scan.installs {
+            if only_install.is_some_and(|id| id != state.install.id) {
+                continue;
+            }
+            for addon in &index.addons {
+                let present: Vec<&InstalledAddon> =
+                    addon.folders.iter().filter_map(|folder| state.addons.iter().find(|item| &item.folder == folder)).collect();
+                let Some(first) = present.first() else { continue };
+                let managed = present.iter().all(|item| item.managed.is_some() && !item.linked);
+                if !managed || compare_versions(&first.version, &addon.version) != Ordering::Less {
+                    continue;
+                }
+                match self.install(&state.install.id, &addon.id, false) {
+                    Ok(_) => report.updated.push(UpdatedAddon {
+                        install_id: state.install.id.clone(),
+                        addon_id: addon.id.clone(),
+                        name: addon.name.clone(),
+                        from: first.version.clone(),
+                        to: addon.version.clone(),
+                    }),
+                    Err(error) => report.failed.push(FailedUpdate {
+                        install_id: state.install.id.clone(),
+                        name: addon.name.clone(),
+                        message: error.message,
+                    }),
+                }
+            }
+        }
+        Ok(report)
     }
 
     /// Adds a folder that the user picked. Returns false if it holds no Forever install.

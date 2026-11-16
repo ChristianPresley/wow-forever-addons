@@ -167,8 +167,29 @@ button.link {
   flex: 1;
   padding: 6px 8px;
 }
-.source {
+.auto {
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.auto-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.auto-toggle input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--gold);
+}
+.auto-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+.source {
+  margin-top: 16px;
   display: flex;
   flex-direction: column;
   gap: 6px;

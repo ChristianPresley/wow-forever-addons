@@ -11,7 +11,12 @@ const api = {
   addInstall: () => invoke('add_install'),
   setSource: (source) => invoke('set_source', { source }),
   openAddonsFolder: (installId) => invoke('open_addons_folder', { installId }),
+  updateAll: () => invoke('update_all'),
+  setAutoUpdate: (enabled) => invoke('set_auto_update', { enabled }),
 };
+
+// With "Update automatically" on, the manager looks for updates when it starts and then at this interval.
+const AUTO_UPDATE_MINUTES = 30;
 
 const state = {
   installs: [],
@@ -22,6 +27,8 @@ const state = {
   marketError: null,
   tab: 'market',
   busy: false,
+  autoUpdate: false,
+  autoStatus: '',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -113,6 +120,7 @@ async function refresh({ withMarket = false } = {}) {
   state.installs = scan.installs;
   state.source = scan.source;
   state.isDefaultSource = scan.isDefaultSource;
+  state.autoUpdate = scan.autoUpdate;
   if (!selectedInstall()) state.selectedId = state.installs[0]?.id ?? null;
   if (withMarket || !state.market) {
     try {
@@ -172,6 +180,34 @@ function updateAll() {
   }, `${outdated.length} addon(s) updated. Type /reload in the game to load them.`);
 }
 
+/**
+ * Installs each available update of the addons that this manager installed, in every install.
+ * It asks no question: a copy installed by hand and a development link are left as they are.
+ */
+async function autoUpdate() {
+  if (!state.autoUpdate || state.busy) return;
+  state.busy = true;
+  state.autoStatus = 'Looking for updates…';
+  render();
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  try {
+    const report = await call(api.updateAll());
+    const updated = report.updated.map((addon) => `${addon.name} ${addon.from} → ${addon.to}`);
+    const failed = report.failed.map((failure) => `${failure.name}: ${failure.message}`);
+    if (failed.length > 0) {
+      notify(`Not updated automatically. ${failed.join(' ')}`, 'error');
+    } else if (updated.length > 0) {
+      notify(`Updated automatically: ${updated.join(', ')}. Type /reload in the game to load ${updated.length === 1 ? 'it' : 'them'}.`, 'success');
+    }
+    state.autoStatus = updated.length > 0 ? `${updated.length} updated at ${time}.` : `Up to date. Checked at ${time}.`;
+  } catch (error) {
+    state.autoStatus = `The check at ${time} failed. ${error.message}`;
+  } finally {
+    state.busy = false;
+    await refresh({ withMarket: true }).catch((error) => notify(error.message, 'error'));
+  }
+}
+
 async function uninstall(name, folders, managed) {
   const question = managed
     ? `This deletes the addon folder from this install. Its settings in the WTF folder stay.`
@@ -214,6 +250,11 @@ function renderSidebar() {
     );
   }
   $('source-value').textContent = state.isDefaultSource ? `Default: ${state.source}` : state.source;
+  $('auto-update').checked = state.autoUpdate;
+  $('auto-update').disabled = state.busy;
+  $('auto-status').textContent = state.autoUpdate
+    ? state.autoStatus || `Checks when the manager starts and every ${AUTO_UPDATE_MINUTES} minutes while it is open.`
+    : 'Off. Use the Update buttons.';
 }
 
 function marketCard(addon, install) {
@@ -384,4 +425,21 @@ $('source-form').addEventListener('submit', (event) => {
 });
 $('source-default').addEventListener('click', () => saveSource(''));
 
-refresh({ withMarket: true }).catch((error) => notify(error.message, 'error'));
+$('auto-update').addEventListener('change', async (event) => {
+  const enabled = event.target.checked;
+  try {
+    await call(api.setAutoUpdate(enabled));
+    state.autoUpdate = enabled;
+    state.autoStatus = '';
+    render();
+    if (enabled) await autoUpdate();
+  } catch (error) {
+    notify(error.message, 'error');
+    render();
+  }
+});
+
+refresh({ withMarket: true })
+  .then(autoUpdate)
+  .catch((error) => notify(error.message, 'error'));
+setInterval(() => autoUpdate().catch((error) => notify(error.message, 'error')), AUTO_UPDATE_MINUTES * 60 * 1000);

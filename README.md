@@ -50,7 +50,7 @@ Run these from any folder of the repository.
 | `cargo dev lint` | Checks the TOC, `addon.json`, the file list, the settings page and the Lua syntax of each addon |
 | `cargo dev marketplace` | Writes one ZIP for each addon and an `index.json` to `dist/marketplace/` |
 | `cargo dev icon <out.png>` | Draws the source image of the app icon |
-| `cargo wfam <command>` | The addon manager on the command line: `detect`, `list`, `market`, `install <id>`, `uninstall <id>` |
+| `cargo wfam <command>` | The addon manager on the command line: `detect`, `list`, `market`, `install <id>`, `update`, `uninstall <id>` |
 | `cargo link-addons` | Links each addon folder into the game, so the game loads your working copy |
 | `cargo unlink-addons` | Removes those links |
 | `cargo test -p wfam-core -p wfam-dev` | Runs the tests of the manager core and the tools |
@@ -70,6 +70,7 @@ cargo tauri dev
 The manager finds installs from the Battle.net product database, the registry, and the usual folders on each drive. If it finds nothing, use **Add folder…** and select your World of Warcraft folder. It installs only into the `_forever_` flavor.
 
 - An addon that the manager installed has a `.wfam.json` file in its folder. The manager updates these without a question.
+- **Update automatically** is on by default. The manager looks for updates when it starts and every 30 minutes while it is open, and installs each update of the addons that it installed, in every game install. It installs nothing new. Turn it off under "Updates" in the window.
 - An addon that you installed by hand is not changed unless you confirm it.
 - A development link (see below) is never changed.
 - Each package is checked against the SHA-256 in the marketplace index before it is installed.

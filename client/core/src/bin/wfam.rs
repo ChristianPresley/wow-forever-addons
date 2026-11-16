@@ -19,6 +19,7 @@ Commands:
   list              list the addons of an install
   market            list the marketplace addons
   install <id>      install or update an addon
+  update            update each addon that the manager installed, in every install
   uninstall <id>    remove an addon
   link <folder>     link each addon in <folder> into the install (for development)
   unlink <folder>   remove those links
@@ -175,6 +176,24 @@ fn run() -> Result<bool> {
             let state = pick_install(&mut service, wanted)?;
             let addon = service.install(&state.install.id, id, args.force)?;
             println!("Installed {} {} in {}", addon.name, addon.version, state.install.addons_dir.display());
+        }
+        (Some("update"), _) => {
+            // With --install, only that install. Else every install.
+            let only = match wanted {
+                Some(_) => Some(pick_install(&mut service, wanted)?.install.id),
+                None => None,
+            };
+            let report = service.update_all(only.as_deref())?;
+            for addon in &report.updated {
+                println!("Updated {} {} -> {}", addon.name, addon.from, addon.to);
+            }
+            for failure in &report.failed {
+                eprintln!("Not updated: {}. {}", failure.name, failure.message);
+            }
+            if report.updated.is_empty() && report.failed.is_empty() {
+                println!("Every addon that the manager installed is up to date.");
+            }
+            return Ok(report.failed.is_empty());
         }
         (Some("uninstall"), Some(id)) => {
             let state = pick_install(&mut service, wanted)?;

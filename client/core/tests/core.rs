@@ -303,3 +303,58 @@ fn service_scan_install_from_a_marketplace_and_uninstall() {
     restarted.load_settings();
     assert_eq!(restarted.settings.extra_roots, vec![root]);
 }
+
+/// Puts version `version` of the Demo addon in the marketplace at `source`.
+fn publish_demo(source: &str, version: &str) {
+    let dir = Path::new(source).parent().unwrap();
+    let file = format!("Demo-{version}.zip");
+    let zip = make_package("Demo", version, &[]);
+    fs::write(dir.join(&file), &zip).unwrap();
+    let mut entry = market_addon(version);
+    entry.download.url = file;
+    entry.download.sha256 = format!("{:x}", Sha256::digest(&zip));
+    let index = Index { schema: 1, generated_at: None, addons: vec![entry] };
+    fs::write(source, serde_json::to_string(&index).unwrap()).unwrap();
+}
+
+#[test]
+fn service_update_all_updates_managed_addons_only() {
+    let tmp = TempDir::new().unwrap();
+    let (root, addons) = make_wow(tmp.path(), "wow", false);
+    let (source, _) = make_market(tmp.path());
+    let settings_file = tmp.path().join("settings").join("settings.json");
+    let mut service = Service::new(settings_file.clone(), source.clone());
+    assert!(service.add_root(&root).unwrap());
+    let scan = service.scan();
+    assert!(scan.auto_update, "automatic updates are on by default");
+    let id = scan.installs.iter().find(|state| state.install.root == root).unwrap().install.id.clone();
+
+    // Nothing is installed: an update installs nothing new.
+    let report = service.update_all(Some(&id)).unwrap();
+    assert!(report.updated.is_empty() && report.failed.is_empty());
+    assert!(list_installed(&addons).is_empty());
+
+    // A managed addon at the marketplace version stays as it is.
+    service.install(&id, "demo", false).unwrap();
+    assert!(service.update_all(Some(&id)).unwrap().updated.is_empty());
+
+    // A newer version in the marketplace is installed.
+    publish_demo(&source, "1.1.0");
+    let report = service.update_all(Some(&id)).unwrap();
+    assert!(report.failed.is_empty());
+    assert_eq!(report.updated.len(), 1);
+    assert_eq!((report.updated[0].from.as_str(), report.updated[0].to.as_str()), ("1.0.0", "1.1.0"));
+    assert_eq!(list_installed(&addons)[0].version, "1.1.0");
+
+    // A copy that the user installed by hand is not updated.
+    fs::remove_file(addons.join("Demo").join(MANIFEST_FILE)).unwrap();
+    publish_demo(&source, "1.2.0");
+    assert!(service.update_all(Some(&id)).unwrap().updated.is_empty());
+    assert_eq!(list_installed(&addons)[0].version, "1.1.0");
+
+    // The switch is saved.
+    service.set_auto_update(false).unwrap();
+    let mut restarted = Service::new(settings_file, source);
+    restarted.load_settings();
+    assert!(!restarted.settings.auto_update);
+}
