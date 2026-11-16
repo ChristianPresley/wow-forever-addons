@@ -12,7 +12,8 @@ local SAME = 0.004
 
 local function npcName(fallback)
   local name = UnitName and UnitName("npc")
-  if type(name) ~= "string" or name == "" or (issecretvalue and issecretvalue(name)) then
+  -- The game can hide the name of an NPC. A hidden name cannot be compared, so that test is first.
+  if (issecretvalue and issecretvalue(name)) or type(name) ~= "string" or name == "" then
     return fallback
   end
   return name

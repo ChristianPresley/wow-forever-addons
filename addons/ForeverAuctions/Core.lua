@@ -203,9 +203,6 @@ function ns.Money(copper)
   if GetMoneyString then
     return GetMoneyString(copper, true)
   end
-  if GetCoinTextureString then
-    return GetCoinTextureString(copper)
-  end
   return string.format("%dg %ds %dc", math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100)
 end
 

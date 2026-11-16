@@ -49,6 +49,24 @@ local function update()
   end
   local mode, segment = ns.Mode(), ns.segment
   frame.title:SetText(mode.short .. " - " .. ns.SegmentName(segment))
+  -- A source that was clicked during a fight has a secret identity, and that value stays
+  -- secret after the fight. So the source is read again from the fight: the player's own
+  -- one, or the one at the same place in the list.
+  if ns.IsSecret(shownSource.guid) or ns.IsSecret(shownSource.name) then
+    local session = ns.GetSession(mode, segment)
+    local again
+    if session then
+      if shownSource.isLocal then
+        again = ns.OwnSource(session)
+      else
+        again = session.combatSources[shownSource.rank or 0]
+      end
+    end
+    if again and not ns.IsSecret(again.sourceGUID) then
+      shownSource.guid, shownSource.creatureID = again.sourceGUID, again.sourceCreatureID
+      shownSource.name, shownSource.class = again.name, again.classFilename
+    end
+  end
   ns.SetName(frame.who, shownSource.name)
   local r, g, b = ns.SourceColor(shownSource.class)
 
@@ -166,7 +184,8 @@ local function create()
 end
 
 -- Opens the window for a source of the meter (an entry of combatSources).
-function ns.ShowDetails(source)
+-- `rank` is the place of the source in the list of the meter.
+function ns.ShowDetails(source, rank)
   if not frame then
     if not pcall(create) then
       frame = nil
@@ -178,6 +197,8 @@ function ns.ShowDetails(source)
     creatureID = source.sourceCreatureID,
     name = source.name,
     class = source.classFilename,
+    isLocal = source.isLocalPlayer == true,
+    rank = rank,
   }
   frame:Show()
   update()

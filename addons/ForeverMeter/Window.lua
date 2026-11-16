@@ -156,7 +156,7 @@ local function createRow(index)
     if mouseButton == "RightButton" then
       showMenu(self)
     elseif self.source then
-      ns.ShowDetails(self.source)
+      ns.ShowDetails(self.source, self.rank)
     end
   end)
   row:SetScript("OnEnter", function(self)
@@ -197,6 +197,7 @@ end
 
 local function fillRow(row, source, rank, mode, session)
   row.source = source
+  row.rank = rank
   ns.SetName(row.name, source.name, ns.GetOption("showRank") and rank or nil)
   local r, g, b = ns.SourceColor(source.classFilename)
   row.bar:SetStatusBarColor(r, g, b, 0.85)

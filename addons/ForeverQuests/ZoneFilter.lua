@@ -11,7 +11,8 @@ local _, ns = ...
 -- is saved when the option goes on and comes back when it goes off.
 
 local function key(text)
-  if type(text) ~= "string" or text == "" or ns.IsSecret(text) then
+  -- A value that the game hides cannot be compared, so that test is first.
+  if ns.IsSecret(text) or type(text) ~= "string" or text == "" then
     return nil
   end
   return text:lower()
@@ -96,8 +97,12 @@ local function showEmptyNote(show)
   end
 end
 
+-- True while the player has a text in the search box of the quest log.
+-- (The game's own search object is a local of its file, so an addon reads the box.)
 local function searching()
-  return QuestSearcher and QuestSearcher.IsActive and QuestSearcher:IsActive()
+  local box = QuestScrollFrame and QuestScrollFrame.SearchBox
+  local text = box and box.GetText and box:GetText()
+  return not ns.IsSecret(text) and type(text) == "string" and text:gsub("%s", "") ~= ""
 end
 
 -- Runs after the game has built the quest log. Returns true if the log needs a new layout.
