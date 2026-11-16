@@ -258,3 +258,24 @@ ns.SetOption("terrain", false)
 expect(ns.MapTerrain() == nil, "with the option off again there is no terrain")
 ns.ShowMap(37)
 ForeverAtlasMap:Hide()
+
+-- /fatlas status says what the map shows, and an error inside the map is printed, not lost.
+ns.ShowMap(37)
+T.slash("/fatlas", "status")
+expect(T.printed("map 37 %(Elwynn Forest%), window open") and T.printed("art: 1002 by 668 pixels, 2 layers, 24 images") and T.printed("no error inside the map so far"), "/fatlas status prints the map, its art and that there is no error")
+-- A kind of pin that fails does not take the map away: the other pins stay, and the error is printed.
+local broken = ns.MAP_KINDS[1].find
+ns.MAP_KINDS[1].find = function() error("broken on purpose") end
+-- The error also goes to the error handler of the game, which the test would count: for this
+-- step the handler only counts.
+local handler, handled = H.onError, 0
+H.onError = function() handled = handled + 1 end
+ns.RefreshMapPins()
+H.onError = handler
+expect(handled == 1, "the error of the broken kind goes to the error handler of the game once, got " .. handled)
+expect(count("flight") == 1 and count("areaPOIs") == 0, "with one kind broken, the other kinds still have their pins")
+expect(T.printed("map error in the pins of Towns and landmarks: .*broken on purpose"), "the error of the broken kind is printed in the chat")
+ns.MAP_KINDS[1].find = broken
+ns.RefreshMapPins()
+expect(count("areaPOIs") == 2, "and the kind is back when it works again")
+ForeverAtlasMap:Hide()

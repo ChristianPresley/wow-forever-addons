@@ -71,6 +71,18 @@ local sinceRefresh = 0
 -- layers: for each layer of the art, `start`: how many times closer than the whole map the
 -- layer is fully shown (1 for the first), and `ratio`: its pixels for one pixel of the first.
 local view = { mapID = nil, width = 1, height = 1, scale = 1, target = 1, x = 0, y = 0, minScale = 1, maxScale = 1, layers = {} }
+-- An error inside the map must not leave an empty window without a word. Each different error
+-- is printed in the chat once, and goes to the error handler of the game.
+local reported = {}
+local function report(where, err)
+  local text = where .. ": " .. tostring(err)
+  if not reported[text] then
+    reported[text] = true
+    ns.Print("map error in " .. text)
+  end
+  geterrorhandler()(err)
+end
+
 local anchor -- the point of the map that stays under the pointer during a zoom
 local drag
 local dirty = true -- the canvas or the pins must be placed again
@@ -79,12 +91,22 @@ local sinceInfo = 0
 ---------------------------------------------------------------------------------------------------
 -- Geometry
 
+-- The part of the window for the map. The game works out the size of a frame that hangs on two
+-- corners only when it draws it, so right after the window is made this size is not there yet.
+-- Then the size comes from the window, which has a size of its own: a map fitted to a size of
+-- nothing would be one point in a corner, with every pin on it.
+local VIEWPORT_LESS_WIDE, VIEWPORT_LESS_HIGH = 16, 60 -- the edges of the window around the map
+
 local function viewportSize()
   local width, height = viewport:GetWidth(), viewport:GetHeight()
-  if not ns.Usable(width) or width <= 0 or not ns.Usable(height) or height <= 0 then
-    return 1, 1
+  if ns.Usable(width) and width > 1 and ns.Usable(height) and height > 1 then
+    return width, height
   end
-  return width, height
+  width, height = window:GetWidth(), window:GetHeight()
+  if ns.Usable(width) and width > VIEWPORT_LESS_WIDE + 1 and ns.Usable(height) and height > VIEWPORT_LESS_HIGH + 1 then
+    return width - VIEWPORT_LESS_WIDE, height - VIEWPORT_LESS_HIGH
+  end
+  return 1, 1
 end
 
 -- The pointer in the viewport: to the right and down from its top left corner. Nil where the
@@ -428,7 +450,15 @@ local function loadArt(mapID)
   for index = used + 1, #overlays do
     overlays[index]:Hide()
   end
-  view.terrain = loadTerrain(mapID)
+  -- The terrain is a trial: if it fails, the map still shows.
+  local okTerrain, terrain = pcall(loadTerrain, mapID)
+  view.terrain = okTerrain and terrain or nil
+  if not okTerrain then
+    report("the terrain", terrain)
+    if terrainFrame then
+      terrainFrame:Hide()
+    end
+  end
   return images
 end
 
@@ -539,7 +569,7 @@ local function rebuildPins()
       kind = entry.key
       local ok, err = pcall(entry.find, mapID, add)
       if not ok then
-        geterrorhandler()(err)
+        report("the pins of " .. entry.name, err)
       end
     end
   end
@@ -547,7 +577,7 @@ local function rebuildPins()
   for _, provider in ipairs(ns.PinProviders()) do
     local ok, err = pcall(provider, mapID, add)
     if not ok then
-      geterrorhandler()(err)
+      report("the pins of the addon", err)
     end
   end
   rebuildLabels()
@@ -937,14 +967,24 @@ local function create()
   end)
   viewport:SetScript("OnSizeChanged", function()
     if view.mapID then
+      local whole = view.scale == view.minScale and view.target == view.minScale
       limits()
+      -- A map that showed in whole still shows in whole in the new size.
+      if whole then
+        view.scale, view.target = view.minScale, view.minScale
+      end
       view.target = math.min(view.maxScale, math.max(view.minScale, view.target))
       view.scale = math.min(view.maxScale, math.max(view.minScale, view.scale))
       clampView()
       dirty = true
     end
   end)
-  window:SetScript("OnUpdate", onUpdate)
+  window:SetScript("OnUpdate", function(self, elapsed)
+    local ok, err = pcall(onUpdate, self, elapsed)
+    if not ok then
+      report("the update of the map", err)
+    end
+  end)
   window:SetScript("OnShow", function()
     if PlaySound and SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_OPEN then
       PlaySound(SOUNDKIT.IG_QUEST_LOG_OPEN)
@@ -978,7 +1018,12 @@ function ns.ShowMap(mapID)
     if not mapID then
       break
     end
-    if setMap(mapID) then
+    local ok, done = pcall(setMap, mapID)
+    if not ok then
+      report("showing map " .. tostring(mapID), done)
+      break
+    end
+    if done then
       shown = true
       break
     end
@@ -988,8 +1033,52 @@ function ns.ShowMap(mapID)
     return false
   end
   window:Show()
-  place()
-  updateInfo()
+  local ok, err = pcall(function()
+    place()
+    updateInfo()
+  end)
+  if not ok then
+    report("placing the map", err)
+  end
+  return true
+end
+
+-- Prints what the map shows now, for /fatlas status: enough to see from outside why a map
+-- looks wrong.
+function ns.PrintMapStatus()
+  if not window then
+    ns.Print("the map has not been opened yet.")
+    return false
+  end
+  local width, height = viewportSize()
+  local shownTiles = 0
+  for _, layer in ipairs(view.layers) do
+    shownTiles = shownTiles + (layer.images or 0)
+  end
+  ns.Print(string.format("map %s (%s), window %s", tostring(view.mapID), view.mapID and ns.MapName(view.mapID) or "none", window:IsShown() and "open" or "closed"))
+  print(string.format("  art: %d by %d pixels, %d layers, %d images", view.width, view.height, #view.layers, shownTiles))
+  print(string.format("  window for the map: %.0f by %.0f; scale %.4f (from %.4f to %.4f); corner at %.0f, %.0f", width, height, view.scale, view.minScale, view.maxScale, view.x, view.y))
+  local kinds = {}
+  for _, pin in ipairs(pins) do
+    kinds[pin.kind or "?"] = (kinds[pin.kind or "?"] or 0) + 1
+  end
+  local parts = {}
+  for kind, count in pairs(kinds) do
+    parts[#parts + 1] = kind .. " " .. count
+  end
+  table.sort(parts)
+  print(string.format("  pins: %d (%s); zone names: %d", #pins, #parts > 0 and table.concat(parts, ", ") or "none", #labels))
+  local terrain = view.terrain
+  print("  terrain: " .. (terrain and string.format("%d images, %d by %d, first %s, opacity %.2f", terrain.images, terrain.columns, terrain.rows, terrain.first, terrainAlpha())
+    or (ns.GetOption("terrain") and "on, but none for this map" or "off")))
+  local errors = 0
+  for text in pairs(reported) do
+    errors = errors + 1
+    print("  error: " .. text)
+  end
+  if errors == 0 then
+    print("  no error inside the map so far.")
+  end
   return true
 end
 

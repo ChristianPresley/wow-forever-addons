@@ -5,6 +5,7 @@ local function help()
   print("  /fatlas map - open or close the Forever Atlas map")
   print("  /fatlas mapkey - the map key opens the Forever Atlas map, or the map of the game")
   print("  /fatlas layers - print the art that the game has for the map where you are")
+  print("  /fatlas status - print what the Forever Atlas map shows now, and any error inside it")
   print("  /fatlas terrain - a trial: the terrain of the minimap on the Forever Atlas map when you zoom in")
   print("  /fatlas zone - show how much of the current zone you have visited")
   print("  /fatlas list - list the areas visited in the current zone")
@@ -99,6 +100,8 @@ SlashCmdList["FOREVERATLAS"] = function(input)
     end
   elseif command == "layers" then
     ns.PrintMapLayers()
+  elseif command == "status" then
+    ns.PrintMapStatus()
   elseif command == "arrive" then
     arrive(rest)
   elseif command == "reset" then
