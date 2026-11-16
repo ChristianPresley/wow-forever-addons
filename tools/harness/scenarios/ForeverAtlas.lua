@@ -206,7 +206,7 @@ expect(count("flight") == 1, "and back with the option on")
 -- The menu of the button "Show" has a checkbox for each kind.
 H.menus = {}
 H.click(ForeverAtlasMap.show, "LeftButton", false)
-expect(#H.menus == 1 and #H.menus[1] == #ns.MAP_KINDS + 4, "the menu has a checkbox for each kind and four more, got " .. tostring(H.menus[1] and #H.menus[1]))
+expect(#H.menus == 1 and #H.menus[1] == #ns.MAP_KINDS + 5, "the menu has a checkbox for each kind and five more, got " .. tostring(H.menus[1] and #H.menus[1]))
 H.menus = {}
 -- In a party: the member. As a ghost: the corpse.
 T.world.group = "party"
@@ -232,4 +232,29 @@ expect(#ns.MapLabels() == 0, "with the option off the zones have no names")
 ns.SetOption("zoneNames", true)
 ns.ShowMap(37)
 expect(#ns.MapLabels() == 0 and select(2, ns.HoverMap(0.2, 0.5)) == false, "a zone has no zone names and nothing to light up")
+ForeverAtlasMap:Hide()
+
+-- On the map of a zone the game names the whole zone as the picture to light up. The map does
+-- not use it: it would put a bright colour over all of the map.
+ns.ShowMap(37)
+expect(select(2, ns.HoverMap(0.5, 0.5)) == false, "on the map of a zone, the zone itself does not light up")
+-- The terrain (a trial, off at first): the images of the minimap over the map, zoomed in.
+expect(ns.MapTerrain() == nil, "no terrain while the option is off")
+local maxBefore = ns.MapView().maxScale
+ns.SetOption("terrain", true)
+local terrain = ns.MapTerrain()
+-- The zone of the stand-in is 1000 yards wide, from 0 to 1000: the squares 30 and 31 each way.
+expect(terrain ~= nil and terrain.columns == 2 and terrain.rows == 2 and terrain.images == 4, "the zone of 1000 yards needs two terrain images each way, got " .. tostring(terrain and terrain.images))
+expect(terrain.folder == "Azeroth" and terrain.first == "World\\Minimaps\\Azeroth\\map30_30", "an image has the name of its square of the world, got " .. tostring(terrain.first))
+-- Far enough in for one and a half screen units for each pixel of a terrain image.
+expect(ns.MapView().maxScale >= maxBefore and ns.MapView().maxScale >= 1.5 * 256 / (1000 / 1.875 / 1000 * 1002) - 0.001, "with the terrain the map zooms in far enough for the pixels of the terrain, got " .. ns.MapView().maxScale)
+expect(terrain.alpha == 0, "with the whole map in the window the terrain does not show")
+ns.ZoomMap(100)
+expect(ns.MapTerrain().alpha == 1, "zoomed all the way in, the terrain shows in full")
+ns.ZoomMap(-100)
+ns.ShowMap(13)
+expect(ns.MapTerrain() ~= nil and ns.MapTerrain().images == 4, "the continent of the stand-in has the same four images")
+ns.SetOption("terrain", false)
+expect(ns.MapTerrain() == nil, "with the option off again there is no terrain")
+ns.ShowMap(37)
 ForeverAtlasMap:Hide()

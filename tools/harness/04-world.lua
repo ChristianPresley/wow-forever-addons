@@ -238,6 +238,10 @@ set("C_Map", "GetMapHighlightInfoAtPosition", function(mapID, x)
     local left = x < 0.5
     return left and 9001 or 9002, "", 0.8, 0.9, 0.5, 1, left and 0 or 0.5, 0
   end
+  -- On the map of a zone the game names the zone itself: a picture over the whole map.
+  if mapID == 37 then
+    return 9003, "", 1, 1, 1, 1, 0, 0
+  end
   return 0, "", 0, 0, 0, 0, 0, 0
 end)
 -- Points of interest of Elwynn Forest: a town with a picture from the sheet of map icons, and an
@@ -640,6 +644,25 @@ function QuestLogQuests_Update()
       button.topPadding = #titles == 0 and 2 or -3
       button.questID = entry.questID
       button.info = entry
+      -- QuestLogQuests_AddQuestButton writes the title and gives it the colour of the level of
+      -- the quest, each time it builds the log.
+      if not button.Text then
+        button.Text = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        -- QuestMapLogTitleButton_OnEnter and _OnLeave: the game gives the title and the lines
+        -- of the quest their own colours again.
+        local function gameColours(self)
+          self.Text:SetTextColor(1, 0.82, 0)
+          for _, line in ipairs(QuestScrollFrame.objectiveFramePool.active or {}) do
+            if line.questID == self.questID then
+              line.Text:SetTextColor(0.8, 0.8, 0.8)
+            end
+          end
+        end
+        button:SetScript("OnEnter", gameColours)
+        button:SetScript("OnLeave", gameColours)
+      end
+      button.Text:SetText(entry.title)
+      button.Text:SetTextColor(1, 0.82, 0)
       -- QuestMapFrame.lua, QuestLogQuests_AddQuestButton: the box that tracks the quest.
       if not button.Checkbox then
         button.Checkbox = CreateFrame("Button", nil, button)
@@ -654,6 +677,11 @@ function QuestLogQuests_Update()
         H.questLogFrames["line" .. index] = line
         H.gameFrameSet[line] = true
       end
+      if not line.Text then
+        line.Text = line:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+      end
+      line.Text:SetText("- objective")
+      line.Text:SetTextColor(0.8, 0.8, 0.8)
       line:Show()
       line.questID = entry.questID
       objectives[#objectives + 1] = line

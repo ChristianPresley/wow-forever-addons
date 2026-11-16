@@ -115,13 +115,19 @@ local function isComplete(questID)
   return ok and complete and true or false
 end
 
--- The mark is where the game has the box that tracks the quest (button.Checkbox, at the right
--- of the title). It covers the box in full, and the box is not drawn under it, so nothing
--- shows through. The mark is the tracking box of a ready quest: a click tracks the quest or
--- stops tracking it, the same as the box. The tracking symbol at the right end of the mark
--- is grey while the quest is not tracked and bright while it is. A
--- right-click shows where to turn the quest in. A quest that is not ready has its box back.
--- The game uses a button again for another quest, so the box is set each time.
+-- A quest that is ready to turn in, in the quest log:
+--   the whole quest (its title and the lines under it) is on a green background, in white text
+--   "COMPLETED" is in front of the name of the quest
+--   the tracking symbol is at the right end of the title, where the game has the box that
+--   tracks the quest (button.Checkbox). The box is not drawn there. A click on the symbol
+--   tracks the quest or stops tracking it, as the box does; a right-click shows where to turn
+--   the quest in. The symbol is grey while the quest is not tracked and bright while it is.
+-- A quest that is not ready has the look of the game and its box back. The game uses a button
+-- again for another quest and writes the title and its colours again each time it builds the
+-- log, so this is set each time too.
+local PREFIX = "COMPLETED  "
+local SYMBOL_SIZE = 13
+
 local function trackBox(button)
   local box = button.Checkbox
   return type(box) == "table" and type(box.SetAlpha) == "function" and box or nil
@@ -150,86 +156,140 @@ function ns.ToggleTracking(questID)
   return isTracked(questID)
 end
 
--- The tracking symbol of the mark: grey and dim while the quest is not tracked, in full colour
--- and bright while it is.
-local function showTracked(badge)
-  local tracked = badge.questID ~= nil and isTracked(badge.questID)
-  badge.tracked = tracked
+-- The tracking symbol: grey and dim while the quest is not tracked, bright while it is.
+local function showTracked(tracker)
+  local tracked = tracker.questID ~= nil and isTracked(tracker.questID)
+  tracker.tracked = tracked
   if tracked then
-    badge.symbol:SetVertexColor(1, 0.9, 0.3, 1)
+    tracker.symbol:SetVertexColor(1, 0.9, 0.3, 1)
   else
-    badge.symbol:SetVertexColor(0.55, 0.55, 0.55, 0.7)
+    tracker.symbol:SetVertexColor(0.8, 0.8, 0.8, 0.6)
   end
 end
 
+local function fontString(region)
+  return type(region) == "table" and type(region.SetTextColor) == "function" and region or nil
+end
+
+-- White text for the title of the quest and the lines under it.
+local function whiten(button)
+  local title = fontString(button.Text)
+  if title then
+    title:SetTextColor(1, 1, 1)
+  end
+  local pool = QuestScrollFrame and QuestScrollFrame.objectiveFramePool
+  if pool and pool.EnumerateActive then
+    for line in pool:EnumerateActive() do
+      local text = line.questID == button.questID and fontString(line.Text)
+      if text then
+        text:SetTextColor(1, 1, 1)
+      end
+    end
+  end
+end
+
+-- Puts "COMPLETED" in front of the name. If the longer text needs one more line than the game
+-- gave the title, the name stays as it was: the lines under it would not fit.
+local function prefixTitle(button)
+  local title = fontString(button.Text)
+  local text = title and title:GetText()
+  if type(text) ~= "string" or ns.IsSecret(text) or text:sub(1, #PREFIX) == PREFIX then
+    return
+  end
+  local before = title.GetStringHeight and title:GetStringHeight()
+  title:SetText(PREFIX .. text)
+  local after = title.GetStringHeight and title:GetStringHeight()
+  if type(before) == "number" and type(after) == "number" and after > before + 1 then
+    title:SetText(text)
+  end
+end
+
+local function createMark(button)
+  local mark = { on = false }
+  -- A texture of the button, under its text.
+  mark.back = button:CreateTexture(nil, "BACKGROUND")
+  mark.back:SetPoint("TOPLEFT", 0, -1)
+  mark.back:SetPoint("BOTTOMRIGHT", 0, 1)
+  mark.back:SetColorTexture(0.1, 0.5, 0.15, 0.9)
+
+  local tracker = CreateFrame("Button", nil, button)
+  tracker:SetSize(SYMBOL_SIZE, SYMBOL_SIZE)
+  -- The picture of this addon (Media/Track.tga, drawn by `cargo dev track-icon`). It is white,
+  -- so its colour is the one set here.
+  tracker.symbol = tracker:CreateTexture(nil, "OVERLAY")
+  tracker.symbol:SetTexture("Interface\\AddOns\\ForeverQuests\\Media\\Track")
+  tracker.symbol:SetAllPoints()
+  tracker:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  tracker:SetScript("OnClick", function(self, mouseButton)
+    if not self.questID then
+      return
+    end
+    if mouseButton == "RightButton" then
+      if ns.ShowTurnIn then
+        ns.ShowTurnIn(self.questID)
+      end
+    else
+      ns.ToggleTracking(self.questID)
+      showTracked(self)
+    end
+  end)
+  tracker:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Ready to turn in", 1, 1, 1)
+    GameTooltip:AddLine(self.questID and isTracked(self.questID) and "Click to stop tracking this quest." or "Click to track this quest.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("Right-click to see where to turn it in.", 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+  end)
+  tracker:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+  mark.tracker = tracker
+
+  -- The game gives the title and its lines their own colours again when the pointer comes onto
+  -- the quest and when it leaves (QuestMapLogTitleButton_OnEnter and _OnLeave). After that, the
+  -- text of a ready quest is white again.
+  if type(button.HookScript) == "function" then
+    for _, script in ipairs({ "OnEnter", "OnLeave" }) do
+      pcall(button.HookScript, button, script, function(self)
+        if mark.on then
+          whiten(self)
+        end
+      end)
+    end
+  end
+  return mark
+end
+
 local function updateBadge(button, enabled)
-  local badge = badges[button]
+  local mark = badges[button]
   local box = trackBox(button)
   if enabled and isComplete(button.questID) then
-    if not badge then
-      badge = CreateFrame("Button", nil, button)
-      local back = badge:CreateTexture(nil, "BACKGROUND")
-      back:SetAllPoints()
-      back:SetColorTexture(0.1, 0.5, 0.15, 1)
-      badge.text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-      -- The text is in the part of the mark to the left of the symbol.
-      badge.text:SetPoint("CENTER", -8, 0)
-      badge.text:SetText("COMPLETED")
-      badge.text:SetTextColor(1, 0.95, 0.6)
-      -- The tracking symbol at the right end: the picture of this addon (Media/Track.tga, drawn
-      -- by `cargo dev track-icon`). It is white, so its colour is the one set here.
-      badge.symbol = badge:CreateTexture(nil, "OVERLAY")
-      badge.symbol:SetTexture("Interface\\AddOns\\ForeverQuests\\Media\\Track")
-      badge.symbol:SetSize(16, 16)
-      badge.symbol:SetPoint("RIGHT", -2, 0)
-      badge:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-      badge:SetScript("OnClick", function(self, mouseButton)
-        if not self.questID then
-          return
-        end
-        if mouseButton == "RightButton" then
-          if ns.ShowTurnIn then
-            ns.ShowTurnIn(self.questID)
-          end
-        else
-          ns.ToggleTracking(self.questID)
-          showTracked(self)
-        end
-      end)
-      badge:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Ready to turn in", 1, 1, 1)
-        GameTooltip:AddLine(self.questID and isTracked(self.questID) and "Click to stop tracking this quest." or "Click to track this quest.", 0.6, 0.6, 0.6, true)
-        GameTooltip:AddLine("Right-click to see where to turn it in.", 0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-      end)
-      badge:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-      end)
-      badges[button] = badge
+    if not mark then
+      mark = createMark(button)
+      badges[button] = mark
     end
-    badge.questID = button.questID
-    badge:ClearAllPoints()
-    local height = 16
+    mark.on = true
+    mark.back:Show()
+    local tracker = mark.tracker
+    tracker.questID = button.questID
+    tracker:ClearAllPoints()
     if box then
-      -- The right edge and the height of the box, and a little more on each side.
-      local boxHeight = box:GetHeight()
-      if type(boxHeight) == "number" and boxHeight + 4 > height then
-        height = boxHeight + 4
-      end
-      badge:SetPoint("RIGHT", box, "RIGHT", 2, 0)
-      badge:SetFrameLevel(box:GetFrameLevel() + 2)
+      tracker:SetPoint("CENTER", box, "CENTER", 0, 0)
+      tracker:SetFrameLevel(box:GetFrameLevel() + 2)
       box:SetAlpha(0)
     else
-      badge:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -4)
-      badge:SetFrameLevel(button:GetFrameLevel() + 3)
+      tracker:SetPoint("TOPRIGHT", button, "TOPRIGHT", -6, -5)
+      tracker:SetFrameLevel(button:GetFrameLevel() + 3)
     end
-    badge:SetSize(94, height)
-    showTracked(badge)
-    badge:Show()
+    showTracked(tracker)
+    tracker:Show()
+    prefixTitle(button)
+    whiten(button)
   else
-    if badge then
-      badge:Hide()
+    if mark then
+      mark.on = false
+      mark.back:Hide()
+      mark.tracker:Hide()
     end
     if box then
       box:SetAlpha(1)
@@ -237,12 +297,16 @@ local function updateBadge(button, enabled)
   end
 end
 
--- True if the button of the quest log has the COMPLETED mark now.
+-- True if the button of the quest log has the look of a ready quest now.
 function ns.HasCompletedMark(button)
-  local badge = badges[button]
-  return badge ~= nil and badge:IsShown()
+  local mark = badges[button]
+  return mark ~= nil and mark.on
 end
 
+-- The parts of the look of a ready quest on a button: { on, back, tracker }, or nil.
+function ns.CompletedMark(button)
+  return badges[button]
+end
 -- Shows the banner and the glow once, for /fq demo: on the first quest of the log.
 function ns.Demo()
   for i = 1, C_QuestLog.GetNumQuestLogEntries() do

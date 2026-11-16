@@ -34,12 +34,30 @@ local DRAG_SLOP = 4 -- a press that moves less than this is a click
 local INFO_INTERVAL = 0.05
 local ARROW = "Interface\\Minimap\\MinimapArrow"
 
+-- The terrain. The painted map of a zone is one picture of about a thousand pixels, so a close
+-- look is blurred. The game also has the picture that the minimap shows: the terrain itself,
+-- seen from above, as one image of 256 pixels for each square of 533 yards of the world. With
+-- the option terrain, the map lays those images over the painted map when the player zooms in.
+-- The game gives an addon no list of these images: their file names are made here, from the
+-- place of the zone in the world. On a client that does not have the files under these names
+-- the images do not show, so the option is off at first.
+local TERRAIN_YARDS = 1600 / 3 -- the side of the square of one terrain image
+local TERRAIN_IMAGE = 256 -- its pixels
+local TERRAIN_PIXELS = 1.5 -- at the closest zoom, screen units for one pixel of a terrain image
+local TERRAIN_START = 2 -- how many times closer than the whole map the terrain starts to show
+local TERRAIN_FADE = 0.5 -- it is in full at TERRAIN_START * (1 + TERRAIN_FADE)
+local TERRAIN_MOST = 1500 -- no terrain for a map that needs more images than this
+-- The folder of the terrain images of each world, by the number of the world.
+local TERRAIN_FOLDERS = { [0] = "Azeroth", [1] = "Kalimdor", [530] = "Expansion01", [571] = "Northrend" }
+
 local REFRESH_SECONDS = 2 -- the pins are read again this often: group members move
 local HOVER_REACH = 4 -- a pin shows its tooltip this far outside its picture
 
 local window, viewport, canvas, overlay, arrow
 local layerFrames = {} -- [index] = { frame = , tiles = {} }, one for each layer of the art
 local exploredFrame
+local terrainFrame
+local terrainTiles = {}
 local overlays = {}
 local pins, pinPool = {}, {}
 local hovered -- the pin whose tooltip shows
@@ -111,6 +129,20 @@ local function limits()
   local finest = view.layers[#view.layers]
   local ratio, start = finest and finest.ratio or 1, finest and finest.start or 1
   view.maxScale = math.max(view.minScale * 2, MAX_MAGNIFY * ratio, view.minScale * start * 2)
+  -- With the terrain: far enough in for the pixels of a terrain image.
+  if view.terrain then
+    view.maxScale = math.max(view.maxScale, TERRAIN_PIXELS * TERRAIN_IMAGE / (view.terrain.tileWidth * view.width), view.minScale * TERRAIN_START * 3)
+  end
+end
+
+-- The opacity of the terrain for the zoom now: it fades in from TERRAIN_START times closer than
+-- the whole map.
+local function terrainAlpha()
+  if not view.terrain then
+    return 0
+  end
+  local closer = view.scale / view.minScale
+  return math.min(1, math.max(0, (closer - TERRAIN_START) / (TERRAIN_START * TERRAIN_FADE)))
 end
 
 -- The opacity of each layer for the zoom now. The first layer is always there; a finer one
@@ -212,6 +244,81 @@ local function layerStarts(layers)
     starts[index] = fromGame and layers[index].info.minScale / first or LAYER_STEP ^ (index - 1)
   end
   return starts
+end
+
+-- The terrain images of a map: puts them on the canvas, under the name of each one, and
+-- returns { tileWidth, columns, rows, folder, first } or nil. tileWidth is the width of one
+-- image as a part of the map.
+local function loadTerrain(mapID)
+  if terrainFrame then
+    terrainFrame:Hide()
+  end
+  if not (ns.GetOption("terrain") and C_Map.GetWorldPosFromMapPos and CreateVector2D) then
+    return nil
+  end
+  -- The world place of the top left and of the bottom right corner of the map. The game gives a
+  -- place as north and west, in yards.
+  local okA, world, cornerA = pcall(C_Map.GetWorldPosFromMapPos, mapID, CreateVector2D(0, 0))
+  local okB, _, cornerB = pcall(C_Map.GetWorldPosFromMapPos, mapID, CreateVector2D(1, 1))
+  local folder = okA and TERRAIN_FOLDERS[world]
+  if not (folder and okB and type(cornerA) == "table" and type(cornerB) == "table") then
+    return nil
+  end
+  local northA, westA = cornerA:GetXY()
+  local northB, westB = cornerB:GetXY()
+  if not (ns.Usable(northA) and ns.Usable(westA) and ns.Usable(northB) and ns.Usable(westB)) or northA == northB or westA == westB then
+    return nil
+  end
+  -- The number of an image: 32 minus the place in squares. The first number of the file name
+  -- is for west, the second for north.
+  -- A map that ends exactly on the edge of a square does not need the square past that edge.
+  local function squares(a, b)
+    return math.floor(32 - math.max(a, b) / TERRAIN_YARDS), math.ceil(32 - math.min(a, b) / TERRAIN_YARDS) - 1
+  end
+  local columnFirst, columnLast = squares(westA, westB)
+  local rowFirst, rowLast = squares(northA, northB)
+  local columns, rows = columnLast - columnFirst + 1, rowLast - rowFirst + 1
+  if columns < 1 or rows < 1 or columns * rows > TERRAIN_MOST then
+    return nil
+  end
+  if not terrainFrame then
+    terrainFrame = CreateFrame("Frame", nil, canvas)
+    terrainFrame:SetAllPoints(canvas)
+    terrainFrame:SetClipsChildren(true) -- an image at the edge reaches past the map
+  end
+  terrainFrame:SetFrameLevel(canvas:GetFrameLevel() + 12)
+  -- Where a world place is on the map, from 0 to 1.
+  local function across(west)
+    return (west - westA) / (westB - westA)
+  end
+  local function down(north)
+    return (north - northA) / (northB - northA)
+  end
+  local used = 0
+  for row = rowFirst, rowLast do
+    for column = columnFirst, columnLast do
+      -- The image covers the square from (32 - number) down to (31 - number), in squares.
+      local left, right = across((32 - column) * TERRAIN_YARDS), across((31 - column) * TERRAIN_YARDS)
+      local top, bottom = down((32 - row) * TERRAIN_YARDS), down((31 - row) * TERRAIN_YARDS)
+      used = used + 1
+      local tile = textureAt(terrainFrame, terrainTiles, used, "ARTWORK", 0)
+      tile:ClearAllPoints()
+      tile:SetPoint("TOPLEFT", terrainFrame, "TOPLEFT", math.min(left, right) * view.width, -math.min(top, bottom) * view.height)
+      tile:SetSize(math.abs(right - left) * view.width, math.abs(bottom - top) * view.height)
+      tile:SetTexCoord(0, 1, 0, 1)
+      tile.file = string.format("World\\Minimaps\\%s\\map%d_%d", folder, column, row)
+      tile:SetTexture(tile.file, nil, nil, "TRILINEAR")
+      tile:Show()
+    end
+  end
+  for index = used + 1, #terrainTiles do
+    terrainTiles[index]:Hide()
+  end
+  terrainFrame:Show()
+  return {
+    tileWidth = TERRAIN_YARDS / math.abs(westA - westB), columns = columns, rows = rows, folder = folder,
+    first = terrainTiles[1].file, images = used,
+  }
 end
 
 -- Puts every image of every layer of the map on the canvas. Returns the number of images, or
@@ -321,6 +428,7 @@ local function loadArt(mapID)
   for index = used + 1, #overlays do
     overlays[index]:Hide()
   end
+  view.terrain = loadTerrain(mapID)
   return images
 end
 
@@ -478,7 +586,15 @@ end
 -- (Blizzard_SharedMapDataProviders/MapHighlightDataProvider.lua).
 local function updateHighlight(mapX, mapY)
   local file, atlas, partX, partY, sizeX, sizeY, atX, atY
-  if mapX and ns.GetOption("zoneHighlight") and C_Map.GetMapHighlightInfoAtPosition then
+  -- Only a zone that the player can open from here lights up: a map of another place under
+  -- the pointer. On the map of a zone itself the game names the whole zone, which would put a
+  -- bright colour over all of the map.
+  local other = false
+  if mapX and C_Map.GetMapInfoAtPosition then
+    local okInfo, info = pcall(C_Map.GetMapInfoAtPosition, view.mapID, mapX, mapY)
+    other = okInfo and type(info) == "table" and info.mapID ~= nil and info.mapID ~= view.mapID
+  end
+  if mapX and other and ns.GetOption("zoneHighlight") and C_Map.GetMapHighlightInfoAtPosition then
     local ok
     ok, file, atlas, partX, partY, sizeX, sizeY, atX, atY = pcall(C_Map.GetMapHighlightInfoAtPosition, view.mapID, mapX, mapY)
     if not ok or not (ns.Usable(partX) and ns.Usable(partY) and ns.Usable(sizeX) and ns.Usable(sizeY) and ns.Usable(atX) and ns.Usable(atY)) then
@@ -519,6 +635,9 @@ local function place()
   canvas:SetPoint("TOPLEFT", viewport, "TOPLEFT", view.x / view.scale, -view.y / view.scale)
   for index, layer in ipairs(view.layers) do
     layer.frame:SetAlpha(layerAlpha(index))
+  end
+  if terrainFrame and view.terrain then
+    terrainFrame:SetAlpha(terrainAlpha())
   end
   local mapWidth, mapHeight = view.width * view.scale, view.height * view.scale
   for _, pin in ipairs(pins) do
@@ -689,6 +808,7 @@ local function showMenu(owner)
     check("Visited areas", "pins")
     check("Names of the zones", "zoneNames")
     check("Light up the zone under the pointer", "zoneHighlight")
+    check("Terrain when zoomed in (a trial)", "terrain")
   end)
 end
 
@@ -937,6 +1057,16 @@ function ns.PrintMapLayers()
   return #layers
 end
 
+-- The terrain of the map now: { images, columns, rows, folder, first (the name of the first
+-- image), alpha (how much of it shows) }, or nil without terrain.
+function ns.MapTerrain()
+  if not view.terrain then
+    return nil
+  end
+  local terrain = view.terrain
+  return { images = terrain.images, columns = terrain.columns, rows = terrain.rows, folder = terrain.folder, first = terrain.first, alpha = terrainAlpha() }
+end
+
 -- How much of each layer of the art shows now: { opacity of layer 1, of layer 2, ... }.
 function ns.MapLayers()
   local list = {}
@@ -1019,6 +1149,14 @@ ns.OnOption(function(key)
     bindKeys()
   elseif key == "notes" or key == "pins" or key == "zoneNames" or key:find("^show_") then
     ns.RefreshMapPins()
+  elseif key == "terrain" then
+    if window and view.mapID then
+      view.terrain = loadTerrain(view.mapID)
+      limits()
+      view.target = math.min(view.maxScale, view.target)
+      view.scale = math.min(view.maxScale, view.scale)
+      dirty = true
+    end
   elseif key == "zoneHighlight" and highlight then
     highlightKey = nil
     highlight:Hide()

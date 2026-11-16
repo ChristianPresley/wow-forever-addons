@@ -195,31 +195,47 @@ end
 ns.SetOption("popProgress", true)
 QuestLogQuests_Update()
 expect(ns.HasCompletedMark(logButton(40)) and not ns.HasCompletedMark(logButton(176)), "the quest that is ready (40) has the COMPLETED mark, the other one not")
--- The mark covers the box of the game that tracks the quest, and the box is not drawn under it.
-expect(logButton(40).Checkbox:GetAlpha() == 0 and logButton(176).Checkbox:GetAlpha() == 1, "the tracking box of a ready quest is not drawn under the mark; the box of the other quest is")
-local mark
-for _, frame in ipairs(H.frames) do
-  if H.state(frame).parent == logButton(40) and frame.text and frame.text:GetText() == "COMPLETED" then
-    mark = frame
-  end
+-- A ready quest in the quest log: the whole quest on green, in white, "COMPLETED" before its name.
+local ready, other = logButton(40), logButton(176)
+local mark = ns.CompletedMark(ready)
+local function colour(region)
+  local red, green, blue = region:GetTextColor()
+  return red .. " " .. green .. " " .. blue
 end
-expect(mark ~= nil and select(2, mark:GetPoint(1)) == logButton(40).Checkbox and mark:GetHeight() >= 20 and mark:GetFrameLevel() > logButton(40).Checkbox:GetFrameLevel(), "the mark is on the box, taller than it and above it")
--- The mark is the tracking box of the quest: a click tracks it, and a second one stops.
--- Its tracking symbol is at the right end: grey while the quest is not tracked, bright while it is.
+expect(mark ~= nil and mark.back:IsShown() and select(2, mark.back:GetPoint(1)) == ready, "the green background covers the button of the ready quest")
+expect(ready.Text:GetText() == "COMPLETED  A Fishy Peril", "COMPLETED is in front of the name of the quest, got " .. tostring(ready.Text:GetText()))
+expect(other.Text:GetText() == "Wanted: Hogger" and ns.CompletedMark(other) == nil, "the quest that is not ready keeps its name and the look of the game")
+expect(colour(ready.Text) == "1 1 1" and colour(H.questLogFrames.line3.Text) == "1 1 1", "the title of the ready quest and the line under it are white, got " .. colour(ready.Text))
+expect(colour(other.Text) ~= "1 1 1", "the title of the other quest has the colour of the game")
+-- The game gives the texts their own colours again when the pointer leaves the quest. After
+-- that they are white again.
+H.run(ready, "OnEnter")
+H.run(ready, "OnLeave")
+expect(colour(ready.Text) == "1 1 1" and colour(H.questLogFrames.line3.Text) == "1 1 1", "after the pointer leaves the quest its texts are white again")
+H.run(other, "OnLeave")
+expect(colour(other.Text) ~= "1 1 1", "and the other quest is not made white")
+-- A second pass over the same build does not put COMPLETED there twice.
+QuestMapFrame:Hide()
+QuestMapFrame:Show()
+expect(ready.Text:GetText() == "COMPLETED  A Fishy Peril", "COMPLETED is in front of the name once, got " .. tostring(ready.Text:GetText()))
+-- The tracking symbol is small, at the right end of the title where the game has its tracking
+-- box, and the box is not drawn there.
+local tracker = mark.tracker
+expect(tracker:IsShown() and tracker:GetWidth() <= 14 and select(2, tracker:GetPoint(1)) == ready.Checkbox, "the tracking symbol is small and at the place of the tracking box")
+expect(ready.Checkbox:GetAlpha() == 0 and other.Checkbox:GetAlpha() == 1, "the tracking box of the ready quest is not drawn; the box of the other quest is")
 local function symbolLook()
-  local red, green, blue, alpha = mark.symbol:GetVertexColor()
-  return red == 1 and green == 0.9 and blue == 0.3 and alpha == 1 and "bright" or (red == 0.55 and green == 0.55 and blue == 0.55 and alpha == 0.7 and "grey" or "other")
+  local red, green, blue, alpha = tracker.symbol:GetVertexColor()
+  return red == 1 and green == 0.9 and blue == 0.3 and alpha == 1 and "bright" or (red == 0.8 and alpha == 0.6 and "grey" or "other")
 end
-expect(mark.symbol:IsShown() and mark.symbol:GetPoint(1) == "RIGHT", "the tracking symbol is at the right end of the mark, and always there")
-expect(H.watched[40] == nil and mark.tracked == false and symbolLook() == "grey", "quest 40 is not tracked, and the symbol is grey, got " .. symbolLook())
-H.click(mark, "LeftButton", false)
-expect(H.watched[40] == true and mark.tracked == true and symbolLook() == "bright", "a click on the mark tracks the quest, and the symbol is bright, got " .. symbolLook())
-H.click(mark, "LeftButton", false)
-expect(H.watched[40] == nil and mark.tracked == false and symbolLook() == "grey", "a second click stops tracking, and the symbol is grey again, got " .. symbolLook())
+expect(H.watched[40] == nil and tracker.tracked == false and symbolLook() == "grey", "quest 40 is not tracked, and the symbol is grey, got " .. symbolLook())
+H.click(tracker, "LeftButton", false)
+expect(H.watched[40] == true and tracker.tracked == true and symbolLook() == "bright", "a click on the symbol tracks the quest, and the symbol is bright, got " .. symbolLook())
+H.click(tracker, "LeftButton", false)
+expect(H.watched[40] == nil and tracker.tracked == false and symbolLook() == "grey", "a second click stops tracking, and the symbol is grey again, got " .. symbolLook())
 -- A right-click shows where to turn the quest in.
 local openedByMark = H.count("open quest")
-H.click(mark, "RightButton", false)
-expect(H.count("open quest") == openedByMark + 1 and H.did[#H.did][2] == 40, "a right-click on the mark shows where to turn the quest in")
+H.click(tracker, "RightButton", false)
+expect(H.count("open quest") == openedByMark + 1 and H.did[#H.did][2] == 40, "a right-click on the symbol shows where to turn the quest in")
 expect(H.watched[40] == nil, "the right-click does not change the tracking")
 expect(ns.FanfareQuest() == nil, "no banner before a quest becomes ready")
 T.world.completed = { [176] = true }
@@ -246,6 +262,7 @@ expect(ns.ShowQuestComplete(40, "A Fishy Peril") == false and ns.FanfareQuest() 
 QuestLogQuests_Update()
 expect(not ns.HasCompletedMark(logButton(40)), "with the option off there is no COMPLETED mark")
 expect(logButton(40).Checkbox:GetAlpha() == 1, "with the option off the tracking box is back")
+expect(not ns.CompletedMark(logButton(40)).back:IsShown() and not ns.CompletedMark(logButton(40)).tracker:IsShown() and logButton(40).Text:GetText() == "A Fishy Peril", "with the option off the quest has the look of the game: no green, no symbol, its own name")
 ns.SetOption("completeFanfare", true)
 -- The glow starts when the quest log comes onto the screen, also without a new build by the game.
 T.world.completed = nil

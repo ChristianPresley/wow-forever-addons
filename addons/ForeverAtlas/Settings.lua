@@ -36,6 +36,7 @@ local function build()
   end
   check("zoneNames", "Names of the zones", "On the map of a continent: the name of each zone, in its middle.")
   check("zoneHighlight", "Light up the zone under the pointer", "The zone under the pointer lights up, as on the map of the game.")
+  check("terrain", "Terrain when zoomed in (a trial)", "Zoomed in on a zone, the map shows the terrain itself, as the minimap does, and zooms in much further. If the map shows plain green squares when you zoom in, this client does not have these pictures: turn this off.")
 
   page:Header("World map of the game")
   check("coords", "Coordinates on the world map", "Player and cursor coordinates in the corner of the world map.")

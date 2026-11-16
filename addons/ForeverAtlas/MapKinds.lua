@@ -366,3 +366,4 @@ for _, kind in ipairs(ns.MAP_KINDS) do
 end
 ns.defaults.zoneNames = true -- the names of the zones on a map of a continent
 ns.defaults.zoneHighlight = true -- the zone under the pointer lights up
+ns.defaults.terrain = false -- the terrain images of the minimap over the map, when zoomed in (a trial)

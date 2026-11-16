@@ -5,6 +5,7 @@ local function help()
   print("  /fatlas map - open or close the Forever Atlas map")
   print("  /fatlas mapkey - the map key opens the Forever Atlas map, or the map of the game")
   print("  /fatlas layers - print the art that the game has for the map where you are")
+  print("  /fatlas terrain - a trial: the terrain of the minimap on the Forever Atlas map when you zoom in")
   print("  /fatlas zone - show how much of the current zone you have visited")
   print("  /fatlas list - list the areas visited in the current zone")
   print("  /fatlas where - print your coordinates")
@@ -59,6 +60,7 @@ end
 local TOGGLES = {
   coords = { "coords", "world map coordinates" },
   mapkey = { "mapKey", "the map key opens the Forever Atlas map" },
+  terrain = { "terrain", "terrain on the Forever Atlas map when zoomed in" },
   announce = { "announce", "first-visit messages" },
   hud = { "hud", "on-screen coordinates" },
   lock = { "hudLock", "frame lock" },
