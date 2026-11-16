@@ -1,10 +1,17 @@
 local _, ns = ...
 
+-- The compass is one bar at the top of the screen that shows the heading. Up to four trackers put
+-- a marker on the bar, each at the bearing of the nearest thing of its kind.
+--
 -- Saved data, in ForeverCompassDB (for all characters):
---   options   = { lock = bool, hideInCombat = bool }
---   compasses = { [1..4] = { enabled, kind, color, size, alpha, showName, showDistance, hideEmpty, maxYards } }
---   frames    = { [1..4] = { point, relativePoint, x, y } }
+--   version   = 2
+--   options   = { show, lock, hideInCombat, showDegrees, barAlpha, barWidth, fov }
+--   compasses = { [1..4] = { enabled, kind, color, size, alpha, showName, showDistance, maxYards } }
+--               (the four trackers; the key has its name from version 1, which had four dials)
+--   frames    = { bar = { point, relativePoint, x, y } }
 --   places    = { [kind] = { { mapID = n, x = n, y = n, name = s }, ... } }   -- see Places.lua
+
+local DATA_VERSION = 2
 
 ns.COUNT = 4
 
@@ -27,26 +34,37 @@ ns.COLORS = {
   { "white", "White", 0.95, 0.95, 0.95 },
 }
 
+-- Settings of the bar. The type of the default is the type of the setting.
 ns.OPTION_DEFAULTS = {
-  lock = false, -- locked compasses do not move and let clicks through
+  show = true, -- the bar
+  lock = false, -- a locked bar does not move and lets clicks through
   hideInCombat = false,
+  showDegrees = true, -- the heading in degrees, above the bar
+  barAlpha = 75, -- percent
+  barWidth = 67, -- percent of the width of the screen
+  fov = 180, -- degrees of the circle that the bar shows at one time
 }
 
--- The type of the default is the type of the setting.
+ns.OPTION_LIMITS = {
+  barAlpha = { 20, 100 },
+  barWidth = { 30, 100 },
+  fov = { 90, 360 },
+}
+
+-- Settings of a tracker. The type of the default is the type of the setting.
 ns.COMPASS_DEFAULTS = {
   enabled = false,
   kind = "questObjectives", -- what it points to: a key of ns.KINDS (Trackers.lua)
   color = "gold",
-  size = 72, -- pixels
-  alpha = 100, -- percent
-  showName = true, -- the name of the target under the compass
+  size = 20, -- pixels, of the marker
+  alpha = 75, -- percent, of the marker
+  showName = true, -- the name of the target under the marker
   showDistance = true,
-  hideEmpty = false, -- hide the compass while it has nothing to point to
   maxYards = 0, -- ignore targets farther than this; 0 is no limit
 }
 
 ns.COMPASS_LIMITS = {
-  size = { 48, 160 },
+  size = { 12, 40 },
   alpha = { 20, 100 },
   maxYards = { 0, 2000 },
 }
@@ -80,10 +98,18 @@ function ns.GetOption(key)
 end
 
 function ns.SetOption(key, value)
-  if ns.OPTION_DEFAULTS[key] == nil then
+  local default = ns.OPTION_DEFAULTS[key]
+  if default == nil then
     return
   end
-  ForeverCompassDB.options[key] = value and true or false
+  if type(default) == "number" then
+    local limit = ns.OPTION_LIMITS[key]
+    value = math.floor((tonumber(value) or default) + 0.5)
+    value = math.max(limit[1], math.min(limit[2], value))
+  else
+    value = value and true or false
+  end
+  ForeverCompassDB.options[key] = value
   changed()
 end
 
@@ -218,6 +244,10 @@ loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, name)
   if event == "PLAYER_LOGIN" then
     self:UnregisterEvent("PLAYER_LOGIN")
+    for key, limit in pairs(ns.OPTION_LIMITS) do
+      local options = ForeverCompassDB.options
+      options[key] = math.max(limit[1], math.min(limit[2], math.floor(options[key] + 0.5)))
+    end
     -- A kind or a colour that no longer exists goes back to the default.
     for index = 1, ns.COUNT do
       local compass = ForeverCompassDB.compasses[index]
@@ -245,6 +275,24 @@ loader:SetScript("OnEvent", function(self, event, name)
   self:UnregisterEvent("ADDON_LOADED")
   if type(ForeverCompassDB) ~= "table" then
     ForeverCompassDB = {}
+  end
+  local db = ForeverCompassDB
+  if type(db.version) ~= "number" or db.version < DATA_VERSION then
+    -- Version 1 had four dials. Their sizes and places do not fit the bar, and their opacity
+    -- of 100 percent was the default of then: these go to the defaults of now.
+    if type(db.compasses) == "table" then
+      for _, tracker in pairs(db.compasses) do
+        if type(tracker) == "table" then
+          tracker.size = nil
+          tracker.hideEmpty = nil
+          if tracker.alpha == 100 then
+            tracker.alpha = nil
+          end
+        end
+      end
+    end
+    db.frames = nil
+    db.version = DATA_VERSION
   end
   fill(tableAt(ForeverCompassDB, "options"), ns.OPTION_DEFAULTS)
   local compasses = tableAt(ForeverCompassDB, "compasses")

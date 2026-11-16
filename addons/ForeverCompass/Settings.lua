@@ -1,7 +1,7 @@
 local _, ns = ...
 
--- The pages in the Options window of the game: "Forever Compass" for the settings of all compasses,
--- and under it one page for each compass.
+-- The pages in the Options window of the game: "Forever Compass" for the bar, and under it one
+-- page for each tracker.
 
 local main
 local pages = {}
@@ -23,13 +23,52 @@ local function colorValues()
 end
 
 local function buildMain()
-  main = ns.NewSettingsPage("Forever Compass", "Each compass has its own page under this one. Type /fcompass for commands.")
+  main = ns.NewSettingsPage("Forever Compass", "Each tracker has its own page under this one. Type /fcompass for commands.")
+  local function check(key, label, hint)
+    main:Check({
+      label = label,
+      hint = hint,
+      get = function()
+        return ns.GetOption(key)
+      end,
+      set = function(value)
+        ns.SetOption(key, value)
+      end,
+    })
+  end
+  local function slider(key, label, hint, step, unit)
+    main:Slider({
+      label = label,
+      hint = hint,
+      min = ns.OPTION_LIMITS[key][1],
+      max = ns.OPTION_LIMITS[key][2],
+      step = step,
+      get = function()
+        return ns.GetOption(key)
+      end,
+      set = function(value)
+        ns.SetOption(key, value)
+      end,
+      format = function(value)
+        return value .. " " .. unit
+      end,
+    })
+  end
 
-  main:Header("Compasses")
+  main:Header("Compass bar")
+  check("show", "Show the compass bar", "The bar at the top of the screen, with N, NE, E, SE, S, SW, W and NW. It scrolls as you turn.")
+  slider("barAlpha", "Opacity of the bar", "How solid the bar is. Each tracker has its own opacity, on its page.", 5, "percent")
+  slider("barWidth", "Width of the bar", "The width of the bar, as a part of the width of the screen.", 1, "percent of the screen")
+  slider("fov", "Part of the circle on the bar", "How many of the 360 degrees the bar shows at one time. At 360 the whole circle is on the bar.", 15, "degrees")
+  check("showDegrees", "Show the heading in degrees", "The direction you look in, as a number above the bar. North is 0 and east is 90.")
+  check("lock", "Lock the bar", "A locked bar does not move and lets clicks through.")
+  check("hideInCombat", "Hide in combat", "Hides the bar and the markers while you are in combat.")
+
+  main:Header("Trackers")
   for index = 1, ns.COUNT do
     main:Check({
-      label = "Show compass " .. index,
-      hint = "What it points to, and how it looks, is on its own page: Compass " .. index .. ", under Forever Compass in the list.",
+      label = "Tracker " .. index,
+      hint = "Puts a marker on the bar. What it points to, and how it looks, is on its own page: Tracker " .. index .. ", under Forever Compass in the list.",
       get = function()
         return ns.GetCompass(index, "enabled")
       end,
@@ -38,52 +77,17 @@ local function buildMain()
       end,
     })
   end
-  main:Info(function()
-    local parts = {}
-    for index = 1, ns.COUNT do
-      local kind = ns.KindByKey[ns.GetCompass(index, "kind")]
-      parts[#parts + 1] = index .. ": " .. (kind and kind.name or "?")
-    end
-    return table.concat(parts, "     ")
-  end)
 
-  main:Header("All compasses")
-  main:Check({
-    label = "Lock the compasses",
-    hint = "Locked compasses do not move and let clicks through.",
-    get = function()
-      return ns.GetOption("lock")
-    end,
-    set = function(value)
-      ns.SetOption("lock", value)
-    end,
-  })
-  main:Check({
-    label = "Hide in combat",
-    hint = "Hides all compasses while you are in combat.",
-    get = function()
-      return ns.GetOption("hideInCombat")
-    end,
-    set = function(value)
-      ns.SetOption("hideInCombat", value)
-    end,
-  })
+  main:Header("Data")
+  main:Info(function()
+    return ns.CountPlaces() .. " places learned (vendors, repairers, trainers, bankers, auctioneers, mailboxes), for all your characters."
+  end)
   main:Buttons({
     {
-      label = "Reset positions",
-      hint = "Puts the compasses back in a row at the top of the screen.",
+      label = "Reset the position",
+      hint = "Puts the bar back at the top of the screen.",
       click = ns.ResetPositions,
     },
-  })
-
-  main:Header("Learned places")
-  main:Info(function()
-    return "Vendors, repairers, trainers, bankers, auctioneers and mailboxes are learned when you visit them."
-  end)
-  main:Info(function()
-    return ns.CountPlaces() .. " places learned, for all your characters."
-  end)
-  main:Buttons({
     {
       label = "Forget learned places",
       hint = "Deletes every learned vendor, repairer, trainer, banker, auctioneer and mailbox.",
@@ -93,8 +97,8 @@ local function buildMain()
   })
 end
 
-local function buildCompass(index)
-  local page = ns.NewSettingsPage("Compass " .. index, "Forever Compass, compass " .. index .. ".", main)
+local function buildTracker(index)
+  local page = ns.NewSettingsPage("Tracker " .. index, "Forever Compass, tracker " .. index .. ": a marker on the compass bar.", main)
   local function get(key)
     return function()
       return ns.GetCompass(index, key)
@@ -107,10 +111,10 @@ local function buildCompass(index)
   end
 
   page:Header("What it shows")
-  page:Check({ label = "Show this compass", hint = "Turns compass " .. index .. " on or off.", get = get("enabled"), set = set("enabled") })
+  page:Check({ label = "Show this tracker", hint = "Turns tracker " .. index .. " on or off.", get = get("enabled"), set = set("enabled") })
   page:Choice({
     label = "Points to the nearest",
-    hint = "The kind of thing this compass points to. It always points to the nearest one.",
+    hint = "The kind of thing this tracker points to. Its marker is at the bearing of the nearest one.",
     values = kindValues(),
     get = get("kind"),
     set = set("kind"),
@@ -131,30 +135,11 @@ local function buildCompass(index)
       return value == 0 and "no limit" or (value .. " yards")
     end,
   })
-  page:Check({
-    label = "Hide while there is nothing to point to",
-    hint = "Without this, an empty compass stays on screen and says that nothing is near.",
-    get = get("hideEmpty"),
-    set = set("hideEmpty"),
-  })
 
   page:Header("How it looks")
-  page:Choice({ label = "Colour", hint = "The colour of the ring, the needle and the name.", values = colorValues(), get = get("color"), set = set("color") })
   page:Slider({
-    label = "Size",
-    hint = "The width of the compass.",
-    min = ns.COMPASS_LIMITS.size[1],
-    max = ns.COMPASS_LIMITS.size[2],
-    step = 4,
-    get = get("size"),
-    set = set("size"),
-    format = function(value)
-      return value .. " pixels"
-    end,
-  })
-  page:Slider({
-    label = "Opacity",
-    hint = "How solid the compass is. At 100 percent you cannot see through it.",
+    label = "Opacity of the marker",
+    hint = "How solid the marker and its text are. A marker at the end of the bar, for a target outside the shown part of the circle, is dimmed.",
     min = ns.COMPASS_LIMITS.alpha[1],
     max = ns.COMPASS_LIMITS.alpha[2],
     step = 5,
@@ -164,12 +149,25 @@ local function buildCompass(index)
       return value .. " percent"
     end,
   })
-  page:Check({ label = "Show the name of the target", hint = "The name under the compass.", get = get("showName"), set = set("showName") })
-  page:Check({ label = "Show the distance", hint = "The distance to the target, in yards.", get = get("showDistance"), set = set("showDistance") })
+  page:Choice({ label = "Colour", hint = "The colour of the marker and of the name.", values = colorValues(), get = get("color"), set = set("color") })
+  page:Slider({
+    label = "Size of the marker",
+    hint = "The width of the marker on the bar.",
+    min = ns.COMPASS_LIMITS.size[1],
+    max = ns.COMPASS_LIMITS.size[2],
+    step = 2,
+    get = get("size"),
+    set = set("size"),
+    format = function(value)
+      return value .. " pixels"
+    end,
+  })
+  page:Check({ label = "Show the name of the target", hint = "The name under the marker.", get = get("showName"), set = set("showName") })
+  page:Check({ label = "Show the distance", hint = "The distance to the target, in yards, under the marker.", get = get("showDistance"), set = set("showDistance") })
   return page
 end
 
--- Opens the page of a compass, or the main page.
+-- Opens the page of a tracker, or the main page.
 function ns.OpenSettings(index)
   local page = index and pages[index] or main
   if not (page and page:Open()) then
@@ -184,7 +182,7 @@ ns.OnLogin(function()
     return
   end
   for index = 1, ns.COUNT do
-    local page = buildCompass(index)
+    local page = buildTracker(index)
     if page:Register() then
       pages[index] = page
     end

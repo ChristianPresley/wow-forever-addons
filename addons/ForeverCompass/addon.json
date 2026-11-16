@@ -1,6 +1,6 @@
 {
   "id": "forever-compass",
   "category": "Map & Exploration",
-  "summary": "Up to four compasses that each point to the nearest thing of a kind you choose.",
-  "description": "Forever Compass puts up to four compasses on your screen. Each one points to the nearest thing of the kind you choose, with its name and the distance: quest objectives, quest turn-ins, quest givers, your tracked quest, rare enemies and treasures, flight masters, party members, your corpse or your map pin. Vendors, repairers, trainers, bankers, auctioneers and mailboxes are learned as you visit them. Each compass has its own size, colour, opacity and range. Type /fcompass for commands."
+  "summary": "A compass bar at the top of the screen, with up to four trackers that mark the nearest thing of a kind you choose.",
+  "description": "Forever Compass puts a compass bar across the top of your screen. It shows N, NE, E, SE, S, SW, W and NW and scrolls through the full 360 degrees as you turn. Up to four trackers each put a marker on the bar, at the bearing of the nearest thing of the kind you choose, with its name and the distance: quest objectives, quest turn-ins, quest givers, your tracked quest, rare enemies and treasures, flight masters, party members, your corpse or your map pin. Vendors, repairers, trainers, bankers, auctioneers and mailboxes are learned as you visit them. The bar and each tracker have their own opacity. Type /fcompass for commands."
 }

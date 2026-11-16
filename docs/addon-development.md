@@ -107,7 +107,7 @@ local sub = ns.NewSettingsPage("Compass 1", "One line under the title.", page)
 sub:Register()
 ```
 
-Forever Compass does this: one page for the settings of all compasses, and one page for each compass.
+Forever Compass does this: one page for the compass bar, and one page for each tracker.
 
 ## Add an addon
 

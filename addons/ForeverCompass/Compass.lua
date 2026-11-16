@@ -1,157 +1,201 @@
 local _, ns = ...
 
--- The compasses on screen. Each one is a dial with a needle that points to the nearest target of
--- its kind, with the name of the target and the distance under it.
+-- The compass bar: a strip at the top of the screen that shows the heading. The whole circle of
+-- 360 degrees is on the strip, with N, NE, E, SE, S, SW, W and NW, and the strip scrolls as the
+-- player turns. The bar shows a part of the circle at one time (the option fov).
 --
--- Direction and distance come from world positions, so they are known only where the game gives
--- the player's position. In an instance the compasses hide.
+-- Each tracker that is on puts a marker on the bar, at the bearing of its nearest target, with
+-- the name of the target and the distance under it. A target outside the shown part of the
+-- circle has its marker at the end of the bar on that side, dimmed.
+--
+-- Bearings are in degrees, clockwise from north: 0 is north and 90 is east.
 
-local NEEDLE_INTERVAL = 0.05 -- seconds between turns of the needles
+local BAR_INTERVAL = 0.02 -- seconds between moves of the bar
 local TARGET_INTERVAL = 1 -- seconds between searches for targets
+local HEIGHT = 30
+local STEP = 15 -- degrees between the marks on the strip
 local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask" -- a filled circle
-local NEEDLE = "Interface\\Minimap\\MinimapArrow"
+local POINTS = { [0] = "N", [45] = "NE", [90] = "E", [135] = "SE", [180] = "S", [225] = "SW", [270] = "W", [315] = "NW" }
 
-local compasses = {}
+local root, strip, headingText
+local marks, markers = {}, {}
+local barWidth = 600
 local inCombat = false
 
--- Makes a texture round, where the client can.
-local function makeRound(frame, texture)
-  if not frame.CreateMaskTexture then
-    return
-  end
-  local mask = frame:CreateMaskTexture()
-  mask:SetAllPoints(texture)
-  mask:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-  texture:AddMaskTexture(mask)
+-- How far a bearing is to the right of the heading, from -180 to 180 degrees.
+local function offsetOf(bearing, heading)
+  return (bearing - heading + 540) % 360 - 180
 end
 
-local function savePosition(compass)
-  local point, _, relativePoint, x, y = compass:GetPoint(1)
+local function savePosition()
+  local point, _, relativePoint, x, y = root:GetPoint(1)
   if point then
-    ForeverCompassDB.frames[compass.index] = { point, relativePoint, x, y }
+    ForeverCompassDB.frames.bar = { point, relativePoint, x, y }
   end
 end
 
-local function defaultPosition(compass)
-  compass:ClearAllPoints()
-  compass:SetPoint("TOP", UIParent, "TOP", (compass.index - 2.5) * 110, -190)
+local function defaultPosition()
+  root:ClearAllPoints()
+  root:SetPoint("TOP", UIParent, "TOP", 0, -20)
 end
 
-local function restorePosition(compass)
-  local saved = ForeverCompassDB.frames[compass.index]
+local function restorePosition()
+  local saved = ForeverCompassDB.frames.bar
   if type(saved) == "table" and type(saved[1]) == "string" and ns.Usable(saved[3]) and ns.Usable(saved[4]) then
-    compass:ClearAllPoints()
-    if pcall(compass.SetPoint, compass, saved[1], UIParent, saved[2] or saved[1], saved[3], saved[4]) then
+    root:ClearAllPoints()
+    if pcall(root.SetPoint, root, saved[1], UIParent, saved[2] or saved[1], saved[3], saved[4]) then
       return
     end
   end
-  defaultPosition(compass)
+  defaultPosition()
 end
 
 function ns.ResetPositions()
   wipe(ForeverCompassDB.frames)
-  for _, compass in ipairs(compasses) do
-    defaultPosition(compass)
+  if root then
+    defaultPosition()
   end
 end
 
-local function showTooltip(compass)
-  local kind = ns.KindByKey[ns.GetCompass(compass.index, "kind")]
-  GameTooltip:SetOwner(compass, "ANCHOR_BOTTOM")
-  GameTooltip:SetText("Compass " .. compass.index .. ": " .. (kind and kind.name or "?"), 1, 1, 1)
-  if kind then
-    GameTooltip:AddLine(kind.hint, nil, nil, nil, true)
-  end
-  GameTooltip:AddLine("Drag to move. Right-click for its settings.", 0.6, 0.6, 0.6, true)
-  GameTooltip:Show()
+local function line(parent, r, g, b, a)
+  local texture = parent:CreateTexture(nil, "BORDER")
+  texture:SetColorTexture(r, g, b, a)
+  return texture
 end
 
-local function create(index)
-  local compass = CreateFrame("Frame", "ForeverCompass" .. index, UIParent)
-  compass.index = index
-  compass:SetMovable(true)
-  compass:SetClampedToScreen(true)
-  compass:RegisterForDrag("LeftButton")
-  compass:SetScript("OnDragStart", function(self)
+local function createBar()
+  root = CreateFrame("Frame", "ForeverCompassBar", UIParent)
+  root:SetMovable(true)
+  root:SetClampedToScreen(true)
+  root:RegisterForDrag("LeftButton")
+  root:SetScript("OnDragStart", function(self)
     if not ns.GetOption("lock") then
       self:StartMoving()
     end
   end)
-  compass:SetScript("OnDragStop", function(self)
+  root:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
-    savePosition(self)
+    savePosition()
   end)
-  compass:SetScript("OnMouseUp", function(self, button)
+  root:SetScript("OnMouseUp", function(_, button)
     if button == "RightButton" then
-      ns.OpenSettings(self.index)
+      ns.OpenSettings()
     end
   end)
-  compass:SetScript("OnEnter", showTooltip)
-  compass:SetScript("OnLeave", function()
+  root:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:SetText("Forever Compass", 1, 1, 1)
+    GameTooltip:AddLine("Drag to move. Right-click for the settings.", 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+  end)
+  root:SetScript("OnLeave", function()
     GameTooltip:Hide()
   end)
 
-  -- The ring is a circle in the colour of the compass, with a smaller dark circle on it.
-  compass.ring = compass:CreateTexture(nil, "BACKGROUND")
-  compass.ring:SetAllPoints()
-  makeRound(compass, compass.ring)
-  compass.face = compass:CreateTexture(nil, "BORDER")
-  compass.face:SetColorTexture(0.05, 0.05, 0.06, 0.85)
-  makeRound(compass, compass.face)
+  -- The strip has its own opacity. The markers are not on it, so each one keeps its own.
+  strip = CreateFrame("Frame", nil, root)
+  strip:SetAllPoints()
+  local background = strip:CreateTexture(nil, "BACKGROUND")
+  background:SetAllPoints()
+  background:SetColorTexture(0, 0, 0, 0.6)
+  for _, edge in ipairs({ "TOP", "BOTTOM" }) do
+    local border = line(strip, 0.85, 0.72, 0.38, 0.9)
+    border:SetHeight(1)
+    border:SetPoint(edge .. "LEFT")
+    border:SetPoint(edge .. "RIGHT")
+  end
+  -- The pointer in the middle shows where the player looks.
+  local pointer = line(strip, 1, 1, 1, 0.95)
+  pointer:SetDrawLayer("OVERLAY")
+  pointer:SetSize(2, 9)
+  pointer:SetPoint("TOP", 0, 0)
 
-  compass.needle = compass:CreateTexture(nil, "ARTWORK")
-  compass.needle:SetTexture(NEEDLE)
-  compass.needle:SetPoint("CENTER")
+  headingText = strip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  headingText:SetPoint("BOTTOM", root, "TOP", 0, 2)
 
-  compass.number = compass:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  compass.number:SetPoint("CENTER")
-
-  compass.name = compass:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  compass.name:SetPoint("TOP", compass, "BOTTOM", 0, -2)
-  compass.name:SetWidth(150)
-  compass.name:SetWordWrap(false)
-  compass.distance = compass:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-
-  compass.targets = {}
-  compass.sinceSearch = TARGET_INTERVAL + index * 0.2 -- the compasses do not all search in the same frame
-  restorePosition(compass)
-  return compass
-end
-
--- Sets the look of a compass from its settings.
-local function style(compass)
-  local index = compass.index
-  local size = ns.GetCompass(index, "size")
-  local r, g, b = ns.ColorOf(index)
-  compass:SetSize(size, size)
-  compass:SetAlpha(ns.GetCompass(index, "alpha") / 100)
-  compass:EnableMouse(not ns.GetOption("lock"))
-  compass.ring:SetColorTexture(r, g, b, 0.9)
-  compass.face:ClearAllPoints()
-  local edge = math.max(2, size * 0.06)
-  compass.face:SetPoint("TOPLEFT", edge, -edge)
-  compass.face:SetPoint("BOTTOMRIGHT", -edge, edge)
-  compass.needle:SetSize(size * 0.72, size * 0.72)
-  compass.needle:SetVertexColor(r, g, b)
-  compass.number:SetText(index)
-  compass.name:SetTextColor(r, g, b)
-
-  local showName = ns.GetCompass(index, "showName")
-  compass.name:SetShown(showName)
-  compass.distance:SetShown(ns.GetCompass(index, "showDistance"))
-  compass.distance:ClearAllPoints()
-  if showName then
-    compass.distance:SetPoint("TOP", compass.name, "BOTTOM", 0, -1)
-  else
-    compass.distance:SetPoint("TOP", compass, "BOTTOM", 0, -2)
+  for bearing = 0, 360 - STEP, STEP do
+    local label = POINTS[bearing]
+    local region
+    if label then
+      local main = #label == 1 -- N, E, S, W
+      region = strip:CreateFontString(nil, "ARTWORK", main and "GameFontNormalLarge" or "GameFontHighlightSmall")
+      region:SetText(label)
+      if label == "N" then
+        region:SetTextColor(1, 0.35, 0.3)
+      end
+    else
+      region = line(strip, 1, 1, 1, 0.55)
+      region:SetSize(1, 8)
+    end
+    marks[#marks + 1] = { bearing = bearing, region = region }
   end
 end
 
--- The nearest target on the player's continent, within the range of the compass.
-local function nearest(compass, continent, north, west)
-  local limit = ns.GetCompass(compass.index, "maxYards")
+local function createMarker(index)
+  local marker = CreateFrame("Frame", nil, root)
+  marker.index = index
+  marker:SetFrameLevel(strip:GetFrameLevel() + 2)
+
+  marker.dot = marker:CreateTexture(nil, "ARTWORK")
+  marker.dot:SetAllPoints()
+  -- Makes the dot round, where the client can.
+  if marker.CreateMaskTexture then
+    local mask = marker:CreateMaskTexture()
+    mask:SetAllPoints(marker.dot)
+    mask:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    marker.dot:AddMaskTexture(mask)
+  end
+  marker.number = marker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  marker.number:SetPoint("CENTER")
+  marker.number:SetTextColor(0, 0, 0)
+  marker.number:SetText(index)
+
+  marker.distance = marker:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  marker.name = marker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  marker.name:SetWidth(130)
+  marker.name:SetWordWrap(false)
+
+  marker.targets = {}
+  marker.sinceSearch = TARGET_INTERVAL + index * 0.2 -- the trackers do not all search in the same frame
+  marker.status = "off"
+  marker:Hide()
+  return marker
+end
+
+-- Sets the look of the bar and of the markers from the settings.
+local function style()
+  barWidth = math.max(200, UIParent:GetWidth() * ns.GetOption("barWidth") / 100)
+  root:SetSize(barWidth, HEIGHT)
+  root:EnableMouse(not ns.GetOption("lock"))
+  strip:SetAlpha(ns.GetOption("barAlpha") / 100)
+  headingText:SetShown(ns.GetOption("showDegrees"))
+
+  for index, marker in ipairs(markers) do
+    local size = ns.GetCompass(index, "size")
+    local r, g, b = ns.ColorOf(index)
+    marker:SetSize(size, size)
+    marker.dot:SetColorTexture(r, g, b, 1)
+    marker.name:SetTextColor(r, g, b)
+    local showDistance = ns.GetCompass(index, "showDistance")
+    marker.distance:SetShown(showDistance)
+    marker.name:SetShown(ns.GetCompass(index, "showName"))
+    marker.distance:ClearAllPoints()
+    marker.distance:SetPoint("TOP", marker, "BOTTOM", 0, -1)
+    marker.name:ClearAllPoints()
+    if showDistance then
+      marker.name:SetPoint("TOP", marker.distance, "BOTTOM", 0, -1)
+    else
+      marker.name:SetPoint("TOP", marker, "BOTTOM", 0, -1)
+    end
+    marker.sinceSearch = TARGET_INTERVAL -- a changed kind shows at once
+  end
+end
+
+-- The nearest target on the player's continent, within the range of the tracker.
+local function nearest(marker, continent, north, west)
+  local limit = ns.GetCompass(marker.index, "maxYards")
   local best, bestYards, bestNorth, bestWest
-  for _, target in ipairs(compass.targets) do
+  for _, target in ipairs(marker.targets) do
     if not ns.Usable(continent) or not ns.Usable(target[1]) or target[1] == continent then
       local dNorth, dWest = target[2] - north, target[3] - west
       local yards = math.sqrt(dNorth * dNorth + dWest * dWest)
@@ -170,87 +214,126 @@ local function distanceText(yards)
   return string.format("%d yd", yards)
 end
 
-local function update(compass, elapsed, continent, north, west, facing)
-  local index = compass.index
-  if not ns.GetCompass(index, "enabled") or (inCombat and ns.GetOption("hideInCombat")) or not north then
-    compass:Hide()
+local function updateMarker(marker, elapsed, heading, half, scale, continent, north, west)
+  local index = marker.index
+  if not ns.GetCompass(index, "enabled") then
+    marker.status = "off"
+    marker:Hide()
     return
   end
-  compass.sinceSearch = compass.sinceSearch + elapsed
-  if compass.sinceSearch >= TARGET_INTERVAL then
-    compass.sinceSearch = 0
-    compass.targets = ns.FindTargets(ns.GetCompass(index, "kind"))
+  if not north then
+    marker.status = "the game hides your position here"
+    marker:Hide()
+    return
+  end
+  marker.sinceSearch = marker.sinceSearch + elapsed
+  if marker.sinceSearch >= TARGET_INTERVAL then
+    marker.sinceSearch = 0
+    marker.targets = ns.FindTargets(ns.GetCompass(index, "kind"))
   end
 
-  local target, yards, dNorth, dWest = nearest(compass, continent, north, west)
+  local target, yards, dNorth, dWest = nearest(marker, continent, north, west)
   if not target then
-    if ns.GetCompass(index, "hideEmpty") then
-      compass:Hide()
-      return
-    end
     local kind = ns.KindByKey[ns.GetCompass(index, "kind")]
-    compass.needle:Hide()
-    compass.number:Show()
-    compass.name:SetText(kind and kind.name or "")
-    compass.distance:SetText(kind and kind.learned and #ns.Places(kind.key) == 0 and "none learned yet" or "none near")
-    compass:Show()
+    marker.status = kind and kind.learned and #ns.Places(kind.key) == 0 and "none learned yet" or "none near"
+    marker:Hide()
     return
   end
 
-  compass.number:Hide()
-  compass.name:SetText(target[4] or "")
-  compass.distance:SetText(distanceText(yards))
-  if ns.Usable(facing) then
-    -- Facing and bearing both turn counterclockwise from north.
-    compass.needle:SetRotation(math.atan2(dWest, dNorth) - facing)
-    compass.needle:Show()
-  else
-    compass.needle:Hide()
+  -- atan2 gives the angle counterclockwise from north. A bearing is clockwise.
+  local bearing = (-math.deg(math.atan2(dWest, dNorth))) % 360
+  local offset = offsetOf(bearing, heading)
+  local outside = math.abs(offset) > half
+  if outside then
+    offset = offset > 0 and half or -half
   end
-  compass:Show()
+  marker:ClearAllPoints()
+  marker:SetPoint("CENTER", root, "BOTTOM", offset * scale, 0)
+  marker:SetAlpha(ns.GetCompass(index, "alpha") / 100 * (outside and 0.5 or 1))
+  marker.distance:SetText(distanceText(yards))
+  marker.name:SetText(target[4] or "")
+  marker.status = (target[4] or "?") .. ", " .. distanceText(yards)
+  marker:Show()
 end
 
-local function styleAll()
-  for _, compass in ipairs(compasses) do
-    style(compass)
-    compass.sinceSearch = TARGET_INTERVAL -- a changed kind shows at once
+local function update(elapsed)
+  local facing = GetPlayerFacing and GetPlayerFacing()
+  if not ns.GetOption("show") or (inCombat and ns.GetOption("hideInCombat")) or not ns.Usable(facing) then
+    root:Hide()
+    return
   end
+  -- The game gives the facing counterclockwise from north, in radians.
+  local heading = (360 - math.deg(facing)) % 360
+  local fov = ns.GetOption("fov")
+  local half = fov / 2
+  local scale = barWidth / fov
+  local fade = math.max(1, fov * 0.06) -- marks fade out over this many degrees at the ends
+
+  for _, mark in ipairs(marks) do
+    local offset = offsetOf(mark.bearing, heading)
+    local inside = half - math.abs(offset)
+    if inside < 0 then
+      mark.region:Hide()
+    else
+      mark.region:ClearAllPoints()
+      mark.region:SetPoint("CENTER", strip, "CENTER", offset * scale, 0)
+      mark.region:SetAlpha(math.min(1, inside / fade))
+      mark.region:Show()
+    end
+  end
+  headingText:SetText(string.format("%d°", math.floor(heading + 0.5) % 360))
+
+  local continent, north, west = ns.UnitWorld("player")
+  for _, marker in ipairs(markers) do
+    updateMarker(marker, elapsed, heading, half, scale, continent, north, west)
+  end
+  root:Show()
+end
+
+-- What a tracker shows now, for /fcompass.
+function ns.TrackerStatus(index)
+  local marker = markers[index]
+  return marker and marker.status or "?"
 end
 
 ns.OnLogin(function()
+  createBar()
   for index = 1, ns.COUNT do
-    compasses[index] = create(index)
+    markers[index] = createMarker(index)
   end
-  styleAll()
-  ns.OnChange(styleAll)
+  restorePosition()
+  style()
+  ns.OnChange(style)
 
   local driver = CreateFrame("Frame")
   local elapsed = 0
   driver:SetScript("OnUpdate", function(self, delta)
     elapsed = elapsed + delta
-    if elapsed < NEEDLE_INTERVAL then
+    if elapsed < BAR_INTERVAL then
       return
     end
-    local continent, north, west = ns.UnitWorld("player")
-    local facing = GetPlayerFacing and GetPlayerFacing()
-    for _, compass in ipairs(compasses) do
-      local ok, err = pcall(update, compass, elapsed, continent, north, west, facing)
-      if not ok then
-        -- An error stops the compasses, not the game.
-        self:Hide()
-        for _, other in ipairs(compasses) do
-          other:Hide()
-        end
-        geterrorhandler()(err)
-        break
-      end
-    end
+    local ok, err = pcall(update, elapsed)
     elapsed = 0
+    if not ok then
+      -- An error stops the compass, not the game.
+      self:Hide()
+      root:Hide()
+      geterrorhandler()(err)
+    end
   end)
 
   driver:RegisterEvent("PLAYER_REGEN_DISABLED")
   driver:RegisterEvent("PLAYER_REGEN_ENABLED")
+  -- The width of the bar is a part of the width of the screen.
+  pcall(driver.RegisterEvent, driver, "DISPLAY_SIZE_CHANGED")
+  pcall(driver.RegisterEvent, driver, "UI_SCALE_CHANGED")
   driver:SetScript("OnEvent", function(_, event)
-    inCombat = event == "PLAYER_REGEN_DISABLED"
+    if event == "PLAYER_REGEN_DISABLED" then
+      inCombat = true
+    elseif event == "PLAYER_REGEN_ENABLED" then
+      inCombat = false
+    else
+      style()
+    end
   end)
 end)
