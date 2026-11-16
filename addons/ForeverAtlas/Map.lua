@@ -34,14 +34,18 @@ local DRAG_SLOP = 4 -- a press that moves less than this is a click
 local INFO_INTERVAL = 0.05
 local ARROW = "Interface\\Minimap\\MinimapArrow"
 
-local QUEST_LOOK = { texture = "Interface\\GossipFrame\\AvailableQuestIcon" }
-local TURN_IN_LOOK = { texture = "Interface\\GossipFrame\\ActiveQuestIcon" }
+local REFRESH_SECONDS = 2 -- the pins are read again this often: group members move
+local HOVER_REACH = 4 -- a pin shows its tooltip this far outside its picture
 
 local window, viewport, canvas, overlay, arrow
 local layerFrames = {} -- [index] = { frame = , tiles = {} }, one for each layer of the art
 local exploredFrame
 local overlays = {}
 local pins, pinPool = {}, {}
+local hovered -- the pin whose tooltip shows
+local labels, labelPool = {}, {} -- the names of the zones of a continent
+local highlight, highlightKey -- the zone under the pointer, lit up
+local sinceRefresh = 0
 
 -- The map on the screen. width and height are of the canvas, in the pixels of the art.
 -- scale: screen units for one pixel of the art. x, y: where the top left corner of the canvas
@@ -337,8 +341,15 @@ local function acquirePin()
     pin = CreateFrame("Frame", nil, overlay)
     pin.icon = pin:CreateTexture(nil, "ARTWORK")
     pin.icon:SetAllPoints()
-    pin:SetScript("OnEnter", pinTooltip)
-    pin:SetScript("OnLeave", function()
+    -- A pin with a click takes the pointer, so its tooltip comes from these scripts.
+    pin:SetScript("OnEnter", function(self)
+      hovered = self
+      pinTooltip(self)
+    end)
+    pin:SetScript("OnLeave", function(self)
+      if hovered == self then
+        hovered = nil
+      end
       GameTooltip:Hide()
     end)
     pin:SetScript("OnMouseUp", function(self, button)
@@ -350,43 +361,44 @@ local function acquirePin()
   return pin
 end
 
--- The quests of the quest log with a place on this map. A click opens the quest in the quest
--- log of the game.
-local function questPins(mapID, add)
-  if not (C_QuestLog and C_QuestLog.GetQuestsOnMap) then
+-- The names of the zones of a map of a continent, each in the middle of its zone.
+local function rebuildLabels()
+  for index = #labels, 1, -1 do
+    labels[index]:Hide()
+    labelPool[#labelPool + 1] = labels[index]
+    labels[index] = nil
+  end
+  local mapID = view.mapID
+  if not (mapID and ns.GetOption("zoneNames") and C_Map.GetMapChildrenInfo and C_Map.GetMapRectOnMap and Enum and Enum.UIMapType) then
     return
   end
-  local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, mapID)
-  if not ok or type(quests) ~= "table" then
+  local ok, children = pcall(C_Map.GetMapChildrenInfo, mapID, Enum.UIMapType.Zone)
+  if not ok or type(children) ~= "table" then
     return
   end
-  for _, quest in ipairs(quests) do
-    local questID = quest.questID
-    if questID and ns.Usable(quest.x) and ns.Usable(quest.y) then
-      local title = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID)
-      local ready = C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID)
-      add(quest.x * 100, quest.y * 100, {
-        look = ready and TURN_IN_LOOK or QUEST_LOOK,
-        size = 20,
-        quest = questID,
-        tooltip = function(tooltip)
-          tooltip:AddLine(type(title) == "string" and title or "Quest", 1, 0.82, 0)
-          tooltip:AddLine(ready and "Ready to turn in" or "In progress", 1, 1, 1)
-          tooltip:AddLine("Click to open the quest", 0.6, 0.6, 0.6)
-        end,
-        click = function()
-          if type(QuestMapFrame_OpenToQuestDetails) == "function" then
-            ns.HideMap()
-            pcall(QuestMapFrame_OpenToQuestDetails, questID)
-          end
-        end,
-      })
+  for _, child in ipairs(children) do
+    if type(child) == "table" and child.mapID and type(child.name) == "string" then
+      local found, left, right, top, bottom = pcall(C_Map.GetMapRectOnMap, child.mapID, mapID)
+      if found and ns.Usable(left) and ns.Usable(right) and ns.Usable(top) and ns.Usable(bottom) and right > left and bottom > top then
+        local label = table.remove(labelPool)
+        if not label then
+          label = overlay:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+          label:SetTextColor(1, 0.95, 0.75)
+        end
+        label.x, label.y = (left + right) / 2, (top + bottom) / 2
+        label:SetText(child.name)
+        label:Show()
+        labels[#labels + 1] = label
+      end
     end
   end
 end
 
 local function rebuildPins()
-  GameTooltip:Hide()
+  if hovered then
+    GameTooltip:Hide()
+    hovered = nil
+  end
   for index = #pins, 1, -1 do
     local pin = pins[index]
     pin:Hide()
@@ -398,32 +410,107 @@ local function rebuildPins()
   if not mapID then
     return
   end
+  local kind -- the kind of the provider that runs now
   local function add(x, y, data)
     if not ns.Usable(x) or not ns.Usable(y) or x < 0 or x > 100 or y < 0 or y > 100 then
       return
     end
     local pin = acquirePin()
-    pin.x, pin.y, pin.data = x / 100, y / 100, data
+    pin.x, pin.y, pin.data, pin.kind = x / 100, y / 100, data, kind
     pin:SetSize(data.size or 16, data.size or 16)
     ns.SetIcon(pin.icon, data.look)
-    -- A pin with a tooltip or a click takes the pointer; the others let it through to the map.
-    pin:EnableMouse(data.click ~= nil or data.tooltip ~= nil)
+    -- Only a pin with a click takes the pointer. The others let a click, a drag and the wheel
+    -- through to the map; their tooltip comes from the place of the pointer (updateHover).
+    pin:EnableMouse(data.click ~= nil)
     pin:Show()
     pins[#pins + 1] = pin
   end
-  local providers = { questPins }
-  for _, provider in ipairs(ns.PinProviders()) do
-    providers[#providers + 1] = provider
+  -- The kinds of the map that are on, then the pins of the addon (notes, waypoints, visited areas).
+  for _, entry in ipairs(ns.MAP_KINDS) do
+    if ns.GetOption(ns.MapKindOption(entry.key)) then
+      kind = entry.key
+      local ok, err = pcall(entry.find, mapID, add)
+      if not ok then
+        geterrorhandler()(err)
+      end
+    end
   end
-  for _, provider in ipairs(providers) do
+  kind = "atlas"
+  for _, provider in ipairs(ns.PinProviders()) do
     local ok, err = pcall(provider, mapID, add)
     if not ok then
       geterrorhandler()(err)
     end
   end
+  rebuildLabels()
   dirty = true
 end
 
+-- The tooltip of the pin under a place of the viewport: the last one drawn there, which is the
+-- one on top.
+local function updateHover(px, py)
+  local found
+  if px then
+    local mapWidth, mapHeight = view.width * view.scale, view.height * view.scale
+    for index = #pins, 1, -1 do
+      local pin = pins[index]
+      if pin.data and pin.data.tooltip then
+        local reach = (pin.data.size or 16) / 2 + HOVER_REACH
+        if math.abs(view.x + pin.x * mapWidth - px) <= reach and math.abs(view.y + pin.y * mapHeight - py) <= reach then
+          found = pin
+          break
+        end
+      end
+    end
+  end
+  if found == hovered then
+    return
+  end
+  hovered = found
+  if found then
+    pinTooltip(found)
+  else
+    GameTooltip:Hide()
+  end
+end
+
+-- Lights up the zone under a point of the map, as the map of the game does
+-- (Blizzard_SharedMapDataProviders/MapHighlightDataProvider.lua).
+local function updateHighlight(mapX, mapY)
+  local file, atlas, partX, partY, sizeX, sizeY, atX, atY
+  if mapX and ns.GetOption("zoneHighlight") and C_Map.GetMapHighlightInfoAtPosition then
+    local ok
+    ok, file, atlas, partX, partY, sizeX, sizeY, atX, atY = pcall(C_Map.GetMapHighlightInfoAtPosition, view.mapID, mapX, mapY)
+    if not ok or not (ns.Usable(partX) and ns.Usable(partY) and ns.Usable(sizeX) and ns.Usable(sizeY) and ns.Usable(atX) and ns.Usable(atY)) then
+      file, atlas = nil, nil
+    end
+  end
+  local hasAtlas = type(atlas) == "string" and atlas ~= ""
+  local hasFile = ns.Usable(file) and file > 0
+  if not (hasAtlas or hasFile) then
+    if highlightKey then
+      highlightKey = nil
+      highlight:Hide()
+    end
+    return
+  end
+  local key = tostring(hasAtlas and atlas or file) .. ":" .. atX .. ":" .. atY
+  if key == highlightKey then
+    return
+  end
+  highlightKey = key
+  highlight:ClearAllPoints()
+  highlight:SetTexCoord(0, partX, 0, partY)
+  if hasAtlas then
+    highlight:SetAtlas(atlas, true)
+    highlight:SetPoint("CENTER", canvas, "CENTER", ((atX + 0.5 * sizeX) - 0.5) * view.width, -((atY + 0.5 * sizeY) - 0.5) * view.height)
+  else
+    highlight:SetTexture(file, nil, nil, "TRILINEAR")
+    highlight:SetSize(sizeX * view.width, sizeY * view.height)
+    highlight:SetPoint("TOPLEFT", canvas, "TOPLEFT", atX * view.width, -atY * view.height)
+  end
+  highlight:Show()
+end
 -- Puts the canvas and the pins where the view says.
 local function place()
   dirty = false
@@ -437,6 +524,10 @@ local function place()
   for _, pin in ipairs(pins) do
     pin:ClearAllPoints()
     pin:SetPoint("CENTER", viewport, "TOPLEFT", view.x + pin.x * mapWidth, -(view.y + pin.y * mapHeight))
+  end
+  for _, label in ipairs(labels) do
+    label:ClearAllPoints()
+    label:SetPoint("CENTER", viewport, "TOPLEFT", view.x + label.x * mapWidth, -(view.y + label.y * mapHeight))
   end
 end
 
@@ -523,15 +614,21 @@ local function updateInfo()
   local playerX, playerY = placeArrow()
   local text = playerX and string.format("You: %.1f, %.1f", playerX, playerY) or "You are not on this map"
   local px, py = pointer()
-  local zone
+  local zone, overX, overY
   if px then
     local mapX, mapY = toMap(px, py)
     if mapX >= 0 and mapX <= 1 and mapY >= 0 and mapY <= 1 then
       text = text .. string.format("     Pointer: %.1f, %.1f", mapX * 100, mapY * 100)
       local _, name = mapAt(mapX, mapY)
       zone = name
+      overX, overY = mapX, mapY
     end
   end
+  -- A pin with a click shows its own tooltip while the pointer is on it.
+  if not (hovered and hovered.data and hovered.data.click) then
+    updateHover(overX and px or nil, py)
+  end
+  updateHighlight(overX, overY)
   window.info:SetText(text)
   window.zone:SetText(type(zone) == "string" and zone or "")
 end
@@ -562,6 +659,37 @@ local function onUpdate(_, elapsed)
     sinceInfo = 0
     updateInfo()
   end
+  -- Not while the player moves or zooms the map: that must stay smooth.
+  sinceRefresh = sinceRefresh + elapsed
+  if sinceRefresh >= REFRESH_SECONDS and not drag and view.scale == view.target then
+    sinceRefresh = 0
+    rebuildPins()
+  end
+end
+
+-- The menu of the button "Show": a checkbox for each kind of thing on the map.
+local function showMenu(owner)
+  if not (MenuUtil and MenuUtil.CreateContextMenu) then
+    ns.OpenSettings()
+    return
+  end
+  MenuUtil.CreateContextMenu(owner, function(_, root)
+    root:CreateTitle("Show on the map")
+    local function check(label, key)
+      root:CreateCheckbox(label, function()
+        return ns.GetOption(key)
+      end, function()
+        ns.SetOption(key, not ns.GetOption(key))
+      end)
+    end
+    for _, kind in ipairs(ns.MAP_KINDS) do
+      check(kind.name, ns.MapKindOption(kind.key))
+    end
+    check("Your notes", "notes")
+    check("Visited areas", "pins")
+    check("Names of the zones", "zoneNames")
+    check("Light up the zone under the pointer", "zoneHighlight")
+  end)
 end
 
 local function smallButton(text, width, tip, onClick)
@@ -626,6 +754,10 @@ local function create()
     end
   end)
   game:SetPoint("LEFT", here, "RIGHT", 4, 0)
+  window.show = smallButton("Show", 70, "Chooses what the map shows: quests, flight masters, towns, rare enemies and more.", function(self)
+    showMenu(self)
+  end)
+  window.show:SetPoint("LEFT", game, "RIGHT", 4, 0)
 
   viewport = CreateFrame("Frame", nil, window)
   viewport:SetPoint("TOPLEFT", 8, -34)
@@ -640,6 +772,13 @@ local function create()
   overlay = CreateFrame("Frame", nil, viewport)
   overlay:SetAllPoints()
   overlay:SetFrameLevel(canvas:GetFrameLevel() + 20)
+  -- The zone under the pointer, over the art and under the pins.
+  local highlightFrame = CreateFrame("Frame", nil, canvas)
+  highlightFrame:SetAllPoints(canvas)
+  highlightFrame:SetFrameLevel(canvas:GetFrameLevel() + 15)
+  highlight = highlightFrame:CreateTexture(nil, "ARTWORK")
+  highlight:SetBlendMode("ADD")
+  highlight:Hide()
   arrow = overlay:CreateTexture(nil, "OVERLAY")
   arrow:SetSize(28, 28)
   arrow:SetTexture(ARROW)
@@ -693,6 +832,10 @@ local function create()
   end)
   window:SetScript("OnHide", function()
     drag = nil
+    if hovered then
+      hovered = nil
+      GameTooltip:Hide()
+    end
   end)
 end
 
@@ -807,9 +950,26 @@ end
 function ns.MapPins()
   local list = {}
   for index, pin in ipairs(pins) do
-    list[index] = { x = pin.x, y = pin.y, data = pin.data, frame = pin }
+    list[index] = { x = pin.x, y = pin.y, data = pin.data, frame = pin, kind = pin.kind }
   end
   return list
+end
+
+-- The names of the zones on the map now: { { x, y, text }, ... } with x, y from 0 to 1.
+function ns.MapLabels()
+  local list = {}
+  for index, label in ipairs(labels) do
+    list[index] = { x = label.x, y = label.y, text = label:GetText() }
+  end
+  return list
+end
+
+-- Moves the pointer to a point of the map (0 to 1), for the tests: the tooltip of the pin there
+-- and the zone that lights up. Returns the pin whose tooltip shows, and true if a zone is lit.
+function ns.HoverMap(mapX, mapY)
+  updateHover(view.x + mapX * view.width * view.scale, view.y + mapY * view.height * view.scale)
+  updateHighlight(mapX, mapY)
+  return hovered, highlightKey ~= nil
 end
 
 -- The pins changed (a note, a waypoint, a visited area).
@@ -857,21 +1017,28 @@ end
 ns.OnOption(function(key)
   if key == "mapKey" then
     bindKeys()
-  elseif key == "notes" or key == "pins" then
+  elseif key == "notes" or key == "pins" or key == "zoneNames" or key:find("^show_") then
     ns.RefreshMapPins()
+  elseif key == "zoneHighlight" and highlight then
+    highlightKey = nil
+    highlight:Hide()
   end
 end)
 
 ns.OnLogin(function()
   bindKeys()
   local events = CreateFrame("Frame")
-  for _, event in ipairs({ "UPDATE_BINDINGS", "PLAYER_REGEN_ENABLED", "QUEST_LOG_UPDATE", "ZONE_CHANGED_NEW_AREA" }) do
+  for _, event in ipairs({
+    "UPDATE_BINDINGS", "PLAYER_REGEN_ENABLED", "QUEST_LOG_UPDATE", "ZONE_CHANGED_NEW_AREA", "VIGNETTES_UPDATED",
+    "AREA_POIS_UPDATED", "GROUP_ROSTER_UPDATE", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "USER_WAYPOINT_UPDATED",
+    "QUESTLINE_UPDATE",
+  }) do
     pcall(events.RegisterEvent, events, event)
   end
   events:SetScript("OnEvent", function(_, event)
     if event == "UPDATE_BINDINGS" or (event == "PLAYER_REGEN_ENABLED" and wanted) then
       bindKeys()
-    elseif event == "QUEST_LOG_UPDATE" then
+    elseif event ~= "UPDATE_BINDINGS" and event ~= "PLAYER_REGEN_ENABLED" then
       ns.RefreshMapPins()
     end
   end)

@@ -158,3 +158,78 @@ expect(ns.MapKeys()[1] == "M", "after the fight the map key is bound to the Fore
 -- /fatlas layers prints the art of the map of the player.
 T.slash("/fatlas", "layers")
 expect(T.printed("has 2 layers of art") and T.printed("1002 by 668 pixels"), "/fatlas layers prints the layers of the map")
+
+-- What the map shows: one kind for each sort of thing that the game tells an addon about.
+ns.ShowMap(37)
+local function count(kind)
+  local found = 0
+  for _, pin in ipairs(ns.MapPins()) do
+    if pin.kind == kind then
+      found = found + 1
+    end
+  end
+  return found
+end
+local function pinNamed(kind, at)
+  for _, pin in ipairs(ns.MapPins()) do
+    if pin.kind == kind and (at == nil or math.abs(pin.x - at) < 0.001) then
+      return pin
+    end
+  end
+end
+expect(count("questTurnIns") == 1 and count("questObjectives") == 1, "the quest that is ready has a turn-in pin, the other one an objective pin")
+expect(count("questGivers") == 1, "one quest giver: not the hidden quest and not the one on another floor, got " .. count("questGivers"))
+expect(count("flight") == 1, "one flight master: the one of the player's faction, got " .. count("flight"))
+expect(count("areaPOIs") == 2 and count("graveyards") == 1 and count("links") == 1 and count("dungeons") == 0, "the town, the abbey, the graveyard and the way to Westfall")
+expect(count("rares") == 2 and count("mapPin") == 1, "two rare markers and the map pin of the player")
+expect(count("group") == 0 and count("corpse") == 0, "no group member and no corpse when alone and alive")
+expect(count("atlas") >= 2, "the note and the waypoint of the addon are on the map too")
+-- The icon is the game's: an atlas where the game names one, else a part of the sheet of map icons.
+expect(pinNamed("questTurnIns").data.look.atlas == "QuestTurnin" and pinNamed("questGivers").data.look.atlas == "QuestNormal", "quest pins have the icons of the game's map")
+expect(pinNamed("flight").data.look.atlas == "TaxiNode_Alliance", "a flight master has the icon that the game names for it")
+local town = pinNamed("areaPOIs", 0.42)
+expect(town.data.look.texture == "Interface/Minimap/POIIcons" and town.data.look.coords[1] == 0.5 and town.data.look.coords[2] == 0.6, "a point of interest without an atlas has its part of the sheet of map icons")
+expect(pinNamed("areaPOIs", 0.5).data.look.atlas == "poi-town", "a point of interest with an atlas has the atlas")
+-- The pointer over a pin shows its tooltip. A pin without a click lets the mouse through to the map.
+-- (Zoomed in: the window of the stand-in is one unit wide, so at first all pins are at one place.)
+ns.ZoomMap(100, 0.42, 0.64)
+local over = ns.HoverMap(0.42, 0.64)
+expect(over ~= nil and over.kind == "areaPOIs" and not over:IsMouseEnabled(), "the tooltip of the town shows under the pointer, and the pin does not take the mouse")
+expect(ns.HoverMap(0.9, 0.9) == nil, "away from every pin there is no tooltip")
+expect(pinNamed("links").frame:IsMouseEnabled(), "a pin with a click takes the mouse")
+ns.ZoomMap(-100)
+-- Each kind can be turned off.
+ns.SetOption("show_flight", false)
+expect(count("flight") == 0 and count("areaPOIs") == 2, "with flight masters off they are gone, and the rest stays")
+ns.SetOption("show_flight", true)
+expect(count("flight") == 1, "and back with the option on")
+-- The menu of the button "Show" has a checkbox for each kind.
+H.menus = {}
+H.click(ForeverAtlasMap.show, "LeftButton", false)
+expect(#H.menus == 1 and #H.menus[1] == #ns.MAP_KINDS + 4, "the menu has a checkbox for each kind and four more, got " .. tostring(H.menus[1] and #H.menus[1]))
+H.menus = {}
+-- In a party: the member. As a ghost: the corpse.
+T.world.group = "party"
+T.world.dead = true
+ns.RefreshMapPins()
+expect(count("group") == 1 and count("corpse") == 1, "the party member and the corpse are on the map")
+T.world.group = nil
+T.world.dead = false
+ns.RefreshMapPins()
+-- The way to Westfall opens that map, which has a dungeon entrance.
+H.run(pinNamed("links").frame, "OnMouseUp", "LeftButton")
+expect(ns.MapView().mapID == 52 and count("dungeons") == 1 and pinNamed("dungeons").data.look.atlas == "Dungeon", "the way to Westfall opens its map, with the entrance of the dungeon")
+-- The continent: the names of its zones, and the zone under the pointer lights up.
+ns.ShowMap(13)
+local zoneNames = ns.MapLabels()
+expect(#zoneNames == 2 and zoneNames[1].text == "Elwynn Forest" and zoneNames[1].x == 0.25 and zoneNames[2].text == "Westfall" and zoneNames[2].x == 0.75, "the continent has the name of each zone in its middle")
+expect(select(2, ns.HoverMap(0.2, 0.5)) == true, "the zone under the pointer lights up")
+ns.SetOption("zoneHighlight", false)
+expect(select(2, ns.HoverMap(0.2, 0.5)) == false, "with the option off no zone lights up")
+ns.SetOption("zoneHighlight", true)
+ns.SetOption("zoneNames", false)
+expect(#ns.MapLabels() == 0, "with the option off the zones have no names")
+ns.SetOption("zoneNames", true)
+ns.ShowMap(37)
+expect(#ns.MapLabels() == 0 and select(2, ns.HoverMap(0.2, 0.5)) == false, "a zone has no zone names and nothing to light up")
+ForeverAtlasMap:Hide()

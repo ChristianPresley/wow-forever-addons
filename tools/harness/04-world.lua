@@ -205,13 +205,83 @@ set("C_Map", "GetMapInfo", function(mapID)
 end)
 set("C_Map", "GetMapChildrenInfo", function(mapID)
   if mapID == 13 then
-    return { { mapID = 37, name = "Elwynn Forest", mapType = Enum.UIMapType.Zone, parentMapID = 13, flags = 0 } }
+    return {
+      { mapID = 37, name = "Elwynn Forest", mapType = Enum.UIMapType.Zone, parentMapID = 13, flags = 0 },
+      { mapID = 52, name = "Westfall", mapType = Enum.UIMapType.Zone, parentMapID = 13, flags = 0 },
+    }
   elseif mapID == 947 then
     return { { mapID = 13, name = "Eastern Kingdoms", mapType = Enum.UIMapType.Continent, parentMapID = 947, flags = 0 } }
   end
   return {}
 end)
-set("C_Map", "GetPlayerMapPosition", function() return CreateVector2D(0.42, 0.65) end)
+-- The player, and the member of the group a little away. Nothing for a unit that is not there.
+set("C_Map", "GetPlayerMapPosition", function(_, unit)
+  if unit == "player" then
+    return CreateVector2D(0.42, 0.65)
+  elseif unitExists(unit) and unit ~= "npc" then
+    return CreateVector2D(0.48, 0.69)
+  end
+end)
+setGlobal("UnitIsUnit", function(a, b) return a == b or (a == "raid1" and b == "player") or (a == "player" and b == "raid1") end)
+-- Where a zone is on the continent: Elwynn Forest the left half, Westfall the right half.
+set("C_Map", "GetMapRectOnMap", function(mapID, onMapID)
+  if onMapID == 13 and mapID == 37 then
+    return 0, 0.5, 0, 1
+  elseif onMapID == 13 and mapID == 52 then
+    return 0.5, 1, 0, 1
+  end
+  return 0, 0, 0, 0
+end)
+-- The picture that lights a zone up under the pointer: on the continent, one for each half.
+set("C_Map", "GetMapHighlightInfoAtPosition", function(mapID, x)
+  if mapID == 13 then
+    local left = x < 0.5
+    return left and 9001 or 9002, "", 0.8, 0.9, 0.5, 1, left and 0 or 0.5, 0
+  end
+  return 0, "", 0, 0, 0, 0, 0, 0
+end)
+-- Points of interest of Elwynn Forest: a town with a picture from the sheet of map icons, and an
+-- abbey with an atlas. A graveyard, and a way to Westfall. Westfall has a dungeon entrance.
+local AREA_POIS = {
+  [101] = { areaPoiID = 101, name = "Goldshire", description = "Town", position = CreateVector2D(0.42, 0.64), textureIndex = 5 },
+  [102] = { areaPoiID = 102, name = "Northshire Abbey", position = CreateVector2D(0.5, 0.42), atlasName = "poi-town" },
+}
+local function poiDefaults(info)
+  for key, value in pairs({
+    highlightVignettesOnHover = false, highlightWorldQuestsOnHover = false, isAlwaysOnFlightmap = false, isCurrentEvent = false,
+    isLocked = false, isPrimaryMapForPOI = true, isSuppressible = false, shouldGlow = false,
+  }) do
+    if info[key] == nil then
+      info[key] = value
+    end
+  end
+  return info
+end
+set("C_AreaPoiInfo", "GetAreaPOIForMap", function(mapID) return mapID == 37 and { 101, 102 } or {} end)
+set("C_AreaPoiInfo", "GetAreaPOIInfo", function(mapID, id)
+  if mapID == 37 and AREA_POIS[id] then
+    return poiDefaults(AREA_POIS[id])
+  end
+end)
+set("C_Minimap", "GetPOITextureCoords", function(index) return index * 0.1, index * 0.1 + 0.1, 0.25, 0.5 end)
+set("C_DeathInfo", "GetGraveyardsForMap", function(mapID)
+  if mapID ~= 37 then
+    return {}
+  end
+  return { { areaPoiID = 103, graveyardID = 1, isGraveyardSelectable = false, name = "Goldshire Graveyard", position = CreateVector2D(0.39, 0.6), textureIndex = 8 } }
+end)
+set("C_EncounterJournal", "GetDungeonEntrancesForMap", function(mapID)
+  if mapID ~= 52 then
+    return {}
+  end
+  return { { areaPoiID = 104, atlasName = "Dungeon", description = "Dungeon", journalInstanceID = 63, name = "The Deadmines", position = CreateVector2D(0.42, 0.72) } }
+end)
+set("C_Map", "GetMapLinksForMap", function(mapID)
+  if mapID ~= 37 then
+    return {}
+  end
+  return { { areaPoiID = 105, atlasName = "poi-door", linkedUiMapID = 52, name = "Westfall", position = CreateVector2D(0.05, 0.7) } }
+end)
 set("C_Map", "GetWorldPosFromMapPos", function(_, position) return 0, CreateVector2D(position.x * 1000, position.y * 1000) end)
 set("C_Map", "GetUserWaypoint", function() return { uiMapID = 37, position = CreateVector2D(0.6, 0.6) } end)
 -- The art of a map: layers of image tiles. The first layer is the whole map as one picture; a
@@ -328,13 +398,13 @@ end)
 set("C_SuperTrack", "GetSuperTrackedQuestID", function() return 176 end)
 set("C_VignetteInfo", "GetVignettes", function() return { "Vignette-1", "Vignette-2" } end)
 set("C_VignetteInfo", "GetVignetteInfo", function(guid)
-  return { name = guid == "Vignette-1" and "Gruff Swiftbite" or "", isDead = false, vignetteGUID = guid }
+  return { name = guid == "Vignette-1" and "Gruff Swiftbite" or "", isDead = false, vignetteGUID = guid, atlasName = "VignetteKill" }
 end)
 set("C_VignetteInfo", "GetVignettePosition", function() return CreateVector2D(0.25, 0.9) end)
 set("C_TaxiMap", "GetTaxiNodesForMap", function()
   return {
-    { name = "Goldshire", position = CreateVector2D(0.43, 0.66), faction = Enum.FlightPathFaction.Alliance },
-    { name = "Orc camp", position = CreateVector2D(0.8, 0.1), faction = Enum.FlightPathFaction.Horde },
+    { name = "Goldshire", position = CreateVector2D(0.43, 0.66), faction = Enum.FlightPathFaction.Alliance, atlasName = "TaxiNode_Alliance", isUndiscovered = false },
+    { name = "Orc camp", position = CreateVector2D(0.8, 0.1), faction = Enum.FlightPathFaction.Horde, atlasName = "TaxiNode_Horde", isUndiscovered = true },
   }
 end)
 set("C_DeathInfo", "GetCorpseMapPosition", function() return CreateVector2D(0.41, 0.6) end)

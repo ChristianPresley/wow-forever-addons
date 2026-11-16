@@ -31,13 +31,17 @@ function ns.MapName(mapID)
   return ok and info and info.name or ("map " .. tostring(mapID))
 end
 
--- Sets a texture from { atlas = , texture = , color = { r, g, b } }. The texture is the fallback for a missing atlas.
+-- Sets a texture from { atlas = , texture = , coords = { left, right, top, bottom }, color = { r, g, b } }.
+-- The texture is the fallback for a missing atlas; coords cut a part out of the texture file.
 function ns.SetIcon(texture, look)
   texture:SetTexCoord(0, 1, 0, 1)
   if look.atlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(look.atlas) then
     texture:SetAtlas(look.atlas)
   else
     texture:SetTexture(look.texture)
+    if look.coords then
+      texture:SetTexCoord(look.coords[1], look.coords[2], look.coords[3], look.coords[4])
+    end
   end
   local color = look.color
   texture:SetVertexColor(color and color[1] or 1, color and color[2] or 1, color and color[3] or 1, 1)
