@@ -29,12 +29,34 @@ local function snapshot()
   return quests
 end
 
+-- True if an objective count went up.
+local function more(have, had)
+  return type(have) == "number" and type(had) == "number"
+    and not ns.IsSecret(have) and not ns.IsSecret(had) and have > had
+end
+
+local function madeProgress(quest, before)
+  if quest.complete and not before.complete then
+    return true
+  end
+  for j, objective in ipairs(quest.objectives) do
+    local was = before.objectives[j]
+    if was and ((objective.finished and not was.finished) or more(objective.have, was.have)) then
+      return true
+    end
+  end
+  return false
+end
+
 local function report(old, new)
   local options = ForeverQuestsDB.options
   local ready = false
   for questID, quest in pairs(new) do
     local before = old[questID]
     if before then
+      if ns.OnQuestProgress and madeProgress(quest, before) then
+        ns.OnQuestProgress(questID) -- LogOrder.lua
+      end
       if quest.complete and not before.complete then
         ready = true
         if options.announce then

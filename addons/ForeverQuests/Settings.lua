@@ -5,7 +5,7 @@ local _, ns = ...
 local SECTIONS = {
   { "Automation", { "autoAccept", "autoTurnIn" } },
   { "Alerts", { "announce", "sound" } },
-  { "Quest log and tracker", { "zoneLog", "zoneTracker" } },
+  { "Quest log and tracker", { "popProgress", "sortAlpha", "zoneLog", "zoneTracker" } },
   { "Party and rewards", { "partyProgress", "rewardHelper" } },
 }
 

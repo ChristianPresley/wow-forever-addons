@@ -100,16 +100,16 @@ local function searching()
   return QuestSearcher and QuestSearcher.IsActive and QuestSearcher:IsActive()
 end
 
--- Runs after the game has built the quest log.
+-- Runs after the game has built the quest log. Returns true if the log needs a new layout.
 local function filterLog()
   local scroll = QuestScrollFrame
-  if not (scroll and scroll.titleFramePool and scroll.titleFramePool.EnumerateActive and scroll.Contents and scroll.Contents.Layout) then
-    return
+  if not (scroll and scroll.titleFramePool and scroll.titleFramePool.EnumerateActive) then
+    return false
   end
   -- A search shows every match, whatever its zone.
   if not ns.GetOption("zoneLog") or searching() then
     showEmptyNote(false)
-    return
+    return false
   end
 
   local inZone, zoneHeaders = scan()
@@ -143,12 +143,21 @@ local function filterLog()
       end
     end
   end
-  if total > shown or headersHidden then
-    -- The layout leaves out hidden frames, so the list closes up.
-    scroll.Contents:Layout()
-  end
   -- A collapsed zone header has no quest buttons but is still there to open.
   showEmptyNote(shown == 0 and next(zoneHeaders) == nil)
+  -- The layout leaves out hidden frames, so the list closes up.
+  return total > shown or headersHidden
+end
+
+-- After the game has built the quest log: the order (LogOrder.lua), then the zone filter, then one
+-- new layout if either changed something.
+local function afterLogUpdate()
+  local ordered, moved = pcall(ns.ArrangeLog)
+  local filtered, hid = pcall(filterLog)
+  local contents = QuestScrollFrame and QuestScrollFrame.Contents
+  if ((ordered and moved) or (filtered and hid)) and contents and contents.Layout then
+    contents:Layout()
+  end
 end
 
 local function refreshLog()
@@ -156,6 +165,7 @@ local function refreshLog()
     pcall(QuestLogQuests_Update)
   end
 end
+ns.RefreshQuestLog = refreshLog
 
 local function addMenuItem()
   -- The settings menu of the quest log (the button next to its search box).
@@ -285,9 +295,7 @@ local function hook()
     return hooked
   end
   hooked = true
-  hooksecurefunc("QuestLogQuests_Update", function()
-    pcall(filterLog)
-  end)
+  hooksecurefunc("QuestLogQuests_Update", afterLogUpdate)
   pcall(addMenuItem)
   return true
 end

@@ -41,6 +41,16 @@ ns.OPTIONS = {
     hint = "The vendor sell price on each reward choice, with the most valuable one marked.",
   },
   {
+    key = "popProgress", command = "pop", label = "progressed quest first in the quest log", default = true,
+    text = "Quest log: progressed quest first, with a glow",
+    hint = "A quest that makes progress goes to the top of its zone in the quest log and glows for a few seconds.",
+  },
+  {
+    key = "sortAlpha", command = "sortname", label = "quests of each zone by name", default = false,
+    text = "Quest log: sort each zone by name",
+    hint = "The quests of each zone in alphabetical order. With the option above also on, progressed quests are still first.",
+  },
+  {
     key = "zoneLog", command = "zonelog", label = "current zone only in the quest log", default = false,
     text = "Quest log: current zone only",
     hint = "Hide the quests of other zones in the quest log. Also in the settings menu of the quest log.",
