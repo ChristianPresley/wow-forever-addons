@@ -50,7 +50,7 @@ end
 
 -- The sell price of the whole stack of a choice in copper, or nil while the item is not loaded.
 local function valueOf(index)
-  local getItemInfo = C_Item and C_Item.GetItemInfo or GetItemInfo
+  local getItemInfo = C_Item.GetItemInfo
   local link = GetQuestItemLink and GetQuestItemLink("choice", index)
   if not link or not getItemInfo then
     return nil

@@ -45,6 +45,10 @@ H.onError = fail
 
 -- Runs fn and records an error as a failure.
 function H.call(where, fn, ...)
+  -- An addon that did not come to an end twice is not called again (see the line hook below).
+  if H.stuck and H.stuck() then
+    return false
+  end
   local ok, err = realPcall(fn, ...)
   if not ok then
     fail(where, err)
@@ -240,7 +244,8 @@ local function payloadOf(event)
     n = n + 1
     if not entry.optional then
       local kind = entry.kind
-      out[n] = kind == "n" and 1 or kind == "s" and "player" or kind == "b" and false or kind == "t" and {} or nil
+      -- A table has the fields of its documented structure, as a result of a function has.
+      out[n] = kind == "n" and 1 or kind == "s" and "player" or kind == "b" and false or kind == "t" and H.defaultOf(entry, 0) or nil
     end
   end
   return out, n
@@ -283,8 +288,8 @@ end
 --
 -- Each frame of the addon is used as a player can use it. Where the game changes a state before
 -- it runs a script (shown, checked, the value of a slider, the text of an edit box), the driver
--- changes the state too. A frame that is hidden is used all the same: its window opens at some
--- time, and the test is for the worst case.
+-- changes the state too. A player can use only what is on the screen: for a frame in a window
+-- that is closed, the window opens first (with its OnShow scripts) and closes again after.
 
 local function script(frame, name, ...)
   if H.state(frame).scripts[name] then
@@ -294,7 +299,29 @@ local function script(frame, name, ...)
   end
 end
 
+local use
+
 local function poke(frame)
+  -- The frame itself and the frames above it that are hidden, the top one first.
+  local hidden = {}
+  local at = frame
+  while at do
+    if not H.state(at).shown then
+      table.insert(hidden, 1, at)
+    end
+    at = H.state(at).parent
+  end
+  for _, window in ipairs(hidden) do
+    call("opening the window", window.Show, window)
+  end
+  runMenus()
+  use(frame)
+  for index = #hidden, 1, -1 do
+    call("closing the window", hidden[index].Hide, hidden[index])
+  end
+end
+
+function use(frame)
   local s = H.state(frame)
   local scripts = s.scripts
   -- Shown and hidden, back to the state of before.
@@ -551,14 +578,34 @@ end
 -- Coverage: which lines of the addon ran. The same hook stops an addon that does not end.
 
 local hits = {} -- [chunk name] = { [line] = true }
+-- The limit is for one stretch of addon code without a step of the driver between: an endless
+-- loop ends with an error after CALL_LIMIT lines, in a handler that is called again too, and
+-- inside a pcall of the addon (the error comes again at the next line). The hook stays in place.
+-- After two such stops the addon is not called again: one failure says so.
 local lineCount, LINE_LIMIT = 0, 60000000
+local stretch, CALL_LIMIT = 0, 3000000
+local stops = 0
+function H.stuck()
+  return stops >= 2 or lineCount > LINE_LIMIT
+end
+local realCall = H.call
+function H.call(where, fn, ...)
+  stretch = 0
+  local ok = realCall(where, fn, ...)
+  stretch = 0
+  return ok
+end
+call = H.call
 H.debug.sethook(function(_, line)
-  lineCount = lineCount + 1
-  if lineCount > LINE_LIMIT then
-    H.debug.sethook()
-    error("the addon does not come to an end: more than " .. LINE_LIMIT .. " lines ran", 2)
-  end
   local source = getinfo(2, "S").source
+  lineCount = lineCount + 1
+  stretch = stretch + 1
+  if (stretch > CALL_LIMIT or lineCount > LINE_LIMIT) and not source:find("^=harness/") then
+    if stretch > CALL_LIMIT then
+      stops, stretch = stops + 1, CALL_LIMIT - 1000
+    end
+    error("the addon does not come to an end: more than " .. CALL_LIMIT .. " lines ran without a pause", 2)
+  end
   local lines = hits[source]
   if not lines then
     lines = {}
@@ -745,6 +792,16 @@ H.advance(5)
 phase = "logout"
 fire("PLAYER_LOGOUT")
 local saved = savedSource()
+
+-- What the stand-in itself got wrong against the documentation: the results of hand-written
+-- functions (H.problems in 01-api.lua) and the widget kinds (H.selfCheck in 02-widgets.lua).
+phase = "stand-in"
+for _, text in ipairs(H.selfCheck()) do
+  fail("conformance", text)
+end
+for _, text in ipairs(H.problems) do
+  fail("conformance", text)
+end
 
 counts.frames = #H.frames - H.gameFrames
 H.debug.sethook()

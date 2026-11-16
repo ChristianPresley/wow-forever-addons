@@ -272,10 +272,18 @@
       "LEGACY_TREE_PROFESSIONS_ID": 1187,
       "LEGACY_TREE_PROGRESSION_ID": 1189
     },
+    "LevelConstsExposed": {
+      "MIN_ACHIEVEMENT_LEVEL": 10,
+      "MIN_RES_SICKNESS_LEVEL": 11,
+      "MIN_TALENT_LEVEL": 10
+    },
     "LevelConstsExposed_Camelot": {
       "MIN_ACHIEVEMENT_LEVEL": 10,
       "MIN_RES_SICKNESS_LEVEL": 11,
       "MIN_TALENT_LEVEL": 10
+    },
+    "LootConsts": {
+      "MasterLootQualityThreshold": 4
     },
     "LootConsts_Camelot": {
       "MasterLootQualityThreshold": 4
@@ -306,11 +314,23 @@
     "PetBattleConsts": {
       "SUMMON_RANDOM_FAVORITE_BATTLEPET_SPELL_ID": 243819
     },
+    "PetConsts": {
+      "DEFAULT_PET_PERSONALITY": 1,
+      "MAX_STABLE_SLOTS": 2,
+      "MAX_SUMMONABLE_HUNTER_PETS": 1,
+      "NUM_PET_SLOTS_HUNTER": 3,
+      "NUM_PET_SLOTS_THAT_NEED_LEARNED_SPELL": 1,
+      "PET_XP_LEVEL_MODIFIER": 0.25,
+      "STABLED_PETS_FIRST_SLOT_INDEX": 1
+    },
     "PetConsts_Camelot": {
       "DEFAULT_PET_PERSONALITY": 1,
       "MAX_STABLE_SLOTS": 2,
+      "MAX_SUMMONABLE_HUNTER_PETS": 1,
+      "NUM_PET_SLOTS_HUNTER": 3,
       "NUM_PET_SLOTS_THAT_NEED_LEARNED_SPELL": 1,
-      "PET_XP_LEVEL_MODIFIER": 0.25
+      "PET_XP_LEVEL_MODIFIER": 0.25,
+      "STABLED_PETS_FIRST_SLOT_INDEX": 1
     },
     "ProfessionConsts": {
       "CLASSIC_PROFESSION_PARENT_TIER_INDEX": 4,
@@ -14280,8 +14300,8 @@
     "FIRST_FRAME_RENDERED": "",
     "FOG_OF_WAR_UPDATED": "",
     "FORBIDDEN_NAME_PLATE_CREATED": "o",
-    "FORBIDDEN_NAME_PLATE_UNIT_ADDED": "n",
-    "FORBIDDEN_NAME_PLATE_UNIT_REMOVED": "n",
+    "FORBIDDEN_NAME_PLATE_UNIT_ADDED": "s",
+    "FORBIDDEN_NAME_PLATE_UNIT_REMOVED": "s",
     "FORCE_REFRESH_HOUSE_FINDER": "",
     "FRAME_MANAGER_UPDATE_ALL": "",
     "FRAME_MANAGER_UPDATE_FRAME": "nb",
@@ -14718,9 +14738,9 @@
     "MYTHIC_PLUS_CURRENT_AFFIX_UPDATE": "",
     "MYTHIC_PLUS_NEW_WEEKLY_RECORD": "nnn",
     "NAME_PLATE_CREATED": "o",
-    "NAME_PLATE_UNIT_ADDED": "n",
+    "NAME_PLATE_UNIT_ADDED": "s",
     "NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED": "sb",
-    "NAME_PLATE_UNIT_REMOVED": "n",
+    "NAME_PLATE_UNIT_REMOVED": "s",
     "NAVIGATION_DESTINATION_REACHED": "b",
     "NAVIGATION_FRAME_CREATED": "o",
     "NAVIGATION_FRAME_DESTROYED": "",
@@ -23069,7 +23089,7 @@
       "reagent": "t{CraftingReagent}"
     },
     "CreateFontFamilyMemberInfo": {
-      "alphabet": "s",
+      "alphabet": "a",
       "file": "s",
       "flags": "s",
       "height": "n"
@@ -28108,10 +28128,12 @@
     "ItemConsts.CURRENT_ITEM_SAVE_VERSION",
     "PetConsts_Camelot.EXTRA_PET_STABLE_SLOT",
     "PetConsts_Camelot.MAX_NUM_PET_SLOTS",
-    "PetConsts_Camelot.MAX_SUMMONABLE_HUNTER_PETS",
-    "PetConsts_Camelot.NUM_PET_SLOTS_HUNTER",
-    "PetConsts_Camelot.STABLED_PETS_FIRST_SLOT_INDEX",
     "TalentConsts.NumTalentColumns"
+  ],
+  "widerArguments": [
+    "SimpleFrameAPI:SetAttribute",
+    "SimpleFrameAPI:SetAttributeNoHandler",
+    "SimpleTextureBaseAPI:SetTexture"
   ],
   "widgets": {
     "AbbreviateConfigAPI": {
@@ -28559,13 +28581,13 @@
         "AddUnit": "|san?n?n?n?n?n?n?b?|U",
         "ClearUnits": "||",
         "FinalizeUnits": "||",
-        "GetMouseOverUnits": "n*||",
+        "GetMouseOverUnits": "s*||",
         "GetPlayerPingScale": "n||",
         "GetUiMapID": "n||",
         "SetPlayerPingScale": "|n|U",
         "SetPlayerPingTexture": "|nan?n?|U",
         "SetUiMapID": "|n|U",
-        "SetUnitColor": "|nnnnn|U",
+        "SetUnitColor": "|snnnn|U",
         "StartPlayerPing": "|n?n?|U",
         "StopPlayerPing": "||"
       },
@@ -29247,7 +29269,7 @@
         "GetFont": "sns||",
         "GetFontHeight": "n||",
         "GetFontObject": "o||",
-        "GetFontObjectForAlphabet": "o|s|U",
+        "GetFontObjectForAlphabet": "o|a|U",
         "GetIndentedWordWrap": "b||",
         "GetJustifyH": "s||",
         "GetJustifyV": "s||",
@@ -29386,7 +29408,7 @@
         "InterceptStartDrag": "b|o|U",
         "IsClampedToScreen": "b||",
         "IsDrawLayerEnabled": "b|s|U",
-        "IsEventRegistered": "bn*|s|U",
+        "IsEventRegistered": "bs*|s|U",
         "IsFrameBuffer": "b||",
         "IsGamePadButtonEnabled": "b||",
         "IsGamePadStickEnabled": "b||",
@@ -29411,16 +29433,16 @@
         "RegisterEvent": "b|s|U",
         "RegisterEventCallback": "b|sf|U",
         "RegisterForDrag": "|s*|U",
-        "RegisterUnitEvent": "b|sn*|U",
-        "RegisterUnitEventCallback": "b|sfn*|U",
+        "RegisterUnitEvent": "b|ss*|U",
+        "RegisterUnitEventCallback": "b|sfs*|U",
         "RemoveRoleset": "|s|UP",
         "ResizeToBoundsRect": "||P",
         "RotateTextures": "|nn?n?|U",
         "SetAlpha": "|n|T",
         "SetAlphaFromBoolean": "|bn?n?|T",
         "SetAlphaGradient": "|nt|U",
-        "SetAttribute": "|ss|UA",
-        "SetAttributeNoHandler": "|ss|UA",
+        "SetAttribute": "|sa|UA",
+        "SetAttributeNoHandler": "|sa|UA",
         "SetClampRectInsets": "|nnnn|UP",
         "SetClampedToScreen": "|b|NP",
         "SetClipsChildren": "|b|U",
@@ -29921,7 +29943,7 @@
         "SetSpriteSheetCell": "|nnnn?n?|T",
         "SetTexCoord": "|nnnn|T",
         "SetTexelSnappingBias": "|n|U",
-        "SetTexture": "b|s?s?s?s?|T",
+        "SetTexture": "b|s?a?a?s?|T",
         "SetTextureSliceMargins": "|nnnn|U",
         "SetTextureSliceMode": "|n|U",
         "SetVertTile": "|b?|U",

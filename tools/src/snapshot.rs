@@ -138,6 +138,21 @@ local function collect()
           end
         end
         constants[entry.Name] = values
+        -- The documentation names three tables of this client with the suffix _Camelot. The
+        -- game's own code reads them without it, and never with it:
+        -- Constants.PetConsts (Blizzard_StableUI/Camelot/Blizzard_StableUI.lua),
+        -- Constants.LevelConstsExposed (Blizzard_Game/Mainline/EventImplementation.lua),
+        -- Constants.LootConsts (Blizzard_UIPanels_Game/Mainline/GroupLootFrame.lua).
+        -- The documentation's own values name Constants.PetConsts too. So the table is also
+        -- there under the name without the suffix.
+        local short = entry.Name:match("^(.+)_Camelot$")
+        if short then
+          local alias = constants[short] or {}
+          for key, value in pairs(values) do
+            alias[key] = value
+          end
+          constants[short] = alias
+        end
       end
     end
   end
@@ -182,7 +197,11 @@ local BASIC = {
   UnitTokenNamePlate = "s", ScriptTypeName = "s", HTMLTextType = "s", AuraFilters = "s",
   FilterMode = "s", MouseButton = "s", ClickButton = "s",
   SendChatMessageType = "s",   -- the documentation: "Chat type string ('SAY', 'EMOTE', etc.)"
-  FontAlphabet = "s",          -- "roman", "korean", ...
+  -- The documentation defines UnitTokenType as an enumeration, and the game takes the unit
+  -- name: Frame:RegisterUnitEvent("UNIT_FLAGS", "pet") in
+  -- Blizzard_ActionBar/Shared/ActionButton.lua, and 130 more calls of the game's code with a
+  -- text, none with a number. This table is read before the documented kinds.
+  UnitTokenType = "s",
   -- A wrong kind here makes the stand-in refuse a correct call. A name that is not surely a
   -- number or a string stays out of this table, and counts as "any value".
   kstringLfgListApplicant = "s", kstringLfgListSearch = "s", kstringLfgListChat = "s",
@@ -224,6 +243,20 @@ end
 
 local unknownTypes = {}
 
+-- Where the game takes more than its documentation says. Each line needs a call of the game's
+-- own code as the proof. The key is the function, the value the code of an argument by its
+-- position. An entry for a function that the documentation does not have stops the tool.
+local WIDER_ARGUMENTS = {
+  -- frame:SetAttribute("checkselfcast", true), and tables and numbers as the value:
+  -- Blizzard_UIParentPanelManager/Shared/UIParentPanelManager.lua. Documented as a text.
+  ["SimpleFrameAPI:SetAttribute"] = { [2] = "a" },
+  ["SimpleFrameAPI:SetAttributeNoHandler"] = { [2] = "a" },
+  -- texture:SetTexture(path, true, true): Blizzard_NamePlates/Blizzard_NamePlateUnitFrame.lua.
+  -- The wrap modes are documented as texts.
+  ["SimpleTextureBaseAPI:SetTexture"] = { [2] = "a?", [3] = "a?" },
+}
+local widerUsed = {}
+
 -- The letter of a documented value, without the marks for nil and lists.
 local function letter(value)
   local kind = BASIC[value.Type] or kinds[value.Type]
@@ -241,14 +274,17 @@ local function letter(value)
 end
 
 -- Codes of a list of values. `optional`: a value with a default counts as one that can be nil.
-local function codes(list, optional)
+local function codes(list, optional, wider)
   local out = {}
-  for _, value in ipairs(list or {}) do
+  for index, value in ipairs(list or {}) do
     local code = letter(value)
     if value.StrideIndex then
       code = code .. "*"
     elseif value.Nilable or (optional and value.Default ~= nil) then
       code = code .. "?"
+    end
+    if wider and wider[index] then
+      code = wider[index]
     end
     out[#out + 1] = code
   end
@@ -296,7 +332,11 @@ local function secretUnderRestriction(entry)
   return false
 end
 
-local function spec(fn)
+local function spec(fn, key)
+  local wider = key and WIDER_ARGUMENTS[key]
+  if wider then
+    widerUsed[key] = true
+  end
   local flags = SECRET_ARGUMENTS[fn.SecretArguments] or ""
   if fn.SecretWhenInCombat then
     flags = flags .. "C"
@@ -319,7 +359,7 @@ local function spec(fn)
   if fn.HasRestrictions then
     flags = flags .. "H"
   end
-  return codes(fn.Returns, false) .. "|" .. codes(fn.Arguments, true) .. "|" .. flags
+  return codes(fn.Returns, false) .. "|" .. codes(fn.Arguments, true, wider) .. "|" .. flags
 end
 
 local function eventFlags(event)
@@ -355,7 +395,7 @@ for _, doc in ipairs(DOCS) do
             object = { objectType = doc.ObjectType or "", methods = {} }
             out.widgets[doc.Name] = object
           end
-          object.methods[fn.Name] = spec(fn)
+          object.methods[fn.Name] = spec(fn, doc.Name .. ":" .. fn.Name)
         else
           -- A function can name its own namespace; "" is the global one.
           local namespace = fn.Namespace
@@ -363,10 +403,10 @@ for _, doc in ipairs(DOCS) do
             namespace = doc.Namespace
           end
           if namespace == nil or namespace == "" then
-            out.globals[fn.Name] = spec(fn)
+            out.globals[fn.Name] = spec(fn, fn.Name)
           else
             out.namespaces[namespace] = out.namespaces[namespace] or {}
-            out.namespaces[namespace][fn.Name] = spec(fn)
+            out.namespaces[namespace][fn.Name] = spec(fn, namespace .. "." .. fn.Name)
           end
         end
       end
@@ -389,7 +429,16 @@ for name, count in pairs(unknownTypes) do
 end
 table.sort(unknownList)
 
-return out, failed, unresolved, unknownList, secureOnly
+local widerList = {}
+for key in pairs(WIDER_ARGUMENTS) do
+  if not widerUsed[key] then
+    error("WIDER_ARGUMENTS names " .. key .. ", which the documentation does not have")
+  end
+  widerList[#widerList + 1] = key
+end
+table.sort(widerList)
+
+return out, failed, unresolved, unknownList, secureOnly, widerList
 "#;
 
 fn count_map(value: Option<&serde_json::Value>) -> usize {
@@ -427,7 +476,7 @@ pub fn build(docs_dir: &Path, out: &Path, source_note: &str) -> Result<Vec<Strin
     // The documentation files come from outside this repository. They run with the table, string
     // and math libraries only: no file, OS, package or debug access.
     let lua = Lua::new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH, LuaOptions::default()).map_err(|error| error.to_string())?;
-    let run = || -> mlua::Result<(serde_json::Value, Vec<String>, Vec<String>, Vec<String>, i64)> {
+    let run = || -> mlua::Result<(serde_json::Value, Vec<String>, Vec<String>, Vec<String>, i64, Vec<String>)> {
         // The base library has functions that read files and load binary code.
         for name in ["dofile", "loadfile", "load", "loadstring", "require", "collectgarbage"] {
             lua.globals().set(name, mlua::Value::Nil)?;
@@ -441,11 +490,11 @@ pub fn build(docs_dir: &Path, out: &Path, source_note: &str) -> Result<Vec<Strin
             entry.set("run", lua.load(&source[..]).set_name(format!("={name}")).into_function()?)?;
             list.push(entry)?;
         }
-        let (table, failed, unresolved, unknown, secure_only): (mlua::Value, Vec<String>, Vec<String>, Vec<String>, i64) =
+        let (table, failed, unresolved, unknown, secure_only, wider): (mlua::Value, Vec<String>, Vec<String>, Vec<String>, i64, Vec<String>) =
             lua.load(BUILD).set_name("=build").call(list)?;
-        Ok((lua.from_value(table)?, failed, unresolved, unknown, secure_only))
+        Ok((lua.from_value(table)?, failed, unresolved, unknown, secure_only, wider))
     };
-    let (mut snapshot, failed, unresolved, unknown, secure_only) = run().map_err(|error| error.to_string())?;
+    let (mut snapshot, failed, unresolved, unknown, secure_only, wider) = run().map_err(|error| error.to_string())?;
 
     // A file that does not run would take a part of the API away without a word.
     if !failed.is_empty() {
@@ -476,7 +525,11 @@ pub fn build(docs_dir: &Path, out: &Path, source_note: &str) -> Result<Vec<Strin
     if !unknown.is_empty() {
         lines.push(format!("{} kinds of values are not known and count as \"any value\": {}", unknown.len(), unknown.join(", ")));
     }
+    if !wider.is_empty() {
+        lines.push(format!("{} functions take more than the documentation says (WIDER_ARGUMENTS in snapshot.rs): {}", wider.len(), wider.join(", ")));
+    }
     if let Some(map) = snapshot.as_object_mut() {
+        map.insert("widerArguments".to_string(), serde_json::json!(wider));
         map.insert("source".to_string(), serde_json::Value::String(source_note.to_string()));
         map.insert("unresolvedConstants".to_string(), serde_json::json!(unresolved));
     }
@@ -486,4 +539,48 @@ pub fn build(docs_dir: &Path, out: &Path, source_note: &str) -> Result<Vec<Strin
     let text = serde_json::to_string_pretty(&snapshot).map_err(|error| error.to_string())?;
     fs::write(out, text + "\n").map_err(|error| format!("Cannot write {}: {error}", out.display()))?;
     Ok(lines)
+}
+
+/// The differences between two snapshots, one line for each name that was added, removed or
+/// changed, for the message of `cargo dev api-snapshot --check`.
+pub fn differences(old: &serde_json::Value, new: &serde_json::Value) -> Vec<String> {
+    fn walk(path: &str, old: Option<&serde_json::Value>, new: Option<&serde_json::Value>, depth: usize, out: &mut Vec<String>) {
+        match (old, new) {
+            (Some(a), Some(b)) if a == b => {}
+            (Some(serde_json::Value::Object(a)), Some(serde_json::Value::Object(b))) if depth < 3 => {
+                let keys: std::collections::BTreeSet<&String> = a.keys().chain(b.keys()).collect();
+                for key in keys {
+                    let inner = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
+                    walk(&inner, a.get(key), b.get(key), depth + 1, out);
+                }
+            }
+            (Some(a), Some(b)) => out.push(format!("changed  {path}: {a} -> {b}")),
+            (None, Some(_)) => out.push(format!("added    {path}")),
+            (Some(_), None) => out.push(format!("removed  {path}")),
+            (None, None) => {}
+        }
+    }
+    let mut out = Vec::new();
+    for section in ["namespaces", "globals", "widgets", "events", "eventFlags", "enums", "enumMeta", "constants", "structures", "secretFields"] {
+        walk(section, old.get(section), new.get(section), 0, &mut out);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn differences_name_what_was_added_removed_and_changed() {
+        let old = serde_json::json!({ "namespaces": { "C_A": { "Keep": "n||", "Drop": "||", "Edit": "s||" } }, "events": { "ONE": "" } });
+        let new = serde_json::json!({ "namespaces": { "C_A": { "Keep": "n||", "Edit": "n||", "New": "||" }, "C_B": { "F": "||" } }, "events": { "ONE": "" } });
+        assert_eq!(differences(&old, &new), [
+            "removed  namespaces.C_A.Drop",
+            "changed  namespaces.C_A.Edit: \"s||\" -> \"n||\"",
+            "added    namespaces.C_A.New",
+            "added    namespaces.C_B",
+        ]);
+        assert!(differences(&old, &old).is_empty());
+    }
 }

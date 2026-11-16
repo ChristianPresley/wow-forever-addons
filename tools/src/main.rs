@@ -2,16 +2,20 @@
 //!
 //!   cargo dev lint            check each addon: TOC, addon.json, file list and Lua syntax
 //!   cargo dev test            load each addon in a stand-in for the game and use everything in it
+//!   cargo dev conformance     check each API name that the addons use, without running them
 //!   cargo dev api-snapshot    build the API snapshot that the stand-in is made from
+//!   cargo dev ui-names        list the fonts and the undocumented events of the game's UI files
 //!   cargo dev marketplace     build dist/marketplace: one ZIP for each addon, and index.json
 //!   cargo dev icon <out.png>  draw the source image of the app icon
 
 mod addons;
+mod conformance;
 mod harness;
 mod icon;
 mod lint;
 mod marketplace;
 mod snapshot;
+mod ui_names;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -25,9 +29,19 @@ Commands:
                             --coverage  list the code lines of each file that did not run
                             --caught    list the errors that the addon caught itself, and the
                                         names that it looked for and that are not there
+  conformance             check each API name that the addons use against the API of this client,
+                          on every line, without running the addons
   api-snapshot <folder> [note]
                           build tools/api/forever-api.json from Blizzard's API documentation
                           (the Blizzard_APIDocumentationGenerated folder of the UI source)
+                            --out <file>  write the new snapshot to another file
+                            --check       compare with the snapshot of the repository and
+                                          list the differences; nothing is written to it
+  ui-names <folder>       build tools/api/forever-ui.json from the Interface/AddOns folder of the
+                          UI source: the fonts of the game, and the events that the game's own
+                          code registers and the documentation does not list
+                            --check       compare with the file of the repository; nothing is
+                                          written to it
   marketplace             build dist/marketplace: one ZIP for each addon, and index.json
   icon <out.png>          draw the source image of the app icon";
 
@@ -114,6 +128,25 @@ fn run() -> Result<bool, String> {
             println!("\n{} addons loaded and used in the stand-in for the game, no errors.", reports.len());
             Ok(true)
         }
+        (Some("conformance"), _) => {
+            let addons = addons::read_addons(&root.join("addons"))?;
+            let snapshot_file = root.join("tools").join("api").join("forever-api.json");
+            let text = std::fs::read_to_string(&snapshot_file).map_err(|error| format!("Cannot read {}: {error}", snapshot_file.display()))?;
+            let mut snapshot: serde_json::Value = serde_json::from_str(&text).map_err(|error| format!("The API snapshot is not valid JSON: {error}"))?;
+            harness::with_ui_names(&mut snapshot)?;
+            let (globals, methods) = harness::known_names(&snapshot)?;
+            let known = conformance::Known::new(&snapshot, globals, methods);
+            let problems = conformance::check(&addons, &known)?;
+            if problems.is_empty() {
+                println!("{} addons: every name of the game's API that they use is in the API of this client.", addons.len());
+                return Ok(true);
+            }
+            for problem in &problems {
+                eprintln!("{problem}");
+            }
+            eprintln!("\n{} name(s) that this client does not have. Each one is a mistake, or code for another client that never runs here.", problems.len());
+            Ok(false)
+        }
         (Some("api-snapshot"), Some(docs_dir)) => {
             // The snapshot is what the addon tests are judged against. `--out <file>` writes a
             // new one beside it, to compare before it takes the place of the old one.
@@ -123,10 +156,74 @@ fn run() -> Result<bool, String> {
                 None => root.join("tools").join("api").join("forever-api.json"),
             };
             let note = args.get(2).filter(|note| !note.starts_with("--")).cloned().unwrap_or_default();
+            if args.iter().any(|arg| arg == "--check") {
+                // Builds the snapshot again from Blizzard's files and compares it with the one
+                // in the repository. Nothing in the repository is changed.
+                let committed_file = root.join("tools").join("api").join("forever-api.json");
+                let committed = std::fs::read_to_string(&committed_file).map_err(|error| format!("Cannot read {}: {error}", committed_file.display()))?;
+                let old: serde_json::Value = serde_json::from_str(&committed).map_err(|error| format!("The API snapshot is not valid JSON: {error}"))?;
+                // The note is a part of the file: the same note gives the same bytes.
+                let note = old.get("source").and_then(|value| value.as_str()).unwrap_or("").to_string();
+                let fresh_file = root.join("target").join("api-check").join("forever-api.json");
+                snapshot::build(Path::new(docs_dir), &fresh_file, &note)?;
+                let fresh = std::fs::read_to_string(&fresh_file).map_err(|error| error.to_string())?;
+                if fresh == committed {
+                    println!("The API snapshot is the same as Blizzard's documentation in {docs_dir}.");
+                    return Ok(true);
+                }
+                let new: serde_json::Value = serde_json::from_str(&fresh).map_err(|error| error.to_string())?;
+                let differences = snapshot::differences(&old, &new);
+                eprintln!("The API snapshot in the repository differs from Blizzard's documentation in {docs_dir}:");
+                for line in differences.iter().take(60) {
+                    eprintln!("  {line}");
+                }
+                if differences.len() > 60 {
+                    eprintln!("  ... and {} more", differences.len() - 60);
+                }
+                eprintln!("\nIf the game was patched: build the snapshot again (cargo dev api-snapshot <folder> \"<note>\"), then run cargo dev test and cargo dev conformance.");
+                return Ok(false);
+            }
             for line in snapshot::build(Path::new(docs_dir), &out, &note)? {
                 println!("{line}");
             }
             println!("-> {}", out.display());
+            Ok(true)
+        }
+        (Some("ui-names"), Some(addons_dir)) => {
+            let snapshot_file = root.join("tools").join("api").join("forever-api.json");
+            let text = std::fs::read_to_string(&snapshot_file).map_err(|error| format!("Cannot read {}: {error}", snapshot_file.display()))?;
+            let snapshot: serde_json::Value = serde_json::from_str(&text).map_err(|error| format!("The API snapshot is not valid JSON: {error}"))?;
+            let (fresh, lines) = ui_names::collect(Path::new(addons_dir), &snapshot)?;
+            let file = root.join("tools").join("api").join("forever-ui.json");
+            if args.iter().any(|arg| arg == "--check") {
+                let committed = std::fs::read_to_string(&file).map_err(|error| format!("Cannot read {}: {error}", file.display()))?;
+                if committed == fresh {
+                    println!("The names in tools/api/forever-ui.json are the same as in the UI files in {addons_dir}.");
+                    return Ok(true);
+                }
+                let old: serde_json::Value = serde_json::from_str(&committed).map_err(|error| error.to_string())?;
+                let new: serde_json::Value = serde_json::from_str(&fresh).map_err(|error| error.to_string())?;
+                eprintln!("tools/api/forever-ui.json differs from the UI files in {addons_dir}:");
+                for key in ["fonts", "undocumentedEvents"] {
+                    let names = |value: &serde_json::Value| -> std::collections::BTreeSet<String> {
+                        value.get(key).and_then(|list| list.as_array()).map(|list| list.iter().filter_map(|name| name.as_str().map(String::from)).collect()).unwrap_or_default()
+                    };
+                    let (before, after) = (names(&old), names(&new));
+                    for name in after.difference(&before).take(40) {
+                        eprintln!("  added    {key}.{name}");
+                    }
+                    for name in before.difference(&after).take(40) {
+                        eprintln!("  removed  {key}.{name}");
+                    }
+                }
+                eprintln!("\nIf the game was patched: build the file again (cargo dev ui-names <folder>), then run cargo dev test.");
+                return Ok(false);
+            }
+            std::fs::write(&file, fresh).map_err(|error| format!("Cannot write {}: {error}", file.display()))?;
+            for line in lines {
+                println!("{line}");
+            }
+            println!("-> {}", file.display());
             Ok(true)
         }
         (Some("icon"), Some(out)) => {

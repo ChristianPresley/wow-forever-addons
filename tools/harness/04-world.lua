@@ -64,7 +64,7 @@ setGlobal("UnitExists", unitExists)
 -- UnitDocumentation.lua: the name can be secret for a unit that is not the player's or in the
 -- group, where the game hides who a unit is. Here: the NPC, in a fight.
 setGlobal("UnitName", function(unit)
-  if unit == "player" or unit == "raid1" then
+  if unit == "player" or (unit == "raid1" and H.world.group == "raid") then
     return "Tester", nil
   elseif H.world.group and (unit == "party1" or unit == "raid2") then
     return "Friend", nil
@@ -72,10 +72,22 @@ setGlobal("UnitName", function(unit)
     return hidden(H.world.npc), nil
   end
 end)
+H.allowNil("UnitName", "The game gives no name for a unit that does not exist, and no realm for a unit of the player's own realm: Blizzard_FriendsFrame/Mainline/FriendsFrame.lua tests the realm with `if server and`.")
 setGlobal("GetRealmName", function() return "TestRealm" end)
-setGlobal("UnitClass", function() return "Warrior", "WARRIOR", 1 end)
-setGlobal("UnitLevel", function() return 20 end)
-setGlobal("UnitFactionGroup", function() return "Alliance", "Alliance" end)
+-- For a unit that does not exist the game gives nothing.
+setGlobal("UnitClass", function(unit)
+  if unitExists(unit) then
+    return "Warrior", "WARRIOR", 1
+  end
+end)
+H.allowNil("UnitClass", "The game gives no class for a unit that does not exist: Blizzard_InspectUI/Mainline/InspectPaperDollFrame.lua tests the result with `if (not class) then`.")
+setGlobal("UnitLevel", function(unit) return unitExists(unit) and 20 or 0 end)
+setGlobal("UnitFactionGroup", function(unit)
+  if unitExists(unit) then
+    return "Alliance", "Alliance"
+  end
+end)
+H.allowNil("UnitFactionGroup", "The game gives no faction for a unit that does not exist or has none: Blizzard_Calendar/Mainline/Blizzard_Calendar.lua tests the result with `if ( factionGroup and`.")
 setGlobal("UnitGUID", function(unit) return unitExists(unit) and "Player-1-00000001" or nil end)
 setGlobal("UnitAffectingCombat", function() return H.world.secret end)
 setGlobal("InCombatLockdown", function() return H.world.secret end)
@@ -85,14 +97,27 @@ setGlobal("IsInInstance", function() return false, "none" end)
 setGlobal("GetPlayerFacing", function() return 1.0 end)
 setGlobal("UnitPosition", function(unit)
   if unitExists(unit) then
-    return unit == "player" and 100 or 160, unit == "player" and 200 or 240, 0, 0
+    -- The player stands where GetPlayerMapPosition says (0.42, 0.65), in the yards of GetWorldPosFromMapPos.
+    return unit == "player" and 420 or 480, unit == "player" and 650 or 690, 0, 0
   end
 end)
-setGlobal("GetZoneText", function() return "Elwynn Forest" end)
-setGlobal("GetRealZoneText", function() return "Elwynn Forest" end)
+-- H.world.zone: the player is in another zone (Westfall, map 52), for the code that asks which quests are of this zone.
+setGlobal("GetZoneText", function() return H.world.zone or "Elwynn Forest" end)
+-- The game gives no position for a unit that does not exist, and none in an instance. The
+-- game's own UI code does not show this (it asks for units that exist); it is how the client
+-- is known to behave, and the addons test the result before they use it.
+H.allowNil("UnitPosition", "The client gives no position for a unit that does not exist or in an instance; not shown by the game's own UI code.")
+setGlobal("GetRealZoneText", function() return H.world.zone or "Elwynn Forest" end)
 setGlobal("GetSubZoneText", function() return "Goldshire" end)
 setGlobal("GetLocale", function() return "enUS" end)
-setGlobal("Ambiguate", function(name) return name end)
+-- Ambiguate takes the realm off a name of the player's own realm, and keeps another realm.
+setGlobal("Ambiguate", function(name, context)
+  local short, realm = name:match("^([^-]+)-(.+)$")
+  if short and (realm == "TestRealm" or context == "short") then
+    return short
+  end
+  return name
+end)
 setGlobal("IsAltKeyDown", function() return H.world.alt == true end)
 setGlobal("IsShiftKeyDown", function() return H.world.shift == true end)
 
@@ -115,7 +140,13 @@ set("C_CVar", "SetCVar", function(name, value)
 end)
 -- Blizzard_SharedXMLBase/CvarUtil.lua: the globals call C_CVar.
 setGlobal("GetCVar", function(name) return C_CVar.GetCVar(name) end, "Blizzard_SharedXMLBase/CvarUtil.lua")
-setGlobal("SetCVar", function(name, value) return C_CVar.SetCVar(name, value) end, "Blizzard_SharedXMLBase/CvarUtil.lua")
+setGlobal("SetCVar", function(name, value, ...)
+  -- CvarUtil.lua: a boolean becomes "1" or "0" first.
+  if realType(value) == "boolean" then
+    value = value and "1" or "0"
+  end
+  return C_CVar.SetCVar(name, value, ...)
+end, "Blizzard_SharedXMLBase/CvarUtil.lua")
 setGlobal("GetCVarBool", function(name) return C_CVar.GetCVar(name) == "1" end, "Blizzard_SharedXMLBase/CvarUtil.lua")
 
 set("C_ChatInfo", "SendAddonMessage", function(prefix, text, channel)
@@ -153,10 +184,12 @@ end
 ---------------------------------------------------------------------------------------------------
 -- Maps
 
-set("C_Map", "GetBestMapForUnit", function() return 37 end)
+set("C_Map", "GetBestMapForUnit", function() return H.world.zone and 52 or 37 end)
 set("C_Map", "GetMapInfo", function(mapID)
   if mapID == 37 then
     return { mapID = 37, name = "Elwynn Forest", mapType = Enum.UIMapType.Zone, parentMapID = 13, flags = 0 }
+  elseif mapID == 52 then
+    return { mapID = 52, name = "Westfall", mapType = Enum.UIMapType.Zone, parentMapID = 13, flags = 0 }
   elseif mapID == 13 then
     return { mapID = 13, name = "Eastern Kingdoms", mapType = Enum.UIMapType.Continent, parentMapID = 947, flags = 0 }
   elseif mapID == 947 then
@@ -287,7 +320,10 @@ set("C_QuestLog", "GetTitleForQuestID", function(questID)
     end
   end
 end)
-set("C_QuestLog", "GetQuestsOnMap", function()
+set("C_QuestLog", "GetQuestsOnMap", function(mapID)
+  if mapID == 52 then
+    return { { questID = 176, x = 0.9, y = 0.1 } }
+  end
   return { { questID = 176, x = 0.3, y = 0.8 }, { questID = 40, x = 0.5, y = 0.2 } }
 end)
 set("C_QuestLog", "GetQuestWatchType", function(questID)
@@ -395,7 +431,7 @@ function QuestInfo_Display() end
 set("C_AuctionHouse", "GetNumCommoditySearchResults", function() return 3 end)
 set("C_AuctionHouse", "GetCommoditySearchResultInfo", function(itemID, index)
   local rows = {
-    { itemID = itemID, quantity = 20, unitPrice = 150, containsOwnerItem = false, numOwnerItems = 0 },
+    { itemID = itemID, quantity = 20, unitPrice = 145, containsOwnerItem = false, numOwnerItems = 0 },
     { itemID = itemID, quantity = 5, unitPrice = 160, containsOwnerItem = true, numOwnerItems = 5 },
     { itemID = itemID, quantity = 40, unitPrice = 175, containsOwnerItem = false, numOwnerItems = 0 },
   }
@@ -425,7 +461,7 @@ set("C_AuctionHouse", "GetNumReplicateItems", function() return 3 end)
 -- AuctionHouseDocumentation.lua: 18 values, the index starts at 0. Count is the third, the
 -- buyout of the stack the tenth, the item ID the seventeenth.
 set("C_AuctionHouse", "GetReplicateItemInfo", function(index)
-  local rows = { { 2589, 20, 3000 }, { 2589, 10, 1400 }, { 769, 8, 320 } }
+  local rows = { { 2589, 20, 3000 }, { 2589, 10, 1400 }, { 769, 8, 280 } }
   local row = rows[index + 1]
   if row then
     return "Item", 1, row[2], 1, true, 1, "", 0, 0, row[3], 0, nil, "", "", nil, 0, row[1], true

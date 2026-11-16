@@ -247,11 +247,8 @@ local function createWindow()
   frame:RegisterForDrag("LeftButton")
   frame:SetScript("OnDragStart", frame.StartMoving)
   frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-  if frame.TitleText then
-    frame.TitleText:SetText("Forever Auctions: sales and purchases")
-  elseif frame.SetTitle then
-    frame:SetTitle("Forever Auctions: sales and purchases")
-  end
+  -- Both forms of the window have the title text: the template, and the plain window above.
+  frame.TitleText:SetText("Forever Auctions: sales and purchases")
   tinsert(UISpecialFrames, FRAME_NAME) -- Escape closes the window
 
   -- The template has an inset frame over its inside. Everything of ours goes on a frame above that.

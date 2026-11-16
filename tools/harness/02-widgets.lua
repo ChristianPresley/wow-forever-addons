@@ -104,6 +104,9 @@ local ANCESTORS = {
   SimpleScriptRegionAPI = "ScriptRegion", SimpleRegionAPI = "Region", SimpleFrameAPI = "Frame",
   SimpleButtonAPI = "Button", SimpleTextureBaseAPI = "TextureBase", SimpleAnimAPI = "Animation",
   SimpleModelAPI = "Model", SimpleObjectAPI = "Object",
+  -- For the kinds that the game derives from these: an EventEditBox is an EditBox.
+  SimpleEditBoxAPI = "EditBox", SimpleScrollFrameAPI = "ScrollFrame", SimpleMessageFrameAPI = "MessageFrame",
+  SimpleCheckboxAPI = "CheckButton", SimpleSliderAPI = "Slider", SimpleStatusBarAPI = "StatusBar",
 }
 
 -- The scripts of each layer (Blizzard_SharedXML/UI.xsd). SetScript with another name fails.
@@ -208,9 +211,12 @@ local function kindOf(name)
       if entry.spec then
         local spec = H.parseSpec(entry.spec)
         local fn = entry.fn
+        local label = name .. ":" .. method
         kind.methods[method] = function(self, ...)
-          H.checkArguments(name .. ":" .. method, spec, false, ...)
-          return fn(self, ...)
+          H.checkArguments(label, spec, false, ...)
+          local n, out = H.pack(fn(self, ...))
+          H.checkResults(label, spec, n, out)
+          return unpack(out, 1, n)
         end
       else
         kind.methods[method] = entry.fn
@@ -244,7 +250,12 @@ local function isWidget(value)
 end
 H.isWidget = isWidget
 
+-- A text that is a number counts as the number: the same rule as for a documented number
+-- argument (checkArguments in 01-api.lua).
 local function number(value, what)
+  if realType(value) == "string" and tonumber(value) then
+    return tonumber(value)
+  end
   if realType(value) ~= "number" then
     fail(what .. ": a number is needed, got " .. realType(value))
   end
@@ -568,15 +579,16 @@ end
 
 local DRAW_LAYERS = { BACKGROUND = true, BORDER = true, ARTWORK = true, OVERLAY = true, HIGHLIGHT = true }
 
--- Font objects of the game that a font string can inherit (Blizzard_Fonts_Frame, Fonts.xml).
-local FONTS = {
-  "GameFontNormal", "GameFontNormalSmall", "GameFontNormalLarge", "GameFontNormalHuge", "GameFontHighlight",
-  "GameFontHighlightSmall", "GameFontHighlightLarge", "GameFontHighlightHuge", "GameFontDisable",
-  "GameFontDisableSmall", "GameFontDisableLarge", "GameFontGreen", "GameFontGreenSmall", "GameFontRed",
-  "GameFontRedSmall", "GameFontWhite", "GameFontWhiteSmall", "GameFontBlack", "NumberFontNormal",
-  "NumberFontNormalSmall", "NumberFontNormalLarge", "ChatFontNormal", "ChatFontSmall", "SystemFont_Small",
-  "SystemFont_Med1", "SystemFont_Large", "GameTooltipText", "GameTooltipTextSmall", "GameTooltipHeaderText",
-}
+-- The fonts that a font string can inherit, and the events that the game's own code registers
+-- and the documentation does not list. Both come from the game's UI files, not from a list
+-- written by hand: tools/api/forever-ui.json, built by `cargo dev ui-names`.
+local UI_NAMES = snapshot.ui or {}
+local FONTS = UI_NAMES.fonts or {}
+local undocumentedEvent = {}
+for _, name in ipairs(UI_NAMES.undocumentedEvents or {}) do
+  undocumentedEvent[name] = true
+end
+H.undocumentedEvents = undocumentedEvent
 local knownFont = {}
 
 local function newRegion(kindName, layerArgument)
@@ -634,14 +646,14 @@ define("SimpleFrameAPI", "GetNumRegions", function(self)
 end)
 
 define("SimpleFrameAPI", "RegisterEvent", function(self, event)
-  if not H.knownEvents[event] then
+  if not H.knownEvents[event] and not undocumentedEvent[event] then
     fail("Frame:RegisterEvent(): attempt to register unknown event \"" .. realTostring(event) .. "\"")
   end
   state(self).events[event] = true
   return true
 end)
 define("SimpleFrameAPI", "RegisterUnitEvent", function(self, event, unit)
-  if not H.knownEvents[event] then
+  if not H.knownEvents[event] and not undocumentedEvent[event] then
     fail("Frame:RegisterUnitEvent(): attempt to register unknown event \"" .. realTostring(event) .. "\"")
   end
   if realType(unit) ~= "string" then
@@ -651,10 +663,11 @@ define("SimpleFrameAPI", "RegisterUnitEvent", function(self, event, unit)
   return true
 end)
 define("SimpleFrameAPI", "UnregisterEvent", function(self, event)
-  if not H.knownEvents[event] then
+  if not H.knownEvents[event] and not undocumentedEvent[event] then
     fail("Frame:UnregisterEvent(): unknown event \"" .. realTostring(event) .. "\"")
   end
   state(self).events[event] = nil
+  return true
 end)
 define("SimpleFrameAPI", "UnregisterAllEvents", function(self)
   state(self).events = {}
@@ -974,7 +987,9 @@ undocumented("FrameAPITooltip", "SetOwner", GAME_TOOLTIP, function(self, owner, 
   end
   local s = state(self)
   s.owner, s.lines, s.text = owner, 0, nil
-  show(self)
+  -- SetOwner clears and hides the tooltip. It shows again when it gets an item or a spell, or
+  -- with Show() after AddLine: an addon that adds lines and forgets Show() has no tooltip.
+  hide(self)
 end)
 undocumented("FrameAPITooltip", "GetOwner", "Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.lua", function(self)
   return state(self).owner
@@ -1009,6 +1024,7 @@ end)
 local function showItem(self, itemID)
   state(self).lines = 1
   state(self).itemID = itemID
+  show(self)
 end
 undocumented("FrameAPITooltip", "SetHyperlink", GAME_TOOLTIP, function(self, link)
   if realType(link) ~= "string" then
@@ -1027,30 +1043,81 @@ end)
 undocumented("FrameAPITooltip", "SetSpellByID", "Blizzard_DamageMeter/DamageMeterEntry.lua", function(self, spellID)
   number(spellID, "SetSpellByID")
   state(self).lines = 1
+  show(self)
 end)
+
+-- A font string without a text gives nil, although the documentation has a text.
+H.allowNil("FontString:GetText", "The game gives nil for a font string without a text: Blizzard_EncounterJournal/Mainline/Blizzard_EncounterJournal.lua reads self.description:GetText() or \"\".")
 
 ---------------------------------------------------------------------------------------------------
 -- Pairs of a setter and a getter that keep the value
 --
 -- For a documented pair SetX and GetX that no hand-written method covers, the getter answers
--- what the setter got.
+-- what the setter got. Only for a pair of the same shape: the getter takes no argument, and
+-- each of its results has the kind of the setter's argument at the same place. So
+-- SetCheckedTexture(asset) and GetCheckedTexture(), which gives a texture object, are not a
+-- pair, and GetVertexOffset(index) is not the answer to SetVertexOffset(index, x, y).
+
+local function sameShape(setSpec, getSpec)
+  if #getSpec.arguments > 0 or #getSpec.returns == 0 then
+    return false
+  end
+  for index, result in ipairs(getSpec.returns) do
+    local argument = setSpec.arguments[index]
+    if not argument or argument.kind ~= result.kind then
+      return false
+    end
+  end
+  return true
+end
 
 for layerName, object in pairs(snapshot.widgets) do
   for method in pairs(object.methods) do
     local property = method:match("^Set(%u%w*)$")
     local getter = property and ("Get" .. property)
     local written = implementations[layerName] or {}
-    if getter and object.methods[getter] and not written[method] and not written[getter] then
+    local free = getter and object.methods[getter] and not written[method] and not written[getter]
+    local getSpec = free and H.parseSpec(object.methods[getter])
+    local setSpec = free and H.parseSpec(object.methods[method])
+    if free and not sameShape(setSpec, getSpec) then
+      -- A getter for a texture of the widget gives a texture object, whatever the setter got.
+      if #getSpec.arguments == 0 and #getSpec.returns == 1 and getSpec.returns[1].kind == "o" and property:find("Texture$") then
+        local key = "texture:" .. property
+        define(layerName, getter, function(self)
+          local s = state(self)
+          if not s[key] then
+            s[key] = newObject("Texture", self)
+          end
+          return s[key]
+        end)
+      end
+    elseif free then
       local key = "kept:" .. property
-      local getSpec = H.parseSpec(object.methods[getter])
       define(layerName, method, function(self, ...)
         state(self)[key] = H.pack(...)
         state(self)[key .. ":values"] = { ... }
+        -- What the setter itself returns: for most of them a flag that it worked.
+        local out, n = {}, 0
+        for _, entry in ipairs(setSpec.returns) do
+          n = n + 1
+          out[n] = entry.kind == "b" and true or H.defaultOf(entry, 0)
+        end
+        return unpack(out, 1, n)
       end)
       define(layerName, getter, function(self)
         local s = state(self)
         if s[key] then
-          return unpack(s[key .. ":values"], 1, s[key])
+          -- A result that the setter did not get has its default: 1 for a part of a colour
+          -- (the alpha of SetTextColor(r, g, b)), else the default of the kind.
+          local values, n = s[key .. ":values"], math.max(s[key], #getSpec.returns)
+          local out = {}
+          for index = 1, n do
+            out[index] = values[index]
+            if out[index] == nil and getSpec.returns[index] and not getSpec.returns[index].optional then
+              out[index] = property:find("Color$") and 1 or H.defaultOf(getSpec.returns[index], 0)
+            end
+          end
+          return unpack(out, 1, n)
         end
         local out, n = {}, 0
         for _, entry in ipairs(getSpec.returns) do
@@ -1264,7 +1331,120 @@ function CreateFrame(kindName, name, parent, template, id)
 end
 
 -- The font objects of the game.
+if not snapshot.ui then
+  -- A run without the names file (a test of the stand-in alone) has the most common fonts.
+  FONTS = { "GameFontNormal", "GameFontNormalSmall", "GameFontNormalLarge", "GameFontHighlight", "GameFontHighlightSmall", "GameFontDisable", "NumberFontNormal", "ChatFontNormal", "GameTooltipText" }
+end
 for _, name in ipairs(FONTS) do
   knownFont[name] = true
   _G[name] = newObject("Font", nil, name)
+end
+
+---------------------------------------------------------------------------------------------------
+-- Self-check of this file against the snapshot
+--
+-- Every script object of Blizzard's documentation must be a layer of some widget kind above, or
+-- be here with the reason why no widget of the stand-in has it. So a script object that a patch
+-- of the game adds cannot go unseen: the check fails until someone decides where it belongs.
+
+local NOT_A_LAYER = {
+  -- Objects that a function of the game returns. They are not frames or regions.
+  AbbreviateConfigAPI = "an object from CreateAbbreviateConfig",
+  AbbreviatedNumberFormatterAPI = "an object from a number formatter function",
+  DurationTextBindingObjectAPI = "an object for the text of a duration",
+  HousingCatalogSearcherAPI = "an object of the housing catalogue",
+  LuaColorCurveObjectAPI = "a curve object",
+  LuaCurveObjectAPI = "a curve object",
+  LuaCurveObjectBaseAPI = "a curve object",
+  LuaDurationClockObjectAPI = "a duration object",
+  LuaDurationManualClockAPI = "a duration object",
+  LuaDurationObjectAPI = "a duration object",
+  LuaLocaleContextAPI = "a locale object",
+  NumericFormatterAPI = "a number formatter object",
+  NumericRuleFormatterAPI = "a number formatter object",
+  SecondsFormatterAPI = "a time formatter object",
+  TimedSignalMapAPI = "a signal map object",
+  UnitHealPredictionCalculatorAPI = "a heal prediction object",
+  -- Frames and parts of frames that only the game's own windows make. CreateFrame of the
+  -- stand-in does not know these frame types, so an addon that asks for one fails.
+  FrameAPIArchaeologyDigSiteFrame = "the dig site frame of the game's map",
+  FrameAPIBlob = "a quest blob frame of the game's map",
+  FrameAPIFogOfWarFrame = "the fog of war frame of the game's map",
+  FrameAPIModelSceneFrameActor = "an actor of a model scene",
+  FrameAPIModelSceneFrameActorBase = "an actor of a model scene",
+  FrameAPINamePlate = "a name plate of the game",
+  FrameAPIQuestPOI = "the quest marker frame of the game's map",
+  FrameAPIScenarioPOI = "the scenario marker frame of the game's map",
+  FrameAPISimpleCheckout = "the checkout frame of the shop",
+  FrameAPIUnitPositionFrame = "the unit position frame of the game's map",
+  HousingFixturePointFrameAPI = "a frame of the housing editor",
+  HousingLayoutPinFrameAPI = "a frame of the housing editor",
+  PingPinFrameAPI = "the ping frame of the game",
+  SimpleAnimRadialProgressAPI = "an animation type that the stand-in does not make",
+  SimpleAnimScaleLineAPI = "an animation type that the stand-in does not make",
+  SimpleAnimTranslationLineAPI = "an animation type that the stand-in does not make",
+  SimpleControlPointAPI = "a control point of a path animation",
+  SimpleMapSceneAPI = "the map scene frame of the game",
+  SimpleMaskTextureAPI = "a mask texture has no methods of its own in the documentation",
+  SimpleModelFFXAPI = "a model frame type that the stand-in does not make",
+  SimpleVectorGraphicsAPI = "a vector graphics region that the stand-in does not make",
+}
+
+-- Returns the problems, one text for each.
+function H.selfCheck()
+  local problems = {}
+  local used = {}
+  local kindNames = {}
+  for name in pairs(LAYERS) do
+    kindNames[#kindNames + 1] = name
+  end
+  table.sort(kindNames)
+  for _, name in ipairs(kindNames) do
+    for _, layer in ipairs(LAYERS[name]) do
+      used[layer] = true
+      if not snapshot.widgets[layer] then
+        problems[#problems + 1] = "the widget kind " .. name .. " names the layer " .. layer .. ", which the API snapshot does not have"
+      end
+    end
+    -- Makes the method table of the kind: a hand-written method for a name that the
+    -- documentation lacks fails here.
+    local ok, err = pcall(kindOf, name)
+    if not ok then
+      problems[#problems + 1] = "the widget kind " .. name .. ": " .. realTostring(err)
+    end
+  end
+  local objects = {}
+  for name in pairs(snapshot.widgets) do
+    objects[#objects + 1] = name
+  end
+  table.sort(objects)
+  for _, name in ipairs(objects) do
+    if not used[name] and not NOT_A_LAYER[name] then
+      problems[#problems + 1] = "the script object " .. name .. " of the documentation is not a layer of a widget kind and is not listed as left out (02-widgets.lua)"
+    elseif used[name] and NOT_A_LAYER[name] then
+      problems[#problems + 1] = "the script object " .. name .. " is a layer of a widget kind and is also listed as left out"
+    end
+  end
+  for name in pairs(NOT_A_LAYER) do
+    if not snapshot.widgets[name] then
+      problems[#problems + 1] = "the script object " .. name .. " is listed as left out, and the documentation does not have it any more"
+    end
+  end
+  -- A layer with scripts, or with a name for IsObjectType, must be a layer of some kind.
+  for layer in pairs(LAYER_SCRIPTS) do
+    if not used[layer] then
+      problems[#problems + 1] = "the script list names the layer " .. layer .. ", which no widget kind has"
+    end
+  end
+  for layer in pairs(ANCESTORS) do
+    if not used[layer] then
+      problems[#problems + 1] = "the list for IsObjectType names the layer " .. layer .. ", which no widget kind has"
+    end
+  end
+  -- The names from the game's UI files: without them every font but a few would be refused.
+  if snapshot.ui and (not knownFont.GameFontNormal or not knownFont.GameFontHighlightSmall) then
+    problems[#problems + 1] = "tools/api/forever-ui.json has no fonts: build it with cargo dev ui-names"
+  end
+  table.sort(problems)
+  return problems
 end

@@ -13,6 +13,7 @@ UIParent:SetSize(1920, 1080)
 WorldFrame = CreateFrame("Frame", "WorldFrame")
 -- Blizzard_GameTooltip/Mainline/GameTooltip.xml
 GameTooltip = CreateFrame("GameTooltip", "GameTooltip", UIParent, "GameTooltipTemplate")
+-- Blizzard_UIPanels_Game/Mainline/ItemRef.xml
 ItemRefTooltip = CreateFrame("GameTooltip", "ItemRefTooltip", UIParent, "GameTooltipTemplate")
 Minimap = CreateFrame("Minimap", "Minimap", UIParent)
 -- Blizzard_SharedXML/ScrollingMessageFrame.xml
@@ -205,6 +206,15 @@ function H.advance(seconds)
   end
   H.clock = H.clock + seconds
   H.now = target
+  -- Time that passes is an OnUpdate of each frame that is on the screen, as in the game.
+  local count = #H.frames
+  for index = 1, count do
+    local frame = H.frames[index]
+    local handler = H.state(frame).scripts.OnUpdate
+    if handler and frame:IsVisible() then
+      H.call("OnUpdate", handler, frame, seconds)
+    end
+  end
 end
 
 -- The settings window (Blizzard_Settings_Shared/Blizzard_Settings.lua).
@@ -407,7 +417,7 @@ end
 -- Sounds: the keys that the addons use, each one in the game's own code. Another key is nil,
 -- the same as a key that the game does not have.
 SOUNDKIT = {
-  IG_QUEST_LIST_COMPLETE = 878, -- Blizzard_UIPanels_Game/Mainline/QuestFrame.lua
+  IG_QUEST_LIST_COMPLETE = 878, -- Blizzard_StaticPopup_Game/GameDialogDefs.lua
   AUCTION_WINDOW_OPEN = 5274, -- Blizzard_AuctionHouseUI/Shared/Blizzard_AuctionHouseFrame.lua
   IG_BACKPACK_OPEN = 862, -- Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua
   IG_BACKPACK_CLOSE = 863, -- Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua

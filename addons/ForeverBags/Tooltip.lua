@@ -51,13 +51,4 @@ if TooltipDataProcessor and Enum and Enum.TooltipDataType then
       pcall(addLines, tooltip, data.id)
     end
   end)
-else
-  local function onSetItem(tooltip)
-    local _, link = tooltip:GetItem()
-    if link then
-      pcall(addLines, tooltip, tonumber(link:match("item:(%d+)")))
-    end
-  end
-  GameTooltip:HookScript("OnTooltipSetItem", onSetItem)
-  ItemRefTooltip:HookScript("OnTooltipSetItem", onSetItem)
 end

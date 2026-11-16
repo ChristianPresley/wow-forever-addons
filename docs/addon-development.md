@@ -125,11 +125,15 @@ Forever Compass does this: one page for the compass bar, and one page for each t
 
 ## Tests
 
-Blizzard has no sandbox and no test server for addons. An addon runs in the game client and nowhere else. The repository has two checks that run without the game, and the rest needs the game.
+Blizzard has no sandbox and no test server for addons. An addon runs in the game client and nowhere else. The repository has checks that run without the game: `cargo dev lint`, `cargo dev conformance` and `cargo dev test` for the addons, and the checks under "Conformance with Blizzard's files" for the stand-in itself. The rest needs the game.
 
 ### `cargo dev lint`
 
 Checks the TOC, `addon.json`, the settings page and the Lua syntax. It does not know the API of the game.
+
+### `cargo dev conformance`
+
+Reads each Lua file of each addon and checks every name of the game's API in it against the API of this client: each `C_Namespace.Function`, each `Enum.Name.Value`, each event name, each method after a colon and each global function. It does not run the addon, so it also covers the lines that no test reaches. A name that this client does not have is a mistake, or code for another client that never runs here. Take such code out: do not write `C_Item and C_Item.GetItemInfo or GetItemInfo`.
 
 ### `cargo dev test`
 
@@ -141,7 +145,7 @@ What it does with an addon:
 2. Runs the scenario of the addon, if it has one (see below).
 3. Opens each settings page.
 4. Runs each slash command: the words come from the help text of the command.
-5. Uses each frame as a player can: shows and hides it, moves the pointer over it, clicks it, turns the mouse wheel, drags it, drags a slider, types in an edit box, and runs each entry of each menu.
+5. Uses each frame as a player can: opens its window if that is closed, shows and hides it, moves the pointer over it, clicks it, turns the mouse wheel, drags it, drags a slider, types in an edit box, and runs each entry of each menu.
 6. Sends each event that the addon listens to, with arguments of the documented kinds.
 7. Does steps 3 to 6 three times: alone, in a party, and in a fight in a raid. In the fight the numbers of the damage meter and the name of an NPC are secret values.
 8. Sends `PLAYER_LOGOUT`, saves the variables, and runs the addon a second time from them, as after `/reload`.
@@ -153,6 +157,7 @@ What makes an error show:
 - **Secret values.** Arithmetic with a secret value and a comparison of order fail. `type` gives the real type, so a test of the type does not protect code that calculates. A secret value fails as an argument of a function that the documentation does not open to addon code, and as a table key.
 - **Saved variables.** A function, a frame, a secret value or a table that contains itself in a saved variable fails: the game cannot save it.
 - **Checks of a scenario.**
+- **An addon that does not end.** A loop without an end stops with an error after three million lines, in a handler that runs again too. After two stops the addon is not called again.
 
 The options:
 
@@ -184,15 +189,19 @@ expect(H.count("full scan") == 1, "the full scan asks the game once")
 | `T.ns` | The table that the files of the addon share (`local _, ns = ...`) |
 | `T.fire(event, ...)` | Sends an event with these arguments |
 | `T.slash(command, text)` | Runs a slash command |
-| `T.advance(seconds)` | Moves the clock and runs the timers that are due |
+| `T.advance(seconds)` | Moves the clock, runs the timers that are due, then runs `OnUpdate` of each frame that is on the screen |
 | `T.expect(condition, text)` | A check. The text says what is expected |
 | `T.printed(pattern)` | A line that the addon printed and that matches, or nil |
-| `T.world` | Switches of the world: `secret` (in a fight), `group` (`"party"` or `"raid"`), `dead`, `alt`, `shift`, `npc`, `choices`, `cvars` |
+| `T.world` | Switches of the world: `secret` (in a fight), `group` (`"party"` or `"raid"`), `dead`, `alt`, `shift`, `npc`, `choices`, `cvars`, `sayNo` (the answer to a confirmation), `zone` (the player is in Westfall) |
 | `H.did`, `H.count(what)` | What the addon asked the game to do: `"accept"`, `"addon message"`, `"chat"`, `"full scan"` and so on |
+
+A check must be able to fail. Do not expect a value that an earlier step stored already: give the world a different number for the step under test. A comment that says what happens is not a check.
 
 #### Where the stand-in comes from
 
-- **`tools/api/forever-api.json`** is the API of the game, from Blizzard's API documentation: each documented function with its arguments, its results and its flags for secret values, each widget method by widget kind, each event with its arguments, each enumeration, constant and structure. `cargo dev api-snapshot <folder> [note] [--out <file>]` builds it from the `Blizzard_APIDocumentationGenerated` folder of the [UI source](https://github.com/Gethe/wow-ui-source/tree/forever). Build it again after a patch of the game, with `--out` first: compare the new file with the old one before it takes its place. The command runs Blizzard's files with no file or OS access.
+- **`tools/api/forever-api.json`** is the API of the game, from Blizzard's API documentation: each documented function with its arguments, its results and its flags for secret values, each widget method by widget kind, each event with its arguments, each enumeration, constant and structure. `cargo dev api-snapshot <folder> [note] [--out <file>]` builds it from the `Blizzard_APIDocumentationGenerated` folder of the [UI source](https://github.com/Gethe/wow-ui-source/tree/forever). Build it again after a patch of the game, with `--out` first: compare the new file with the old one before it takes its place. The command runs Blizzard's files with no file or OS access. Where the game takes more than its documentation says, `WIDER_ARGUMENTS` and the table of kinds in `tools/src/snapshot.rs` say so, each line with a call of the game's own code as the proof (`RegisterUnitEvent` takes unit names; `SetAttribute` takes any value).
+- **`tools/api/forever-ui.json`** has names that the documentation does not list: the fonts of the game's XML files, and the events that the game's own code registers. `cargo dev ui-names <Interface/AddOns folder>` builds it from the UI source.
+- **`tools/api/source.txt`** names the repository, the branch and the commit of the UI source that both files come from.
 - **`tools/harness/01-api.lua` to `04-world.lua`** are the stand-in. `01` makes a function for each name of the snapshot. `02` has the widgets. `03` has the game's own windows and Lua code, which the documentation does not have. `04` has a small world: one character, a few items, two quests, an auction house, mail, a fight and a party.
 - **`tools/harness/driver.lua`** does the steps above.
 
@@ -201,12 +210,32 @@ Rules for a change to the stand-in:
 - Blizzard's documentation does not have every function. `GetCVar`, `IsInGroup` and the older tooltip methods are examples. Add such a name only after you find it in the game's own UI code of this client, and give the file: `setGlobal` and `undocumented` take it as an argument and fail without it.
 - A hand-written function for a documented name goes in with `set`, `setGlobal` or `define`. These fail for a name that the snapshot does not have, and they keep the documented check of the arguments.
 - Do not add a name to make a test pass. A missing name is what the test is for.
+- Where the game returns nil and the documentation does not say so, `H.allowNil(name, reason)` says so, with the file of the game's code that shows it.
+- A function of `math`, `table` or `string` that the documentation lists and nobody wrote fails when an addon calls it. Write it in `01-api.lua`; a stub would give a wrong value without an error.
+
+#### Conformance with Blizzard's files
+
+The stand-in is checked too, so that a mistake in it cannot make a wrong addon pass or a correct one fail.
+
+| Check | When | What it finds |
+|---|---|---|
+| Results of hand-written functions | Each `cargo dev test` | A hand-written function or widget method that returns another number of values, a value of another kind, nil where the documentation has a value, or a table with a field that the documented structure does not have. The failure is in the phase `stand-in` |
+| Widget kinds | Each `cargo dev test` | A script object of the documentation that no widget kind uses and that is not on the list of those left out; a hand-written method for a name that its kind does not document |
+| Form of the snapshot | `cargo test -p wfam-dev` | A letter, a flag or a structure name that the stand-in does not know |
+| Calls of the game's own code | `cargo test -p wfam-dev` | A call that Blizzard's UI code makes and the stand-in refuses. Add each such case to the test `calls_of_the_games_own_code_pass` with its file |
+| `cargo dev api-snapshot <folder> --check` | CI, each push | Builds the snapshot again from the commit in `source.txt`. It must come out the same, byte for byte: the snapshot was not edited by hand, and the tool was not changed without it |
+| `cargo dev ui-names <folder> --check` | CI, each push | The same for `forever-ui.json` |
+| The workflow "API drift" | Each day | Both checks against the newest commit of the branch. It fails when a patch of the game changed the API, and lists each name that was added, removed or changed |
+
+After a patch of the game: put the new commit in `tools/api/source.txt`, build both files again (`--out` first for the snapshot), then run `cargo dev conformance` and `cargo dev test`. A name that the addons use and the new client lacks fails there.
 
 #### What it cannot find
 
 - How a window looks: positions, sizes, overlap.
 - Taint: an action that the game refuses because addon code touched a protected value.
 - What the game really returns. The stand-in returns a value of the documented kind, or the small world above.
+- A function that the documentation does not list and the stand-in does not have. The game's own code calls about 580 such `C_` functions (`C_PetJournal`, `C_TradeSkillUI`, `C_LFGList` and others). An addon that calls one fails the test until the function is added with the file that proves it.
+- Secret results outside the damage meter. In the fight only the damage meter and the name of an NPC are secret. The unit functions and the events that the documentation marks as secret under a restriction give plain values.
 - `==` and `~=` with a secret value, and a test of a secret boolean. The game fails there; Lua 5.1 gives the stand-in no way to see it. Test with `issecretvalue` first, before the type and before a comparison.
 - Code that the test does not reach. `--coverage` shows it.
 

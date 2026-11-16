@@ -37,7 +37,15 @@ H.debug = debug
 debug = nil
 local newproxy = newproxy
 local rawLoadstring = loadstring
-dofile, loadfile, load, collectgarbage, module, require, package = nil, nil, nil, nil, nil, nil, nil
+dofile, loadfile, load, module, require, package = nil, nil, nil, nil, nil, nil
+-- The game has collectgarbage (Blizzard_FrameXMLBase/IconDataProvider.lua calls it). Here it
+-- answers a memory count and does nothing else.
+function collectgarbage(option)
+  if option == nil or option == "collect" or option == "count" or option == "step" then
+    return 0
+  end
+  error("bad argument #1 to 'collectgarbage' (invalid option '" .. realTostring(option) .. "')", 2)
+end
 _G.newproxy = nil
 string.dump = nil
 -- Text only: compiled code can break the interpreter.
@@ -73,6 +81,12 @@ local function fail(message)
   error(message, 0)
 end
 H.fail = fail
+
+-- Keeps every result of a call, also a nil in the middle or at the end.
+local function pack(...)
+  return select("#", ...), { ... }
+end
+H.pack = pack
 
 ---------------------------------------------------------------------------------------------------
 -- Secret values
@@ -215,7 +229,9 @@ AbbreviateLargeNumbers = AbbreviateNumbers
 BreakUpLargeNumbers = AbbreviateNumbers
 
 -- string.format takes a secret value and gives a secret text. This is not in Blizzard's
--- documentation: the game's own code does it (Blizzard_Dump/Dump.lua).
+-- documentation: the game's own damage meter does it with the amounts and the names of a fight,
+-- which are secret then (Blizzard_DamageMeter/DamageMeterEntry.lua, the lines with :format(
+-- and string.format).
 function string.format(pattern, ...)
   local args, n, secret = { ... }, select("#", ...), false
   for i = 1, n do
@@ -388,12 +404,114 @@ function H.methodStub(name, specText)
   end
 end
 
--- A hand-written function in the place of a documented one: it keeps the argument check.
+-- Conformance of the stand-in itself. A hand-written function stands for a documented one, so
+-- what it returns must be what the documentation says: the number of values, the kind of each
+-- one, and for a structure the names and kinds of its fields. A difference is a problem of the
+-- stand-in, not of an addon: the driver reports it and the test fails. So the hand-written
+-- world cannot drift from Blizzard's documentation without notice.
+H.problems, H.problemSeen = {}, {}
+local function problem(text)
+  if not H.problemSeen[text] then
+    H.problemSeen[text] = true
+    H.problems[#H.problems + 1] = text
+  end
+end
+H.problem = problem
+
+-- Where the game returns nil although the documentation does not say so. Each entry needs the
+-- reason. The kinds of the values are still checked.
+H.nilAllowed = {}
+function H.allowNil(name, reason)
+  if realType(reason) ~= "string" or #reason < 20 then
+    error("H.allowNil needs the reason for " .. name)
+  end
+  H.nilAllowed[name] = reason
+end
+
+local KIND_OF_TYPE = { number = "n", string = "s", boolean = "b", table = "t", ["function"] = "f" }
+
+local function checkValue(where, entry, value, depth)
+  value = plain(value)
+  if value == nil then
+    return
+  end
+  local kind, actual = entry.kind, realType(value)
+  if kind == "a" or kind == "o" then
+    return
+  end
+  if KIND_OF_TYPE[actual] ~= kind then
+    problem(where .. " is a " .. actual .. ", and the documentation has a " .. (KIND_NAME[kind] or (kind == "b" and "boolean") or kind))
+    return
+  end
+  local fields = kind == "t" and entry.structure and snapshot.structures[entry.structure]
+  if not fields or depth > 3 then
+    return
+  end
+  for key, field in pairs(value) do
+    if realType(key) == "string" then
+      local code = fields[key]
+      if not code then
+        problem(where .. " has the field " .. key .. ", which the structure " .. entry.structure .. " does not have")
+      elseif realType(field) ~= "function" then
+        checkValue(where .. "." .. key, parseCodes(code)[1], field, depth + 1)
+      end
+    end
+  end
+  -- A field that the documentation always fills, and that the hand-written data left out, gets
+  -- its documented default: the addon then reads a value of the right kind, as in the game.
+  for key, code in pairs(fields) do
+    if value[key] == nil then
+      value[key] = defaultOf(parseCodes(code)[1], depth + 1)
+    end
+  end
+end
+
+-- Checks the results of a hand-written function against the documentation.
+local function checkResults(name, spec, n, out)
+  local returns = spec.returns
+  local nilAllowed = H.nilAllowed[name] ~= nil
+  local nothing = true
+  for index = 1, n do
+    if out[index] ~= nil then
+      nothing = false
+    end
+  end
+  -- "No result" is right for a function that the documentation marks so, and for one whose
+  -- first result can be nil.
+  if nothing then
+    if #returns > 0 and not (nilAllowed or spec.flags:find("M", 1, true) or returns[1].optional or returns[1].list) then
+      problem(name .. " returns nothing, and the documentation has a first result that is never nil")
+    end
+    return
+  end
+  local last = returns[#returns]
+  for index = 1, n do
+    local entry = returns[index] or (last and last.list and last)
+    if not entry then
+      if out[index] ~= nil then
+        problem(name .. " returns " .. n .. " values, and the documentation has " .. #returns)
+        return
+      end
+    elseif out[index] == nil then
+      if not entry.optional and not entry.list and not nilAllowed then
+        problem(name .. ": result " .. index .. " is nil, and the documentation says that it is never nil")
+      end
+    else
+      checkValue(name .. ": result " .. index, entry, out[index], 0)
+    end
+  end
+end
+H.checkResults = checkResults
+
+-- A hand-written function in the place of a documented one: it keeps the documented check of
+-- the arguments, and its results are checked against the documentation.
 function H.documented(name, specText, strict, fn)
   local spec = parseSpec(specText)
   return function(...)
     checkArguments(name, spec, strict, ...)
-    return fn(...)
+    local n, out = pack(fn(...))
+    checkResults(name, spec, n, out)
+    return unpack(out, 1, n)
   end
 end
 
@@ -406,9 +524,24 @@ for namespace, functions in pairs(snapshot.namespaces) do
   -- The documentation also lists what the game adds to the Lua libraries (table, string, math):
   -- those tables stay, and get the functions that they lack.
   local space = realType(_G[namespace]) == "table" and _G[namespace] or {}
+  -- A function of the Lua libraries has one right answer for its arguments. A stub would give
+  -- 0, false or "" for it, and an addon would run on with a wrong value. So one that is not
+  -- written by hand (below) fails when it is called.
+  local library = namespace == "math" or namespace == "table" or namespace == "string"
   for name, spec in pairs(functions) do
     if space[name] == nil then
-      space[name] = stub(namespace .. "." .. name, spec, true)
+      if library then
+        local label = namespace .. "." .. name
+        H.unwritten = H.unwritten or {}
+        H.unwritten[label] = true
+        space[name] = function()
+          if H.unwritten[label] then
+            error("the stand-in for the game does not have " .. label .. " yet: write it in 01-api.lua", 2)
+          end
+        end
+      else
+        space[name] = stub(namespace .. "." .. name, spec, true)
+      end
     end
   end
   _G[namespace] = space
@@ -459,6 +592,10 @@ end
 
 -- Each character of the separator ends a piece; with `pieces`, the last piece is the rest.
 function strsplit(separator, text, pieces)
+  -- A number is a text for the string functions of Lua.
+  if realType(text) == "number" then
+    text = realTostring(text)
+  end
   local class = "[" .. separator:gsub("[%^%]%-%%]", "%%%0") .. "]"
   local out, from = {}, 1
   while not pieces or #out < pieces - 1 do
@@ -556,15 +693,27 @@ local function bitwise(a, b, rule)
   end
   return result
 end
-function bit.band(a, b)
-  return bitwise(a, b, function(x, y) return x == 1 and y == 1 end)
+-- Any number of arguments, as in the game: Blizzard_AutoComplete/AutoComplete.lua calls
+-- bit.bor with three.
+local function fold(name, rule)
+  return function(first, ...)
+    if realType(first) ~= "number" then
+      error("bad argument #1 to '" .. name .. "' (number expected, got " .. (first == nil and "no value" or realType(first)) .. ")", 2)
+    end
+    local result = math.floor(first) % 4294967296
+    for index = 1, select("#", ...) do
+      local value = select(index, ...)
+      if realType(value) ~= "number" then
+        error("bad argument #" .. (index + 1) .. " to '" .. name .. "' (number expected, got " .. realType(value) .. ")", 2)
+      end
+      result = bitwise(result, value, rule)
+    end
+    return result
+  end
 end
-function bit.bor(a, b)
-  return bitwise(a, b, function(x, y) return x == 1 or y == 1 end)
-end
-function bit.bxor(a, b)
-  return bitwise(a, b, function(x, y) return x ~= y end)
-end
+bit.band = fold("band", function(x, y) return x == 1 and y == 1 end)
+bit.bor = fold("bor", function(x, y) return x == 1 or y == 1 end)
+bit.bxor = fold("bxor", function(x, y) return x ~= y end)
 function bit.bnot(a)
   return 4294967295 - math.floor(a) % 4294967296
 end
@@ -610,8 +759,23 @@ function date(pattern, at)
   if pattern == "*t" then
     return { year = year, month = month, day = day, hour = math.floor(seconds / 3600), min = math.floor(seconds / 60) % 60, sec = seconds % 60 }
   end
-  return ((pattern or "%Y-%m-%d %H:%M:%S"):gsub("%%(%a)", function(letter)
-    return fields[letter] or ""
+  local MONTHS = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" }
+  local DAYS = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }
+  local hour = math.floor(seconds / 3600)
+  local weekday = (days + 4) % 7 + 1 -- 1970-01-01 was a Thursday
+  fields.y = plainFormat("%02d", year % 100)
+  fields.B, fields.b = MONTHS[month], MONTHS[month]:sub(1, 3)
+  fields.A, fields.a = DAYS[weekday], DAYS[weekday]:sub(1, 3)
+  fields.p = hour < 12 and "AM" or "PM"
+  fields.I = plainFormat("%02d", (hour + 11) % 12 + 1)
+  fields["%"] = "%"
+  fields.c = plainFormat("%02d/%02d/%02d %02d:%02d:%02d", month, day, year % 100, hour, math.floor(seconds / 60) % 60, seconds % 60)
+  if pattern ~= nil and realType(pattern) ~= "string" then
+    error("bad argument #1 to 'date' (string expected, got " .. realType(pattern) .. ")", 2)
+  end
+  return ((pattern or "%c"):gsub("%%(.)", function(letter)
+    -- A letter that is not written here must not give an empty text without a word.
+    return fields[letter] or error("the stand-in for the game does not have the date letter %" .. letter .. " yet: add it in 01-api.lua", 3)
   end))
 end
 function GetTime()
@@ -632,6 +796,56 @@ function print(...)
   H.printed[#H.printed + 1] = table.concat(parts, " ")
 end
 
+-- Blizzard_PrintHandler/Blizzard_PrintHandler.lua defines tostringall.
+function tostringall(...)
+  local out, n = {}, select("#", ...)
+  for i = 1, n do
+    out[i] = tostring((select(i, ...)))
+  end
+  return unpack(out, 1, n)
+end
+-- Blizzard_AnimatedShine/Shared/AnimatedShine.lua: tDeleteItem(list, item) takes every place
+-- with the item out of a list, and gives the number of them.
+function tDeleteItem(list, item)
+  local count = 0
+  for index = #list, 1, -1 do
+    if list[index] == item then
+      table.remove(list, index)
+      count = count + 1
+    end
+  end
+  return count
+end
+-- Blizzard_ActionBar/Shared/ActionButton.lua asks issecure(): never true for the code of an addon.
+function issecure()
+  return false
+end
+-- scrub keeps texts, numbers and booleans and gives nil for every other value
+-- (Blizzard_RestrictedAddOnEnvironment/RestrictedEnvironment.lua). A secret value is not
+-- refused: it is taken out too.
+function scrub(...)
+  local out, n = {}, select("#", ...)
+  for i = 1, n do
+    local value = select(i, ...)
+    local kind = realType(value)
+    if secrets[value] == nil and (kind == "string" or kind == "number" or kind == "boolean") then
+      out[i] = value
+    end
+  end
+  return unpack(out, 1, n)
+end
+-- mapvalues(fn, ...) gives fn(value) for each value
+-- (Blizzard_RestrictedAddOnEnvironment/RestrictedEnvironment.lua: mapvalues(ScrubInboundValue, ...)).
+function mapvalues(fn, ...)
+  if realType(fn) ~= "function" then
+    error("bad argument #1 to 'mapvalues' (function expected, got " .. realType(fn) .. ")", 2)
+  end
+  local out, n = {}, select("#", ...)
+  for i = 1, n do
+    out[i] = fn((select(i, ...)))
+  end
+  return unpack(out, 1, n)
+end
 -- The error handler of the game shows the error. The driver sets H.onError to record it.
 function geterrorhandler()
   return function(err)
@@ -642,11 +856,6 @@ function geterrorhandler()
 end
 function seterrorhandler() end
 
--- Keeps every result of a call, also a nil in the middle or at the end.
-local function pack(...)
-  return select("#", ...), { ... }
-end
-H.pack = pack
 
 function hooksecurefunc(a, b, c)
   local target, name, hook = _G, a, b
@@ -664,5 +873,16 @@ function hooksecurefunc(a, b, c)
   end
 end
 function securecallfunction(fn, ...)
+  return fn(...)
+end
+-- securecall takes a function or the name of a global one (Blizzard_BuffFrame/BuffFrame.lua,
+-- Blizzard_CatalogShop/Blizzard_CatalogShop_Outbound.lua).
+function securecall(fn, ...)
+  if realType(fn) == "string" then
+    fn = _G[fn]
+  end
+  if realType(fn) ~= "function" then
+    return
+  end
   return fn(...)
 end

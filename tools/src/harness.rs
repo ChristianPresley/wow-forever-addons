@@ -22,6 +22,31 @@ const STAND_IN: [&str; 4] = [
     include_str!("../harness/04-world.lua"),
 ];
 const DRIVER: &str = include_str!("../harness/driver.lua");
+const NAMES: &str = include_str!("../harness/names.lua");
+/// Names of the game that the documentation does not list (`cargo dev ui-names`).
+const UI_NAMES: &str = include_str!("../api/forever-ui.json");
+
+/// Puts the names of the game's UI files into the snapshot, under the key `ui`.
+pub fn with_ui_names(snapshot: &mut serde_json::Value) -> Result<(), String> {
+    let names: serde_json::Value = serde_json::from_str(UI_NAMES).map_err(|error| format!("tools/api/forever-ui.json is not valid JSON: {error}"))?;
+    if let Some(map) = snapshot.as_object_mut() {
+        map.insert("ui".to_string(), names);
+    }
+    Ok(())
+}
+
+/// The global names and the method names that the stand-in for the game has, for the
+/// conformance check.
+pub fn known_names(snapshot: &serde_json::Value) -> Result<(Vec<String>, Vec<String>), String> {
+    let run = || -> mlua::Result<(Vec<String>, Vec<String>)> {
+        let lua = unsafe { Lua::unsafe_new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::DEBUG, LuaOptions::default()) };
+        let stand_in = STAND_IN.join("\n");
+        let harness: Table = lua.load(stand_in.as_str()).set_name("=harness/stand-in").call(lua.to_value(snapshot)?)?;
+        let names: Table = lua.load(NAMES).set_name("=harness/names.lua").call(harness)?;
+        Ok((strings(&names, "globals")?, strings(&names, "methods")?))
+    };
+    run().map_err(|error| format!("The names of the stand-in could not be read: {error}"))
+}
 
 /// What one run of one addon found.
 #[derive(Debug, Default)]
@@ -301,7 +326,8 @@ mod tests {
         let calculated = shown.replace("AbbreviateNumbers(session.totalAmount)", "session.totalAmount / 2");
         let (failures, _) = check(&calculated);
         assert!(failures.iter().any(|failure| failure.contains("secret value") && failure.contains("in a fight")), "{failures:?}");
-        assert!(failures.iter().all(|failure| failure.contains("in a fight")), "out of a fight the numbers are plain: {failures:?}");
+        // Time passes at the start of the fight too: that phase is named "fight".
+        assert!(failures.iter().all(|failure| failure.contains("in a fight") || failure.contains("[fight]")), "out of a fight the numbers are plain: {failures:?}");
     }
 
     #[test]
@@ -559,11 +585,201 @@ mod tests {
         );
         assert!(failures.is_empty(), "{failures:?}");
     }
+
+    /// Calls that the game's own UI code makes, each with its file. The documentation is
+    /// narrower than the game for some of them, and the stand-in once refused them.
+    #[test]
+    fn calls_of_the_games_own_code_pass() {
+        let (failures, _) = check(
+            r##"
+            local f = CreateFrame("Frame")
+            -- Blizzard_ActionBar/Shared/ActionButton.lua
+            f:RegisterUnitEvent("UNIT_FLAGS", "pet")
+            f:RegisterUnitEvent("UNIT_AURA", "player", "target")
+            -- Blizzard_UIParentPanelManager/Shared/UIParentPanelManager.lua
+            f:SetAttribute("checkselfcast", true)
+            f:SetAttribute("data", { 1 })
+            -- Blizzard_NamePlates/Blizzard_NamePlateUnitFrame.lua
+            local texture = f:CreateTexture(nil, "ARTWORK")
+            texture:SetTexture("Interface\\Buttons\\WHITE8X8", true, true)
+            -- Blizzard_StableUI/Camelot/Blizzard_StableUI.lua
+            assert(Constants.PetConsts.NUM_PET_SLOTS_HUNTER == 3, "PetConsts")
+            -- Blizzard_Fonts_Shared: fonts of the game's XML files
+            f:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
+            f:CreateFontString(nil, "ARTWORK", "QuestFont")
+            -- An event that the game's code registers and the documentation does not list.
+            f:RegisterEvent("PLAYTIME_CHANGED")
+            f:UnregisterEvent("PLAYTIME_CHANGED")
+            -- An EventEditBox is an EditBox, so it takes the template of one.
+            local box = CreateFrame("EventEditBox", nil, f, "InputBoxTemplate")
+            assert(box:IsObjectType("EditBox"), "IsObjectType")
+            -- The checked texture of a check button is a texture object.
+            local check = CreateFrame("CheckButton", nil, f)
+            check:GetCheckedTexture():SetVertexColor(1, 1, 1)
+            -- Blizzard_AutoComplete/AutoComplete.lua: bit.bor with three values
+            assert(bit.bor(1, 2, 4) == 7, "bit.bor")
+            assert(bit.band(7, 6, 3) == 2, "bit.band")
+            -- Blizzard_SharedXMLBase/CvarUtil.lua: a boolean for SetCVar
+            SetCVar("damageMeterEnabled", true)
+            assert(GetCVar("damageMeterEnabled") == "1", "SetCVar")
+            -- Blizzard_FrameXMLBase/IconDataProvider.lua
+            assert(type(collectgarbage("count")) == "number", "collectgarbage")
+            -- Blizzard_BuffFrame/BuffFrame.lua, Blizzard_AnimatedShine/Shared/AnimatedShine.lua
+            assert(securecall(function(a) return a + 1 end, 1) == 2, "securecall")
+            local list = { "a", "b", "a" }
+            assert(tDeleteItem(list, "a") == 2 and #list == 1, "tDeleteItem")
+            assert(not issecure(), "issecure")
+            assert(select("#", strsplit(",", 12)) == 1, "strsplit with a number")
+            f:SetWidth("10")
+            assert(f:GetWidth() == 10, "a numeric text as a width")
+            -- A realm of the player's own realm is taken off a name.
+            assert(Ambiguate("Friend-TestRealm", "none") == "Friend", "Ambiguate")
+            assert(Ambiguate("Friend-OtherRealm", "none") == "Friend-OtherRealm", "Ambiguate keeps another realm")
+            assert(date("%y-%m-%d %%", 0) == "70-01-01 %", date("%y-%m-%d %%", 0))
+            assert(date("%A %B", 0) == "Thursday January", date("%A %B", 0))
+            "##,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    #[test]
+    fn a_library_function_that_is_not_written_fails_and_gives_no_wrong_value() {
+        fails_with("local half = math.lerp(0, 10, 0.5)", "does not have math.lerp yet");
+        fails_with("local text = date('%Z')", "date letter %Z");
+    }
+
+    #[test]
+    fn a_tooltip_with_lines_is_not_on_the_screen_before_show() {
+        let (failures, _) = check(
+            r#"
+            GameTooltip:SetOwner(UIParent, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("A line")
+            assert(not GameTooltip:IsShown(), "shown after AddLine")
+            GameTooltip:Show()
+            assert(GameTooltip:IsShown(), "not shown after Show")
+            GameTooltip:SetOwner(UIParent, "ANCHOR_RIGHT")
+            assert(not GameTooltip:IsShown() and GameTooltip:NumLines() == 0, "SetOwner clears and hides")
+            GameTooltip:SetItemByID(2589)
+            assert(GameTooltip:IsShown(), "an item shows the tooltip")
+            GameTooltip:Hide()
+            "#,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    #[test]
+    fn an_endless_loop_in_a_handler_ends_with_a_failure() {
+        let (failures, _) = check(
+            r#"
+            local f = CreateFrame("Frame")
+            f:SetScript("OnUpdate", function()
+              while true do
+                pcall(error, "caught by the addon")
+              end
+            end)
+            "#,
+        );
+        assert!(failures.iter().any(|failure| failure.contains("does not come to an end")), "{failures:?}");
+    }
+
+    /// The snapshot is well formed: what the stand-in reads from it has only the letters and
+    /// marks that the stand-in knows.
+    #[test]
+    fn the_snapshot_is_well_formed() {
+        let snapshot: serde_json::Value = serde_json::from_str(SNAPSHOT).unwrap();
+        let structures = snapshot["structures"].as_object().unwrap();
+        let mut problems = Vec::new();
+        let codes = |place: &str, text: &str, problems: &mut Vec<String>| {
+            let mut rest = text;
+            while let Some(letter) = rest.chars().next() {
+                rest = &rest[1..];
+                if !"nsbtfoa".contains(letter) {
+                    problems.push(format!("{place}: unknown letter {letter:?} in {text:?}"));
+                    return;
+                }
+                if let Some(inner) = rest.strip_prefix('{') {
+                    let Some(end) = inner.find('}') else {
+                        problems.push(format!("{place}: no end of the structure name in {text:?}"));
+                        return;
+                    };
+                    if !structures.contains_key(&inner[..end]) {
+                        problems.push(format!("{place}: unknown structure {}", &inner[..end]));
+                    }
+                    rest = &inner[end + 1..];
+                }
+                rest = rest.strip_prefix(['?', '*']).unwrap_or(rest);
+            }
+        };
+        let spec = |place: &str, value: &serde_json::Value, problems: &mut Vec<String>| {
+            let text = value.as_str().unwrap_or("");
+            let parts: Vec<&str> = text.split('|').collect();
+            if parts.len() != 3 {
+                problems.push(format!("{place}: {text:?} does not have three parts"));
+                return;
+            }
+            codes(place, parts[0], problems);
+            codes(place, parts[1], problems);
+            if let Some(flag) = parts[2].chars().find(|flag| !"TUNCSRMPAH".contains(*flag)) {
+                problems.push(format!("{place}: unknown flag {flag:?}"));
+            }
+        };
+        for (name, value) in snapshot["globals"].as_object().unwrap() {
+            spec(name, value, &mut problems);
+        }
+        for (namespace, functions) in snapshot["namespaces"].as_object().unwrap() {
+            let functions = functions.as_object().unwrap();
+            if functions.is_empty() {
+                problems.push(format!("{namespace}: a namespace without functions"));
+            }
+            for (name, value) in functions {
+                spec(&format!("{namespace}.{name}"), value, &mut problems);
+            }
+        }
+        for (object, entry) in snapshot["widgets"].as_object().unwrap() {
+            for (name, value) in entry["methods"].as_object().unwrap() {
+                spec(&format!("{object}:{name}"), value, &mut problems);
+            }
+        }
+        for (event, payload) in snapshot["events"].as_object().unwrap() {
+            codes(event, payload.as_str().unwrap_or("?"), &mut problems);
+        }
+        for (structure, fields) in structures {
+            for (field, code) in fields.as_object().unwrap() {
+                codes(&format!("{structure}.{field}"), code.as_str().unwrap_or("?"), &mut problems);
+            }
+        }
+        let enums = snapshot["enums"].as_object().unwrap();
+        for (name, meta) in snapshot["enumMeta"].as_object().unwrap() {
+            let Some(fields) = enums.get(name).and_then(|fields| fields.as_object()) else {
+                problems.push(format!("enumMeta.{name}: no such enumeration"));
+                continue;
+            };
+            let values: Vec<i64> = fields.values().filter_map(|value| value.as_i64()).collect();
+            let (count, least, greatest) = (meta[0].as_i64().unwrap_or(-1), meta[1].as_i64().unwrap_or(0), meta[2].as_i64().unwrap_or(0));
+            if count != values.len() as i64 || values.iter().min().is_some_and(|min| *min != least) || values.iter().max().is_some_and(|max| *max != greatest) {
+                problems.push(format!("enumMeta.{name}: {meta} does not fit the {} values", values.len()));
+            }
+        }
+        for event in snapshot["eventFlags"].as_object().unwrap().keys() {
+            if snapshot["events"].get(event).is_none() {
+                problems.push(format!("eventFlags.{event}: no such event"));
+            }
+        }
+        let constants = snapshot["constants"].as_object().unwrap();
+        for name in snapshot["unresolvedConstants"].as_array().unwrap() {
+            let (table, value) = name.as_str().unwrap().split_once('.').unwrap();
+            if constants.get(table).and_then(|values| values.get(value)).is_some() {
+                problems.push(format!("{table}.{value} has a value and is listed as without one"));
+            }
+        }
+        assert!(problems.is_empty(), "{} problems, the first: {:?}", problems.len(), &problems[..problems.len().min(10)]);
+    }
 }
 
 /// Runs every addon: a first login, then a reload with the saved variables of the first run.
 pub fn run(addons: &[Addon], snapshot_json: &str) -> Result<Vec<Report>, String> {
-    let snapshot: serde_json::Value = serde_json::from_str(snapshot_json).map_err(|error| format!("The API snapshot is not valid JSON: {error}"))?;
+    let mut snapshot: serde_json::Value = serde_json::from_str(snapshot_json).map_err(|error| format!("The API snapshot is not valid JSON: {error}"))?;
+    with_ui_names(&mut snapshot)?;
     let mut reports = Vec::new();
     for addon in addons {
         let first = run_addon(addon, &snapshot, None)?;

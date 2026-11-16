@@ -48,7 +48,7 @@ local function isDeal(row)
 end
 
 local function getItemInfo(itemID)
-  local get = C_Item and C_Item.GetItemInfo or GetItemInfo
+  local get = C_Item.GetItemInfo
   if get then
     return get(itemID)
   end
@@ -75,8 +75,6 @@ local function iconOf(itemID)
   local icon
   if C_Item and C_Item.GetItemIconByID then
     icon = C_Item.GetItemIconByID(itemID)
-  elseif GetItemIcon then
-    icon = GetItemIcon(itemID)
   end
   return icon or UNKNOWN_ICON
 end
@@ -513,11 +511,8 @@ local function createWindow()
     self:StopMovingOrSizing()
     savePosition()
   end)
-  if frame.TitleText then
-    frame.TitleText:SetText("Forever Auctions: price history")
-  elseif frame.SetTitle then
-    frame:SetTitle("Forever Auctions: price history")
-  end
+  -- Both forms of the window have the title text: the template, and the plain window above.
+  frame.TitleText:SetText("Forever Auctions: price history")
   -- Escape closes the window.
   tinsert(UISpecialFrames, FRAME_NAME)
 

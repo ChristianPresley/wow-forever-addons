@@ -84,3 +84,10 @@ ns.SetOption("rowsRaid", 10)
 -- Deleting the data asks the game.
 ns.ResetData()
 expect(H.count("reset damage data") == 1, "deleting the fights asks the game")
+-- The question before it: "no" deletes nothing, "yes" deletes.
+T.world.sayNo = true
+ns.ConfirmReset()
+expect(H.count("reset damage data") == 1, "with the answer no, nothing is deleted")
+T.world.sayNo = nil
+ns.ConfirmReset()
+expect(H.count("reset damage data") == 2, "with the answer yes, the fights are deleted")

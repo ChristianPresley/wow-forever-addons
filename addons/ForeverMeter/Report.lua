@@ -12,7 +12,7 @@ local function send(text, channel)
     print(text)
     return
   end
-  local sendMessage = C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage
+  local sendMessage = C_ChatInfo.SendChatMessage
   if sendMessage then
     pcall(sendMessage, text, channel)
   end

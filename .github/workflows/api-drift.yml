@@ -1,0 +1,40 @@
+name: API drift
+
+# Blizzard publishes the API documentation of the game client with each patch. This job builds
+# the API snapshot from the newest files and compares it with the one in the repository. It
+# fails when they differ: the game changed, and the snapshot, the stand-in and the addons need
+# a look. The log lists each name that was added, removed or changed.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    name: Newest published API against the snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch Blizzard's newest API documentation
+        run: |
+          read -r repository branch commit < tools/api/source.txt
+          git init --quiet ui-source
+          git -C ui-source remote add origin "$repository"
+          git -C ui-source sparse-checkout set Interface/AddOns
+          git -C ui-source fetch --quiet --depth 1 --filter=blob:none origin "$branch"
+          git -C ui-source checkout --quiet FETCH_HEAD
+          echo "Pinned commit: $commit"
+          echo "Newest commit: $(git -C ui-source rev-parse HEAD)"
+      - run: cargo dev api-snapshot ui-source/Interface/AddOns/Blizzard_APIDocumentationGenerated --check
+        id: api
+        continue-on-error: true
+      # The fonts and the undocumented events come from the game's own UI files.
+      - run: cargo dev ui-names ui-source/Interface/AddOns --check
+        id: ui
+        continue-on-error: true
+      - name: Fail if the game changed
+        if: steps.api.outcome == 'failure' || steps.ui.outcome == 'failure'
+        run: exit 1

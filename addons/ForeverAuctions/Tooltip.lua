@@ -8,7 +8,7 @@ end
 
 -- What a vendor pays for one item, nil if nothing or not known yet.
 local function vendorPrice(itemID)
-  local getInfo = C_Item and C_Item.GetItemInfo or GetItemInfo
+  local getInfo = C_Item.GetItemInfo
   if not getInfo then
     return nil
   end
@@ -109,13 +109,4 @@ if TooltipDataProcessor and Enum and Enum.TooltipDataType then
       addLines(tooltip, data.id)
     end
   end)
-else
-  local function onSetItem(tooltip)
-    local _, link = tooltip:GetItem()
-    if link then
-      addLines(tooltip, tonumber(link:match("item:(%d+)")))
-    end
-  end
-  GameTooltip:HookScript("OnTooltipSetItem", onSetItem)
-  ItemRefTooltip:HookScript("OnTooltipSetItem", onSetItem)
 end

@@ -53,6 +53,8 @@ Run these from any folder of the repository.
 |---|---|
 | `cargo dev lint` | Checks the TOC, `addon.json`, the file list, the settings page and the Lua syntax of each addon |
 | `cargo dev test` | Loads each addon in a stand-in for the game client and uses everything in it: each settings page, slash command, frame and event, out of a fight and in a fight. `--coverage` lists the lines that did not run |
+| `cargo dev conformance` | Checks each name of the game's API that the addons use against the API of this client, on every line, without running them |
+| `cargo dev api-snapshot <folder> --check`, `cargo dev ui-names <folder> --check` | Compare the API files in `tools/api/` with Blizzard's UI source. CI runs both at the pinned commit, and each day against the newest one |
 | `cargo dev marketplace` | Writes one ZIP for each addon and an `index.json` to `dist/marketplace/` |
 | `cargo dev icon <out.png>` | Draws the source image of the app icon |
 | `cargo wfam <command>` | The addon manager on the command line: `detect`, `list`, `market`, `install <id>`, `update`, `uninstall <id>` |

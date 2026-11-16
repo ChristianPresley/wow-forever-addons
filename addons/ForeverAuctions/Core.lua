@@ -56,7 +56,7 @@ end
 
 -- The link of an item for chat, or "item 1234" while the client does not know the item yet.
 function ns.ItemLabel(itemID)
-  local get = C_Item and C_Item.GetItemInfo or GetItemInfo
+  local get = C_Item.GetItemInfo
   local link = get and select(2, get(itemID))
   return type(link) == "string" and link or ("item " .. tostring(itemID))
 end

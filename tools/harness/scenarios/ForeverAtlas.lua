@@ -29,8 +29,11 @@ T.slash("/way", "45.2 61.8 Farm")
 local waypoints = ForeverAtlasCharDB.waypoints
 expect(#waypoints == 1 and waypoints[1].label == "Farm" and waypoints[1].x == 45.2 and waypoints[1].y == 61.8, "/way adds a waypoint with its label")
 expect(waypoints[1].mapID == 37, "the waypoint is on the map of the player")
--- The arrow follows the waypoint.
+-- The arrow follows the waypoint: from the player at 42, 65 it is 32 yards north and 32 west.
 T.advance(2)
+expect(ForeverAtlasArrow ~= nil and ForeverAtlasArrow:IsShown(), "the arrow is on the screen while a waypoint is set")
+expect(ForeverAtlasArrow.distance:GetText() == "45 yd", "the arrow has the distance to the waypoint (45 yd), got " .. tostring(ForeverAtlasArrow.distance:GetText()))
+expect(ForeverAtlasArrow.label:GetText() == "Farm", "the arrow has the label of the waypoint")
 -- A second waypoint, and a waypoint without a label.
 T.slash("/way", "10 10")
 expect(#waypoints == 2, "a second waypoint is added")
@@ -40,7 +43,9 @@ expect(#waypoints == 2, "a /way without coordinates adds nothing")
 -- A waypoint at the place of the player: arriving removes it.
 ns.SetOption("arrivalYards", 50)
 ns.AddWaypoint(37, 42, 65, "Here")
+expect(#waypoints == 3, "the waypoint at the place of the player is added")
 T.advance(1)
+expect(#waypoints == 2 and T.printed("arrived at Here"), "arriving at a waypoint removes it and says so")
 ns.SetOption("arrivalYards", 5)
 T.slash("/fatlas", "clear")
 

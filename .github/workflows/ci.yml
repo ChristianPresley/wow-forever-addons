@@ -14,9 +14,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo dev lint
+      # Every API name that the addons use is in the API of the game client.
+      - run: cargo dev conformance
+      # Each addon runs in the stand-in for the game client.
       - run: cargo dev test
       - run: cargo test -p wfam-core -p wfam-dev
       - run: cargo dev marketplace
+
+  api:
+    name: API snapshot matches Blizzard's files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # tools/api/source.txt names the repository, the branch and the commit of Blizzard's UI
+      # source that the snapshot was built from. The snapshot is built again from that commit
+      # and must come out the same, byte for byte.
+      - name: Fetch Blizzard's UI source at the pinned commit
+        run: |
+          read -r repository branch commit < tools/api/source.txt
+          git init --quiet ui-source
+          git -C ui-source remote add origin "$repository"
+          git -C ui-source sparse-checkout set Interface/AddOns
+          git -C ui-source fetch --quiet --depth 1 --filter=blob:none origin "$commit"
+          git -C ui-source checkout --quiet FETCH_HEAD
+      - run: cargo dev api-snapshot ui-source/Interface/AddOns/Blizzard_APIDocumentationGenerated --check
+      # The fonts and the undocumented events come from the game's own UI files.
+      - run: cargo dev ui-names ui-source/Interface/AddOns --check
 
   app:
     name: Desktop app (Windows)

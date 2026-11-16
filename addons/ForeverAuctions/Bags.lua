@@ -6,7 +6,7 @@ local SELL_PRICE_INDEX = 11 -- position of the vendor sell price in the results 
 local TOP = 5
 
 local function vendorPrice(itemID)
-  local get = C_Item and C_Item.GetItemInfo or GetItemInfo
+  local get = C_Item.GetItemInfo
   local price = get and select(SELL_PRICE_INDEX, get(itemID))
   if type(price) ~= "number" or (issecretvalue and issecretvalue(price)) or price <= 0 then
     return 0

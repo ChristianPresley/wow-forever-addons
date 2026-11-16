@@ -60,23 +60,24 @@ for _, entry in ipairs(H.did) do
 end
 expect(sentFull, "a full list of quests is sent after joining a party")
 
--- A list from a party member.
-T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1S176:0:2.8;40:1", "PARTY", "Friend")
+-- A list from a party member. The game gives the sender with the realm ("Friend-TestRealm"); the
+-- addon must take the realm of its own realm off, or its own messages look like a member's.
+T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1S176:0:2.8;40:1", "PARTY", "Friend-TestRealm")
 expect(ns.party.Friend and ns.party.Friend[176] and ns.party.Friend[176].objectives[1][1] == 2, "the progress of the party member on quest 176 is 2 of 8")
 expect(ns.party.Friend[40].complete == true, "the party member has quest 40 ready")
 -- A change, and a quest that the member no longer has.
-T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1U176:0:5.8;40:x", "PARTY", "Friend")
+T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1U176:0:5.8;40:x", "PARTY", "Friend-TestRealm")
 expect(ns.party.Friend[176].objectives[1][1] == 5 and ns.party.Friend[40] == nil, "a change message updates one quest and removes another")
 -- Bad messages change nothing: a broken entry, another prefix, another channel, the player itself.
 for _, message in ipairs({ "1U176:0:9.8;40:y", "1U176:0:9,8", "1U0:0", "1Z176:0:9.8", "2U176:0:9.8", "1U176:0:999999.8" }) do
-  T.fire("CHAT_MSG_ADDON", "ForeverQuests", message, "PARTY", "Friend")
+  T.fire("CHAT_MSG_ADDON", "ForeverQuests", message, "PARTY", "Friend-TestRealm")
 end
-T.fire("CHAT_MSG_ADDON", "OtherAddon", "1U176:0:9.8", "PARTY", "Friend")
-T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1U176:0:9.8", "WHISPER", "Friend")
-T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1U176:0:9.8", "PARTY", "Tester")
+T.fire("CHAT_MSG_ADDON", "OtherAddon", "1U176:0:9.8", "PARTY", "Friend-TestRealm")
+T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1U176:0:9.8", "WHISPER", "Friend-TestRealm")
+T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1U176:0:9.8", "PARTY", "Tester-TestRealm")
 expect(ns.party.Friend[176].objectives[1][1] == 5 and ns.party.Tester == nil, "a broken or foreign message is dropped whole")
 -- A hello from the member asks for the list again.
-T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1H", "PARTY", "Friend")
+T.fire("CHAT_MSG_ADDON", "ForeverQuests", "1H", "PARTY", "Friend-TestRealm")
 T.advance(30)
 T.slash("/fq", "party")
 expect(T.printed("Friend: 1 shared"), "/fq party lists the member with the quest that both have")
@@ -123,9 +124,32 @@ for button in QuestScrollFrame.titleFramePool:EnumerateActive() do
   end
 end
 expect(shownQuests == 2, "both quests are in the current zone and stay in the log")
+-- In another zone, where only quest 176 has a place on the map: quest 40 is hidden.
+local function shownInLog()
+  local count = 0
+  for button in QuestScrollFrame.titleFramePool:EnumerateActive() do
+    if button:IsShown() then
+      count = count + 1
+    end
+  end
+  return count
+end
+T.world.zone = "Westfall"
+T.fire("ZONE_CHANGED_NEW_AREA")
+T.advance(2)
+QuestLogQuests_Update()
+expect(shownInLog() == 1, "in another zone the quest that is not of it is hidden, shown: " .. shownInLog())
+-- With a text in the search box of the quest log the filter is off: the game's search decides.
 QuestScrollFrame.SearchBox:SetText("hogger")
 QuestLogQuests_Update()
+expect(shownInLog() == 2, "a search in the quest log turns the zone filter off, shown: " .. shownInLog())
 QuestScrollFrame.SearchBox:SetText("")
+QuestLogQuests_Update()
+expect(shownInLog() == 1, "without the search text the filter is back, shown: " .. shownInLog())
+T.world.zone = nil
+T.fire("ZONE_CHANGED_NEW_AREA")
+T.advance(2)
+QuestLogQuests_Update()
 ns.SetOption("zoneLog", false)
 
 -- Current zone only on the tracker: the quest of the zone that is not tracked (40) gets tracked.

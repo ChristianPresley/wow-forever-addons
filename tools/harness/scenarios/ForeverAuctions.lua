@@ -10,7 +10,7 @@ expect(entry and entry.price == 150, "browsing stores 150 for Linen Cloth")
 expect(ns.Lookup(769) and ns.Lookup(769).price == 40, "browsing stores 40 for Chunk of Boar Meat")
 -- A commodity search: the lowest of three sellers.
 T.fire("COMMODITY_SEARCH_RESULTS_UPDATED", 2589)
-expect(ns.Lookup(2589).price == 150, "a commodity search stores the lowest unit price")
+expect(ns.Lookup(2589).price == 145, "a commodity search stores the lowest unit price of the three sellers (145), got " .. tostring(ns.Lookup(2589).price))
 
 -- The undercut price.
 ns.SetOption("undercut", 1)
@@ -35,7 +35,8 @@ T.fire("REPLICATE_ITEM_LIST_UPDATE")
 T.advance(5)
 -- 20 for 3000 is 150 each, 10 for 1400 is 140 each: the lower one is stored.
 expect(ns.Lookup(2589).price == 140, "the full scan stores the lowest unit price of Linen Cloth (140), got " .. tostring(ns.Lookup(2589).price))
-expect(ns.Lookup(769).price == 40, "the full scan stores 40 for Chunk of Boar Meat")
+-- 8 for 280 is 35 each: lower than the 40 that browsing stored.
+expect(ns.Lookup(769).price == 35, "the full scan stores 35 for Chunk of Boar Meat, got " .. tostring(ns.Lookup(769).price))
 expect(ns.ScanCooldown() > 0 and not ns.ScanRunning(), "after the scan the 15 minutes run")
 
 -- The player's own auction (160) is above the stored lowest price (140).
@@ -62,9 +63,9 @@ T.slash("/fah", "list")
 expect(ns.RunSearch("Linen Cloth") == true and H.auctionSearches[#H.auctionSearches] == "Linen Cloth", "a click starts the search in the search box of the game")
 expect(ns.RemoveSearch("COPPER ORE") == true and #ns.ShoppingList() == 1, "a search is removed by its text")
 
--- The value of the bags: 32 Linen Cloth at 140 and 8 Chunk of Boar Meat at 40.
+-- The value of the bags: 32 Linen Cloth at 140 and 8 Chunk of Boar Meat at 35.
 local auction, vendor, items = ns.BagValue()
-expect(auction == 32 * 140 + 8 * 40, "the bags are worth 4800 at the auction house, got " .. tostring(auction))
+expect(auction == 32 * 140 + 8 * 35, "the bags are worth 4760 at the auction house, got " .. tostring(auction))
 expect(vendor == 32 * 13 + 8 * 4 + 5 * 1 + 7, "the bags are worth 460 at a vendor, got " .. tostring(vendor))
 expect(#items == 2 and items[1].itemID == 2589, "the most valuable item of the bags is Linen Cloth")
 T.slash("/fah", "bags")
@@ -95,3 +96,18 @@ expect(T.printed("%-day average"), "/fah price prints the stored price and the a
 
 -- The sell helper: the price field gets the undercut of the lowest other seller (150).
 T.advance(1)
+-- A commodity is in the sell form: the other sellers have 145 and 175, the own auction 160.
+local fillButton
+for _, frame in ipairs(H.frames) do
+  local panel = H.state(frame).parent
+  if panel and panel.sellFrame == AuctionHouseFrame.CommoditiesSellFrame and panel.button == frame then
+    fillButton = frame
+  end
+end
+expect(fillButton ~= nil and fillButton:IsShown(), "the sell form of a commodity has the button that fills the price")
+if fillButton then
+  expect(fillButton:GetText() == "Undercut: " .. ns.Money(144), "the button offers the undercut of the lowest other seller, got " .. tostring(fillButton:GetText()))
+  local before = H.count("price filled")
+  H.click(fillButton, "LeftButton", false)
+  expect(H.count("price filled") == before + 1 and H.did[#H.did][2] == 144, "a click writes 144 into the price field, got " .. tostring(H.did[#H.did][2]))
+end
