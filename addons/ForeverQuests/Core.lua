@@ -60,6 +60,16 @@ ns.OPTIONS = {
     text = "Tracker: current zone only",
     hint = "Track the quests of your zone and untrack the others. Your own tracking comes back when you turn this off.",
   },
+  {
+    key = "completeFanfare", command = "fanfare", label = "quest complete banner", default = true,
+    text = "Quest complete: banner and mark",
+    hint = "A banner on the screen when a quest is ready to turn in; click it to see where. In the quest log the quest goes to the top of its zone with a COMPLETED mark.",
+  },
+  {
+    key = "questItems", command = "items", label = "quest items beside the quest details", default = true,
+    text = "Quest log: items of the quest",
+    hint = "Beside the details of a quest: the item to use, the items to collect, the rewards and the choice of rewards, in your bags or not.",
+  },
 }
 
 local listeners = {}

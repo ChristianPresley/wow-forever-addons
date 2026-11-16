@@ -301,6 +301,16 @@ local function hook()
   end
   hooked = true
   hooksecurefunc("QuestLogQuests_Update", afterLogUpdate)
+  -- The game also builds the log while it is not on the screen. When the log comes onto the
+  -- screen, the order and the glow of a quest that made progress are set again: the glow starts
+  -- when the player sees it.
+  for _, shown in ipairs({ QuestScrollFrame, QuestMapFrame }) do
+    if type(shown) == "table" and type(shown.HookScript) == "function" then
+      pcall(shown.HookScript, shown, "OnShow", function()
+        pcall(afterLogUpdate)
+      end)
+    end
+  end
   pcall(addMenuItem)
   return true
 end

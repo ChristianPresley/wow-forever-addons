@@ -3,7 +3,7 @@ local _, ns = ...
 -- The kinds of things that a compass can point to.
 --
 -- Each kind has a function find(mapID, add, addWorld) that reports the things it knows now:
---   add(x, y, name, onMapID)   a point of a map, x and y from 0 to 1; onMapID is mapID if left out
+--   add(x, y, name, onMapID, questID)   a point of a map, x and y from 0 to 1; onMapID is mapID if left
 --   addWorld(continent, north, west, name)   a world position in yards
 -- mapID is the map the player is on. ns.FindTargets turns all of them into world positions.
 
@@ -28,7 +28,7 @@ end
 local function logQuests(mapID, add, wantComplete)
   for _, quest in ipairs(questsOnMap(mapID)) do
     if quest.questID and quest.x and quest.y and isComplete(quest.questID) == wantComplete then
-      add(quest.x, quest.y, questName(quest.questID))
+      add(quest.x, quest.y, questName(quest.questID), nil, quest.questID)
     end
   end
 end
@@ -69,7 +69,7 @@ local function trackedQuest(mapID, add)
   end
   for _, quest in ipairs(questsOnMap(mapID)) do
     if quest.questID == tracked and quest.x and quest.y then
-      add(quest.x, quest.y, questName(tracked))
+      add(quest.x, quest.y, questName(tracked), nil, tracked)
     end
   end
 end
@@ -228,7 +228,7 @@ local function worldOf(mapID, x, y)
   return known
 end
 
--- The things of a kind that are known now: { { continent, north, west, name }, ... }.
+-- The things of a kind that are known now: { { continent, north, west, name, questID }, ... }.
 function ns.FindTargets(kindKey)
   local kind = ns.KindByKey[kindKey]
   local mapID = ns.PlayerMap()
@@ -236,11 +236,11 @@ function ns.FindTargets(kindKey)
   if not kind or not mapID then
     return targets
   end
-  local function add(x, y, name, onMapID)
+  local function add(x, y, name, onMapID, questID)
     if ns.Usable(x) and ns.Usable(y) then
       local world = worldOf(onMapID or mapID, x, y)
       if world then
-        targets[#targets + 1] = { world[1], world[2], world[3], name }
+        targets[#targets + 1] = { world[1], world[2], world[3], name, questID }
       end
     end
   end

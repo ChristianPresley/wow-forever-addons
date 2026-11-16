@@ -59,6 +59,9 @@ local function report(old, new)
       end
       if quest.complete and not before.complete then
         ready = true
+        if ns.ShowQuestComplete then
+          ns.ShowQuestComplete(questID, quest.title) -- Fanfare.lua
+        end
         if options.announce then
           ns.Print("ready to turn in: " .. (quest.title or questID))
         end

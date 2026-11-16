@@ -216,17 +216,87 @@ function dropsecretaccess() end
 
 -- Number formatting that takes a secret value (LocalizationDocumentation.lua: these three are
 -- open to addon code).
-function AbbreviateNumbers(value)
-  if realType(plain(value)) ~= "number" then
-    fail("AbbreviateNumbers: a number is needed, got " .. realType(plain(value)))
+-- AbbreviateNumbers(value, options) and AbbreviateLargeNumbers (LocalizationDocumentation.lua,
+-- NumberAbbreviationBreakpoint in LocalizationSharedDocumentation.lua). The breakpoints go from
+-- the largest to the smallest. The first one that the number reaches gives the text:
+-- floor(number / significandDivisor) / fractionDivisor, then the abbreviation. So 1234 with
+-- 100 and 10 is "1.2K". A number below every breakpoint stays as it is, with all its decimals:
+-- the rules are what rounds, not the function.
+local DEFAULT_BREAKPOINTS = {
+  { breakpoint = 1e9, abbreviation = "B", significandDivisor = 1e8, fractionDivisor = 10 },
+  { breakpoint = 1e6, abbreviation = "M", significandDivisor = 1e5, fractionDivisor = 10 },
+  { breakpoint = 1e4, abbreviation = "K", significandDivisor = 1e3, fractionDivisor = 1 },
+  { breakpoint = 1e3, abbreviation = "K", significandDivisor = 100, fractionDivisor = 10 },
+}
+local abbreviateConfigs = setmetatable({}, { __mode = "k" })
+local function checkBreakpoints(list, where)
+  if realType(list) ~= "table" then
+    fail(where .. ": the breakpoints are not a table")
+  end
+  local last
+  for index, entry in ipairs(list) do
+    for _, field in ipairs({ "breakpoint", "significandDivisor", "fractionDivisor" }) do
+      if realType(entry[field]) ~= "number" then
+        fail(where .. ": breakpoint " .. index .. " has no number " .. field)
+      end
+    end
+    if realType(entry.abbreviation) ~= "string" then
+      fail(where .. ": breakpoint " .. index .. " has no text abbreviation")
+    end
+    if entry.significandDivisor <= 0 or entry.fractionDivisor <= 0 then
+      fail(where .. ": breakpoint " .. index .. " has a divisor that is not above zero")
+    end
+    if last and entry.breakpoint >= last then
+      fail(where .. ": the breakpoints are not in order from the largest to the smallest")
+    end
+    last = entry.breakpoint
+  end
+  return list
+end
+function CreateAbbreviateConfig(breakpoints)
+  local config = {}
+  abbreviateConfigs[config] = checkBreakpoints(breakpoints, "CreateAbbreviateConfig")
+  return config
+end
+function AbbreviateNumbers(value, options)
+  local number = plain(value)
+  if realType(number) ~= "number" then
+    fail("AbbreviateNumbers: a number is needed, got " .. realType(number))
+  end
+  local breakpoints = DEFAULT_BREAKPOINTS
+  if options ~= nil then
+    if realType(options) ~= "table" then
+      fail("AbbreviateNumbers: the options are not a table")
+    end
+    if options.config ~= nil then
+      breakpoints = abbreviateConfigs[options.config] or fail("AbbreviateNumbers: the config is not from CreateAbbreviateConfig")
+    elseif options.breakpointData ~= nil then
+      breakpoints = checkBreakpoints(options.breakpointData, "AbbreviateNumbers")
+    end
+  end
+  local text = realTostring(number)
+  for _, entry in ipairs(breakpoints) do
+    if math.abs(number) >= entry.breakpoint then
+      local shown = math.floor(number / entry.significandDivisor) / entry.fractionDivisor
+      text = realTostring(shown) .. entry.abbreviation
+      break
+    end
   end
   if secrets[value] ~= nil then
-    return H.secret(realTostring(secrets[value]))
+    return H.secret(text)
   end
-  return realTostring(value)
+  return text
 end
 AbbreviateLargeNumbers = AbbreviateNumbers
-BreakUpLargeNumbers = AbbreviateNumbers
+-- BreakUpLargeNumbers puts separators in a number and does not shorten it.
+function BreakUpLargeNumbers(value)
+  local number = plain(value)
+  if realType(number) ~= "number" then
+    fail("BreakUpLargeNumbers: a number is needed, got " .. realType(number))
+  end
+  local text = realTostring(number)
+  return secrets[value] ~= nil and H.secret(text) or text
+end
 
 -- string.format takes a secret value and gives a secret text. This is not in Blizzard's
 -- documentation: the game's own damage meter does it with the amounts and the names of a fight,
@@ -866,11 +936,17 @@ function hooksecurefunc(a, b, c)
   if realType(original) ~= "function" or realType(hook) ~= "function" then
     fail("hooksecurefunc(): " .. realTostring(name) .. " is not a function")
   end
-  target[name] = function(...)
+  local wrapper
+  -- The driver tells a hook, which the game allows, from a function that an addon put in the
+  -- place of the game's own (see "replaced functions" in driver.lua).
+  H.hookedOriginal = H.hookedOriginal or setmetatable({}, { __mode = "k" })
+  wrapper = function(...)
     local n, out = pack(original(...))
     hook(...)
     return unpack(out, 1, n)
   end
+  H.hookedOriginal[wrapper] = original
+  target[name] = wrapper
 end
 function securecallfunction(fn, ...)
   return fn(...)

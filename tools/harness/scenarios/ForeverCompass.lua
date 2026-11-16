@@ -78,3 +78,24 @@ expect(ns.GetCompass(2, "alpha") == 40, "/fcompass 2 opacity 40 sets the opacity
 T.slash("/fcompass", "kinds")
 T.slash("/fcompass", "")
 T.advance(2)
+
+-- A marker of a quest of the log takes a click, which opens the quest in the quest log.
+ns.SetCompass(1, "kind", "questObjectives")
+ns.SetCompass(2, "kind", "flight")
+T.advance(2)
+local questMarker, flightMarker
+for _, frame in ipairs(H.frames) do
+  if frame.dot and frame.index == 1 then
+    questMarker = frame
+  elseif frame.dot and frame.index == 2 then
+    flightMarker = frame
+  end
+end
+expect(ns.TrackerQuest(1) == 176, "the marker of the quest objectives points to quest 176 (Wanted: Hogger), got " .. tostring(ns.TrackerQuest(1)))
+expect(questMarker ~= nil and questMarker:IsMouseEnabled(), "the marker of a quest takes the mouse")
+H.run(questMarker, "OnMouseUp", "LeftButton")
+expect(H.count("open quest") == 1 and H.did[#H.did][2] == 176, "a click on the marker opens quest 176 in the quest log")
+expect(ns.TrackerQuest(2) == nil and flightMarker ~= nil and not flightMarker:IsMouseEnabled(), "the marker of a flight master is not a quest and lets a click through")
+H.run(flightMarker, "OnMouseUp", "LeftButton")
+expect(H.count("open quest") == 1, "a click on a marker that is not a quest opens nothing")
+ns.SetCompass(2, "kind", "vendor")

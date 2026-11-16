@@ -17,6 +17,7 @@ local function status()
   print("  zone - current zone only, in the quest log and the tracker together")
   print("  stats - quests, experience and money from turn-ins")
   print("  party - the progress of your party on the quests you share")
+  print("  demo - show the quest complete banner and the glow in the quest log once, to see them")
   print("  options - open the options page")
   print("  Hold Shift while you talk to an NPC to skip the automation once.")
 end
@@ -44,6 +45,8 @@ SlashCmdList["FOREVERQUESTS"] = function(input)
     stats()
   elseif command == "party" then
     ns.PrintParty()
+  elseif command == "demo" then
+    ns.Demo()
   elseif command == "options" or command == "config" then
     ns.OpenOptions()
   else

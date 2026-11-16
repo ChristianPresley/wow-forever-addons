@@ -8,8 +8,12 @@ local _, ns = ...
 -- the game. So there is one parent frame for each bag, and this file sets no bag field on a
 -- button: a field set by an addon would make the game refuse to use the item in a fight.
 --
--- With the option replaceBags, the bag key and the bag buttons open this window. If this window
--- fails, the window of the game opens.
+-- With the option replaceBags, the bag key and the bag buttons open this window. The functions
+-- of the game behind them stay the game's own: this file hooks them (hooksecurefunc) and keeps
+-- the bag windows of the game out of sight. A function of an addon in the place of one of the
+-- game makes the game refuse what only its own UI may do, such as buying a bank slot.
+--
+-- The Hearthstone has its own button at the top of the window and is not among the slots.
 
 local BUTTON = 37
 local GAP = 4
@@ -17,6 +21,9 @@ local PAD = 10
 local TOP = 58 -- title and search box
 local BOTTOM = 34 -- money and buttons
 local HEADER = 18 -- a category name
+local HEARTHSTONE = 6948 -- the item ID of the Hearthstone
+local HEARTH_SCALE = 0.8 -- the size of its button at the top of the window
+local BIND_QUEST = 4 -- the bind type of a quest item: its tooltip says "Quest Item"
 
 -- The categories, in the order of the window. `classes` are item class numbers (Enum.ItemClass).
 local CATEGORIES = {
@@ -113,17 +120,26 @@ end
 ---------------------------------------------------------------------------------------------------
 -- Layout
 
+-- A quest item is an item that the game itself calls one: its tooltip says "Quest Item" (the
+-- bind type), or it starts a quest. The item class Quest alone does not make one: the game
+-- also gives that class to books and other things to keep, which go to "Other".
 local function categoryOf(info, bag, slot)
   if info.quality == 0 and not info.hasNoValue then
     return "junk"
   end
   local okQuest, quest = pcall(C_Container.GetContainerItemQuestInfo, bag, slot)
-  if okQuest and type(quest) == "table" and (quest.isQuestItem or quest.questID) then
+  if okQuest and type(quest) == "table" and quest.questID then
     return "quest"
   end
-  local classID
-  if C_Item and C_Item.GetItemInfoInstant then
-    classID = select(6, C_Item.GetItemInfoInstant(info.itemID))
+  local okInfo, bindType = pcall(function()
+    return (select(14, C_Item.GetItemInfo(info.itemID)))
+  end)
+  if okInfo and bindType == BIND_QUEST then
+    return "quest"
+  end
+  local classID = select(6, C_Item.GetItemInfoInstant(info.itemID))
+  if classID == 12 then
+    return "other"
   end
   for _, category in ipairs(CATEGORIES) do
     if category.classes[classID] then
@@ -131,6 +147,12 @@ local function categoryOf(info, bag, slot)
     end
   end
   return "other"
+end
+
+-- The category of the item in a slot: the key of CATEGORIES, or nil for an empty slot.
+function ns.CategoryOf(bag, slot)
+  local info = C_Container.GetContainerItemInfo(bag, slot)
+  return info and categoryOf(info, bag, slot) or nil
 end
 
 local function headerAt(index)
@@ -150,6 +172,7 @@ local function layout()
   local used = {} -- buttons that show in this layout
   local sections = {} -- { name, slots = { { bag, slot, info } } }
   local free, firstFree = 0, nil
+  local hearth -- the slot with the Hearthstone
 
   if byCategory then
     for _, category in ipairs(CATEGORIES) do
@@ -171,7 +194,9 @@ local function layout()
         free = free + 1
         firstFree = firstFree or { bag, slot }
       end
-      if not byCategory then
+      if info and info.itemID == HEARTHSTONE and not hearth then
+        hearth = { bag, slot, info }
+      elseif not byCategory then
         table.insert(sections[1].slots, { bag, slot, info })
       elseif info then
         table.insert(sectionByKey[categoryOf(info, bag, slot)].slots, { bag, slot, info })
@@ -202,6 +227,7 @@ local function layout()
         local column = (index - 1) % columns
         local row = math.floor((index - 1) / columns)
         button:ClearAllPoints()
+        button:SetScale(1)
         button:SetPoint("TOPLEFT", grid, "TOPLEFT", column * (BUTTON + GAP), -y - row * (BUTTON + GAP))
         button:Show()
         updateButton(button, bag, slot, info)
@@ -213,6 +239,21 @@ local function layout()
   for index = headerIndex + 1, #headers do
     headers[index]:Hide()
   end
+  -- The Hearthstone: the item button of its slot, at the top of the window. It is the same
+  -- button as in the grid, so a click uses the stone and the tooltip and cooldown are the game's.
+  local scale = ns.GetOption("scale") / 100
+  if hearth then
+    local button = buttonFor(hearth[1], hearth[2])
+    button:ClearAllPoints()
+    button:SetScale(HEARTH_SCALE / scale)
+    button:SetPoint("TOPRIGHT", window, "TOPRIGHT", -30 / HEARTH_SCALE, -22 / HEARTH_SCALE)
+    button:Show()
+    updateButton(button, hearth[1], hearth[2], hearth[3])
+    used[button] = true
+    window.hearthstone = button
+  else
+    window.hearthstone = nil
+  end
   for _, bagButtons in pairs(buttons) do
     for _, button in pairs(bagButtons) do
       if not used[button] then
@@ -221,7 +262,6 @@ local function layout()
     end
   end
 
-  local scale = ns.GetOption("scale") / 100
   local width = columns * (BUTTON + GAP) - GAP
   grid:SetScale(scale)
   grid:SetSize(width, math.max(y, BUTTON))
@@ -417,31 +457,80 @@ end)
 
 ---------------------------------------------------------------------------------------------------
 -- In place of the bag window of the game
+--
+-- The functions of the game run as before and open or close the game's own bag windows. Those
+-- are children of a hidden frame while the option is on, so they are not on the screen. After
+-- each function a hook does the same to this window.
+--
+-- One key press runs several of the functions: ToggleAllBags closes the backpack with
+-- CloseBackpack, or opens all with OpenAllBags. The hook of the inner function runs first and
+-- the hook of the outer one last. So each hook says where the window must be, from how it was
+-- before the key press, and the last one decides.
 
-local originals = {}
 local installed = false
-
--- Puts fn in the place of a function of the game. With the option off, or if fn fails, the
--- function of the game runs.
-local function replace(name, fn)
-  local original = _G[name]
-  if type(original) ~= "function" then
-    return
-  end
-  originals[name] = original
-  _G[name] = function(...)
-    if ns.GetOption("replaceBags") then
-      local ok, done, result = pcall(fn, ...)
-      if ok and done then
-        return result
-      end
-    end
-    return original(...)
-  end
-end
+local hiddenParent
+local gameParents = {} -- [bag window of the game] = its parent before
 
 local function isBagOfCharacter(id)
   return id == nil or (type(id) == "number" and id >= 0 and id <= 5)
+end
+
+-- The bag windows of the game: the combined one and one for each bag.
+local function gameWindows()
+  local list = {}
+  local combined = _G["ContainerFrameCombinedBags"]
+  if type(combined) == "table" then
+    list[#list + 1] = combined
+  end
+  for index = 1, 20 do
+    local frame = _G["ContainerFrame" .. index]
+    if type(frame) ~= "table" then
+      break
+    end
+    list[#list + 1] = frame
+  end
+  return list
+end
+
+-- Takes the bag windows of the game off the screen, or gives them back.
+local function hideGameWindows(hide)
+  if hide then
+    hiddenParent = hiddenParent or CreateFrame("Frame")
+    hiddenParent:Hide()
+    for _, frame in ipairs(gameWindows()) do
+      if gameParents[frame] == nil and type(frame.SetParent) == "function" then
+        gameParents[frame] = frame:GetParent() or UIParent
+        pcall(frame.SetParent, frame, hiddenParent)
+      end
+    end
+  else
+    for frame, parent in pairs(gameParents) do
+      pcall(frame.SetParent, frame, parent)
+      gameParents[frame] = nil
+    end
+  end
+end
+
+local pressAt, shownBefore
+
+-- `want`: true to show the window, false to hide it, nil for the other of how it was.
+local function follow(want)
+  if not ns.GetOption("replaceBags") then
+    return
+  end
+  local now = GetTime()
+  if pressAt ~= now then
+    pressAt = now
+    shownBefore = window ~= nil and window:IsShown()
+  end
+  if want == nil then
+    want = not shownBefore
+  end
+  if want then
+    ns.ShowWindow()
+  else
+    ns.HideWindow()
+  end
 end
 
 local function install()
@@ -449,33 +538,29 @@ local function install()
     return
   end
   installed = true
-  local function show()
-    return ns.ShowWindow()
-  end
-  local function hide()
-    return true, ns.HideWindow()
-  end
-  local function toggle()
-    return ns.ToggleWindow()
-  end
-  replace("ToggleAllBags", toggle)
-  replace("ToggleBackpack", toggle)
-  replace("OpenAllBags", show)
-  replace("OpenBackpack", show)
-  replace("CloseAllBags", hide)
-  replace("CloseBackpack", hide)
-  -- A bag of the bank has a higher number: that one stays with the game.
-  replace("ToggleBag", function(id)
-    return isBagOfCharacter(id) and ns.ToggleWindow()
-  end)
-  replace("OpenBag", function(id)
-    return isBagOfCharacter(id) and ns.ShowWindow()
-  end)
-  replace("CloseBag", function(id)
-    if isBagOfCharacter(id) then
-      return true, ns.HideWindow()
+  local function hook(name, fn)
+    if type(_G[name]) == "function" then
+      hooksecurefunc(name, function(...)
+        pcall(fn, ...)
+      end)
     end
-    return false
+  end
+  hook("ToggleAllBags", function() follow(nil) end)
+  hook("ToggleBackpack", function() follow(nil) end)
+  hook("OpenAllBags", function() follow(true) end)
+  hook("OpenBackpack", function() follow(true) end)
+  hook("CloseAllBags", function() follow(false) end)
+  hook("CloseBackpack", function() follow(false) end)
+  -- A bag of the bank has a higher number: that one stays with the game.
+  hook("ToggleBag", function(id)
+    if isBagOfCharacter(id) then
+      follow(nil)
+    end
+  end)
+  hook("OpenBag", function(id)
+    if isBagOfCharacter(id) then
+      follow(true)
+    end
   end)
 end
 
@@ -483,15 +568,17 @@ ns.OnChange(function(key)
   if key == "replaceBags" then
     if ns.GetOption("replaceBags") then
       install()
+      hideGameWindows(true)
     else
       ns.HideWindow()
+      hideGameWindows(false)
     end
   end
 end)
-
 ns.OnLogin(function()
   if ns.GetOption("replaceBags") then
     install()
+    hideGameWindows(true)
   end
   local events = CreateFrame("Frame")
   for _, event in ipairs({

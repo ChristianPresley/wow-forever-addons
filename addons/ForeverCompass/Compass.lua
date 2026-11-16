@@ -8,6 +8,9 @@ local _, ns = ...
 -- the name of the target and the distance under it. A target outside the shown part of the
 -- circle has its marker at the end of the bar on that side, dimmed.
 --
+-- A marker of a quest of the quest log takes a click: it opens the quest in the quest log, the
+-- same as a click on the quest there.
+--
 -- Bearings are in degrees, clockwise from north: 0 is north and 90 is east.
 
 local BAR_INTERVAL = 0.02 -- seconds between moves of the bar
@@ -155,6 +158,28 @@ local function createMarker(index)
   marker.name:SetWidth(130)
   marker.name:SetWordWrap(false)
 
+  -- The dot is small: the name and the distance under it take the click too.
+  marker:SetHitRectInsets(-45, -45, 0, -30)
+  marker:EnableMouse(false)
+  marker:SetScript("OnMouseUp", function(self, button)
+    if button == "LeftButton" and self.questID then
+      ns.OpenQuest(self.questID)
+    elseif button == "RightButton" then
+      ns.OpenSettings()
+    end
+  end)
+  marker:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:SetText(self.targetName or "Forever Compass", 1, 1, 1)
+    if self.questID then
+      GameTooltip:AddLine("Click to open this quest in the quest log.", 0.6, 0.6, 0.6, true)
+    end
+    GameTooltip:Show()
+  end)
+  marker:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+
   marker.targets = {}
   marker.sinceSearch = TARGET_INTERVAL + index * 0.2 -- the trackers do not all search in the same frame
   marker.status = "off"
@@ -252,6 +277,12 @@ local function updateMarker(marker, elapsed, heading, half, scale, continent, no
   marker:SetAlpha(ns.GetCompass(index, "alpha") / 100 * (outside and 0.5 or 1))
   marker.distance:SetText(distanceText(yards))
   marker.name:SetText(target[4] or "")
+  marker.targetName = target[4]
+  -- Only a marker of a quest takes the mouse: the others let a click through to the bar.
+  if marker.questID ~= target[5] then
+    marker.questID = target[5]
+    marker:EnableMouse(target[5] ~= nil)
+  end
   marker.status = (target[4] or "?") .. ", " .. distanceText(yards)
   marker:Show()
 end
@@ -288,6 +319,21 @@ local function update(elapsed)
     updateMarker(marker, elapsed, heading, half, scale, continent, north, west)
   end
   root:Show()
+end
+
+-- Opens a quest of the quest log, the same as a click on it there: the log opens with the
+-- details of the quest. Returns false if the game does not have the function or refuses.
+function ns.OpenQuest(questID)
+  if type(QuestMapFrame_OpenToQuestDetails) ~= "function" then
+    return false
+  end
+  return (pcall(QuestMapFrame_OpenToQuestDetails, questID))
+end
+
+-- The quest that the marker of a tracker points to now, or nil.
+function ns.TrackerQuest(index)
+  local marker = markers[index]
+  return marker and marker:IsShown() and marker.questID or nil
 end
 
 -- What a tracker shows now, for /fcompass.

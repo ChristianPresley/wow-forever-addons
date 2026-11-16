@@ -26,23 +26,62 @@ T.slash("/fbags", "count " .. H.itemLink(2589))
 T.slash("/fbags", "characters")
 expect(T.printed("Gold of all characters"), "/fbags characters prints the gold of all characters")
 
--- The bag key opens this window, not the window of the game.
+-- The bag key opens this window. The functions of the game stay the game's own and run too (the
+-- driver fails an addon that puts its own function in their place): the addon follows them.
 expect(ns.GetOption("replaceBags") == true, "the bag window is replaced by default")
 local before = H.gameBags
 ToggleAllBags()
-expect(H.gameBags == before and ForeverBagsWindow ~= nil and ForeverBagsWindow:IsShown(), "the bag key opens the Forever Bags window")
+expect(H.gameBags > before, "the bag key runs the function of the game")
+expect(ForeverBagsWindow ~= nil and ForeverBagsWindow:IsShown(), "the bag key opens the Forever Bags window")
+T.advance(0.1)
+ToggleAllBags()
+expect(not ForeverBagsWindow:IsShown(), "the bag key again closes the window")
+T.advance(0.1)
+-- A vendor opens the bags and closes them.
+OpenAllBags()
+expect(ForeverBagsWindow:IsShown(), "OpenAllBags opens the window")
+T.advance(0.1)
 CloseAllBags()
-expect(not ForeverBagsWindow:IsShown() and H.gameBags == before, "closing the bags closes the window")
+expect(not ForeverBagsWindow:IsShown(), "CloseAllBags closes the window")
+T.advance(0.1)
+-- Escape closes this window and not the hidden one of the game: the bag key still opens it.
+ToggleAllBags()
+T.advance(0.1)
+ForeverBagsWindow:Hide()
+expect(H.gameBagsOpen == true, "the bag window of the game is still open, out of sight")
+ToggleAllBags()
+expect(ForeverBagsWindow:IsShown(), "after Escape the bag key opens the window again")
+T.advance(0.1)
+ToggleAllBags()
+T.advance(0.1)
 -- A bag of the bank stays with the game.
 ToggleBag(7)
-expect(H.gameBags == before + 1, "a bank bag opens in the game")
--- With the option off, the bag key reaches the game.
+expect(not ForeverBagsWindow:IsShown(), "a bank bag does not open the window")
+T.advance(0.1)
+-- With the option off, the bag key leaves the window alone.
 ns.SetOption("replaceBags", false)
-before = H.gameBags
 ToggleAllBags()
-expect(H.gameBags == before + 1 and not ForeverBagsWindow:IsShown(), "with the option off, the bag key opens the window of the game")
+expect(not ForeverBagsWindow:IsShown(), "with the option off, the bag key does not open the window")
+T.advance(0.1)
 ns.SetOption("replaceBags", true)
 
+-- Categories. A quest item is what the game calls one ("Quest Item" in the tooltip). A book of
+-- the item class Quest that is not for a quest is not one.
+expect(ns.CategoryOf(1, 3) == "quest", "Gnoll Paw is a quest item, got " .. tostring(ns.CategoryOf(1, 3)))
+expect(ns.CategoryOf(1, 4) == "other", "the book of the item class Quest is under Other, got " .. tostring(ns.CategoryOf(1, 4)))
+expect(ns.CategoryOf(1, 1) == "trade" and ns.CategoryOf(0, 3) == "consumables", "meat is a trade good and jerky a consumable")
+expect(ns.CategoryOf(0, 4) == nil, "an empty slot has no category")
+
+-- The Hearthstone has its own button at the top of the window, in both views.
+T.slash("/fbags", "")
+T.advance(1)
+local stone = ForeverBagsWindow.hearthstone
+expect(stone ~= nil and stone:IsShown() and stone:GetID() == 1 and stone:GetParent():GetID() == 0, "the Hearthstone (bag 0, slot 1) has its own button")
+expect(stone ~= nil and select(2, stone:GetPoint(1)) == ForeverBagsWindow, "the button of the Hearthstone is at the top of the window, not in the grid")
+ns.SetOption("groupBy", "none")
+T.advance(1)
+expect(ForeverBagsWindow.hearthstone == stone, "in the order of the bags the Hearthstone keeps its button")
+ns.SetOption("groupBy", "category")
 -- The window: by category and in bag order, and the search.
 T.slash("/fbags", "")
 ns.SetOption("groupBy", "none")

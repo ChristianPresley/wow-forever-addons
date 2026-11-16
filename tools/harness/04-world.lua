@@ -42,11 +42,18 @@ local ITEMS = {
   [117] = { name = "Tough Jerky", quality = 1, class = 0, sell = 1, icon = 134004 },
   [2211] = { name = "Bent Large Shield", quality = 0, class = 4, sell = 7, icon = 134955 },
   [6948] = { name = "Hearthstone", quality = 1, class = 15, sell = 0, icon = 134414 },
+  -- Two items of the item class Quest (12). `bind` is the bind type of the item: 4 is a quest
+  -- item (the tooltip says "Quest Item"), 1 binds when picked up (the tooltip says "Soulbound").
+  -- The book is of the class Quest and is not for a quest: a collectible.
+  [5001] = { name = "Gnoll Paw", quality = 1, class = 12, sell = 0, icon = 133721, bind = 4 },
+  [5002] = { name = "Baxtan: On Destructive Magics", quality = 1, class = 12, sell = 0, icon = 133733, bind = 1 },
+  -- The item that the quest 176 gives to use. It is not in the bags.
+  [5003] = { name = "Stormwind Hunting Horn", quality = 1, class = 12, sell = 0, icon = 133706, bind = 4 },
 }
 H.items = ITEMS
 local BAG_CONTENTS = {
   [0] = { size = 16, slots = { [1] = { 6948, 1 }, [2] = { 2589, 12 }, [3] = { 117, 5 }, [5] = { 2211, 1 } } },
-  [1] = { size = 6, slots = { [1] = { 769, 8 }, [2] = { 2589, 20 } } },
+  [1] = { size = 6, slots = { [1] = { 769, 8 }, [2] = { 2589, 20 }, [3] = { 5001, 3 }, [4] = { 5002, 1 } } },
 }
 local function itemLink(itemID)
   return "|cffffffff|Hitem:" .. itemID .. "::::::::20:::::|h[" .. ITEMS[itemID].name .. "]|h|r"
@@ -247,20 +254,44 @@ set("C_Container", "GetContainerItemInfo", function(bag, slot)
     itemID = entry[1], isBound = entry[1] == 6948, itemName = item.name,
   }
 end)
-set("C_Container", "GetContainerItemQuestInfo", function() return { isQuestItem = false, isActive = false } end)
+-- isQuestItem is true for each item of the item class Quest, a quest item or not.
+set("C_Container", "GetContainerItemQuestInfo", function(bag, slot)
+  local entry = BAG_CONTENTS[bag] and BAG_CONTENTS[bag].slots[slot]
+  return { isQuestItem = entry ~= nil and ITEMS[entry[1]].class == 12, isActive = false }
+end)
 set("C_Container", "SortBags", function() did("sort bags") end)
 
--- An item by its number or its link.
+-- An item by its number, its link or its name.
 local function itemOf(value)
-  return tonumber(value) or tonumber(realTostring(value):match("item:(%d+)"))
+  local itemID = tonumber(value) or tonumber(realTostring(value):match("item:(%d+)"))
+  if not itemID then
+    for id, item in pairs(ITEMS) do
+      if item.name == value then
+        return id
+      end
+    end
+  end
+  return itemID
 end
+-- How many of an item are in the bags.
+set("C_Item", "GetItemCount", function(value)
+  local itemID, count = itemOf(value), 0
+  for _, bag in pairs(BAG_CONTENTS) do
+    for _, entry in pairs(bag.slots) do
+      if entry[1] == itemID then
+        count = count + entry[2]
+      end
+    end
+  end
+  return count
+end)
 set("C_Item", "GetItemInfo", function(value)
   local itemID = itemOf(value)
   local item = ITEMS[itemID]
   if not item then
     return nil
   end
-  return item.name, itemLink(itemID), item.quality, 10, 1, "Type", "Subtype", 20, "", item.icon, item.sell, item.class, 0, 1, 0,
+  return item.name, itemLink(itemID), item.quality, 10, 1, "Type", "Subtype", 20, "", item.icon, item.sell, item.class, 0, item.bind or 1, 0,
     nil, false, ""
 end)
 set("C_Item", "GetItemInfoInstant", function(value)
@@ -283,15 +314,54 @@ set("C_Item", "GetStackCount", function(location) return slotOf(location) and sl
 
 -- The bag window of the game: the functions behind the bag key and the bag buttons.
 -- H.gameBags counts the calls that reach the game.
+-- H.gameBagsOpen: the bag window of the game is open. As in the game, a function calls the
+-- others by their global names (ToggleAllBags closes the backpack with CloseBackpack), so a
+-- hook of an addon on an inner function runs before the hook on the outer one.
 H.gameBags = 0
-for _, name in ipairs({
-  "ToggleAllBags", "ToggleBackpack", "OpenAllBags", "OpenBackpack", "CloseAllBags", "CloseBackpack",
-  "ToggleBag", "OpenBag", "CloseBag",
-}) do
-  setGlobal(name, function()
+H.gameBagsOpen = false
+local CONTAINER_FRAME = "Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua"
+local function bagFunction(name, fn)
+  setGlobal(name, function(...)
     H.gameBags = H.gameBags + 1
-  end, "Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua")
+    return fn(...)
+  end, CONTAINER_FRAME)
 end
+bagFunction("OpenBackpack", function() H.gameBagsOpen = true end)
+bagFunction("CloseBackpack", function() H.gameBagsOpen = false end)
+bagFunction("OpenBag", function() H.gameBagsOpen = true end)
+bagFunction("CloseBag", function() end)
+bagFunction("OpenAllBags", function()
+  if not H.gameBagsOpen then
+    OpenBackpack()
+  end
+end)
+bagFunction("CloseAllBags", function()
+  if H.gameBagsOpen then
+    CloseBackpack()
+  end
+end)
+bagFunction("ToggleBackpack", function()
+  if H.gameBagsOpen then
+    CloseBackpack()
+  else
+    OpenBackpack()
+  end
+end)
+bagFunction("ToggleAllBags", function()
+  if H.gameBagsOpen then
+    CloseBackpack()
+  else
+    OpenAllBags()
+  end
+end)
+bagFunction("ToggleBag", function(bag)
+  if H.gameBagsOpen then
+    CloseBag(bag)
+    H.gameBagsOpen = false
+  else
+    OpenBag(bag)
+  end
+end)
 H.bagFunctions = { "OpenAllBags", "CloseAllBags", "ToggleAllBags", "ToggleBackpack", "OpenBackpack", "CloseBackpack" }
 
 ---------------------------------------------------------------------------------------------------
@@ -306,13 +376,49 @@ H.questProgress = 3
 H.watched = { [176] = true } -- the quests on the tracker
 set("C_QuestLog", "GetNumQuestLogEntries", function() return #QUEST_LOG, 2 end)
 set("C_QuestLog", "GetInfo", function(index) return QUEST_LOG[index] end)
+set("C_QuestLog", "GetLogIndexForQuestID", function(questID)
+  for index, entry in ipairs(QUEST_LOG) do
+    if entry.questID == questID and not entry.isHeader then
+      return index
+    end
+  end
+end)
+-- The items of quest 176. H.world.questItems: the quest also has items to collect.
+local QUEST_UTILS = "Blizzard_FrameXMLUtil/Mainline/QuestUtils.lua"
+setGlobal("GetQuestLogSpecialItemInfo", function(logIndex)
+  if QUEST_LOG[logIndex] and QUEST_LOG[logIndex].questID == 176 then
+    return itemLink(5003), ITEMS[5003].icon, 0, false
+  end
+end, QUEST_UTILS)
+local QUEST_REWARDS = { reward = { { 2211, 1 } }, choice = { { 117, 5 }, { 2589, 10 } } }
+local function rewardInfo(kind)
+  return function(index, questID)
+    local entry = questID == 176 and QUEST_REWARDS[kind][index]
+    if entry then
+      local item = ITEMS[entry[1]]
+      return item.name, item.icon, entry[2], item.quality, true, entry[1], 20
+    end
+  end
+end
+setGlobal("GetNumQuestLogRewards", function(questID) return questID == 176 and #QUEST_REWARDS.reward or 0 end, QUEST_UTILS)
+setGlobal("GetQuestLogRewardInfo", rewardInfo("reward"), QUEST_UTILS)
+setGlobal("GetNumQuestLogChoices", function(questID) return questID == 176 and #QUEST_REWARDS.choice or 0 end, QUEST_UTILS)
+setGlobal("GetQuestLogChoiceInfo", rewardInfo("choice"), QUEST_UTILS)
 set("C_QuestLog", "GetQuestObjectives", function(questID)
+  if questID == 176 and H.world.questItems then
+    return {
+      { text = "Hogger slain: " .. H.questProgress .. "/8", type = "monster", finished = false, numFulfilled = H.questProgress, numRequired = 8 },
+      { text = "Gnoll Paw: 3/8", type = "item", finished = false, numFulfilled = 3, numRequired = 8 },
+      { text = "8/8 Linen Cloth", type = "item", finished = true, numFulfilled = 8, numRequired = 8 },
+    }
+  end
   if questID == 176 then
     return { { text = "Hogger slain: " .. H.questProgress .. "/8", type = "monster", finished = false, numFulfilled = H.questProgress, numRequired = 8 } }
   end
   return { { text = "Speak with Remy", type = "event", finished = true, numFulfilled = 1, numRequired = 1 } }
 end)
-set("C_QuestLog", "IsComplete", function(questID) return questID == 40 end)
+-- H.world.completed[questID]: the quest is ready to turn in.
+set("C_QuestLog", "IsComplete", function(questID) return questID == 40 or (H.world.completed ~= nil and H.world.completed[questID] == true) end)
 set("C_QuestLog", "GetTitleForQuestID", function(questID)
   for _, entry in ipairs(QUEST_LOG) do
     if entry.questID == questID and not entry.isHeader then

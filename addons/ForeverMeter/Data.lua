@@ -168,6 +168,20 @@ end
 -- text comes from the game's own function, which can read it, and is secret too.
 -- Returns true and the text, or false. (A secret text cannot be compared, not even with nil,
 -- so the first result says if there is a text.)
+--
+-- A number on the screen never has more than two decimals. The addon cannot round a secret
+-- number, so it gives the game's function its own rules, the same as ns.Short: 2.50M, 12.3K,
+-- 1.23K, and a whole number below 1000. Without rules the game's function leaves a small
+-- number as it is, with all its decimals.
+local BREAKPOINTS = { -- from the largest to the smallest, as the game wants them
+  { breakpoint = 1e9, abbreviation = "B", significandDivisor = 1e7, fractionDivisor = 100, abbreviationIsGlobal = false },
+  { breakpoint = 1e6, abbreviation = "M", significandDivisor = 1e4, fractionDivisor = 100, abbreviationIsGlobal = false },
+  { breakpoint = 1e4, abbreviation = "K", significandDivisor = 100, fractionDivisor = 10, abbreviationIsGlobal = false },
+  { breakpoint = 1e3, abbreviation = "K", significandDivisor = 10, fractionDivisor = 100, abbreviationIsGlobal = false },
+  { breakpoint = 0, abbreviation = "", significandDivisor = 1, fractionDivisor = 1, abbreviationIsGlobal = false },
+}
+local abbreviateOptions
+
 local function numberText(value)
   if ns.Usable(value) then
     return true, ns.Short(value)
@@ -175,15 +189,19 @@ local function numberText(value)
   if not ns.IsSecret(value) then
     return false
   end
-  for _, abbreviate in ipairs({ AbbreviateNumbers, AbbreviateLargeNumbers }) do
-    if abbreviate then
-      local ok, text = pcall(abbreviate, value)
-      if ok then
-        return true, text
-      end
+  if AbbreviateNumbers then
+    if not abbreviateOptions then
+      -- A config object makes the many calls cheaper, where the client has it.
+      local okConfig, config = pcall(CreateAbbreviateConfig, BREAKPOINTS)
+      abbreviateOptions = okConfig and config and { config = config } or { breakpointData = BREAKPOINTS }
+    end
+    local ok, text = pcall(AbbreviateNumbers, value, abbreviateOptions)
+    if ok then
+      return true, text
     end
   end
-  local ok, text = pcall(string.format, "%.0f", value)
+  -- The game's formatting takes a secret number: two decimals at most.
+  local ok, text = pcall(string.format, "%.2f", value)
   if ok then
     return true, text
   end
@@ -195,8 +213,8 @@ end
 function ns.SetNumber(fontString, value, hasSecond, second, suffix)
   local found, text = numberText(value)
   if not found then
-    -- The last way for a secret number: the font string itself can show it.
-    if not (ns.IsSecret(value) and pcall(fontString.SetText, fontString, value)) then
+    -- The last way for a secret number: the font string itself formats it, with two decimals.
+    if not (ns.IsSecret(value) and pcall(fontString.SetFormattedText, fontString, "%.2f", value)) then
       fontString:SetText("")
     end
     return

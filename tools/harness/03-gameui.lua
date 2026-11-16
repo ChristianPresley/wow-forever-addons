@@ -54,6 +54,26 @@ end
 QuestMapFrame = CreateFrame("Frame", "QuestMapFrame", WorldMapFrame)
 QuestScrollFrame = CreateFrame("EventScrollFrame", "QuestScrollFrame", QuestMapFrame)
 QuestScrollFrame.Contents = CreateFrame("Frame", nil, QuestScrollFrame)
+-- QuestMapFrame.xml: the details of one quest, a child of the quest log with the key DetailsFrame.
+QuestMapFrame.DetailsFrame = CreateFrame("Frame", nil, QuestMapFrame)
+QuestMapFrame.DetailsFrame:Hide()
+-- QuestMapFrame.lua: shows the details of a quest in the quest log.
+function QuestMapFrame_ShowQuestDetails(questID)
+  if realType(questID) ~= "number" then
+    fail("QuestMapFrame_ShowQuestDetails: a quest ID is needed, got " .. realType(questID))
+  end
+  QuestMapFrame.DetailsFrame.questID = questID
+  QuestMapFrame.DetailsFrame:Show()
+end
+-- QuestMapFrame.lua: opens the quest log with the details of a quest. It calls
+-- QuestMapFrame_ShowQuestDetails by its global name, so a hook on that one runs.
+function QuestMapFrame_OpenToQuestDetails(questID)
+  if realType(questID) ~= "number" then
+    fail("QuestMapFrame_OpenToQuestDetails: a quest ID is needed, got " .. realType(questID))
+  end
+  H.did[#H.did + 1] = { "open quest", questID }
+  QuestMapFrame_ShowQuestDetails(questID)
+end
 -- QuestMapFrame.xml: the search box of the quest log, an edit box with SearchBoxTemplate.
 QuestScrollFrame.SearchBox = CreateFrame("EditBox", nil, QuestScrollFrame, "SearchBoxTemplate")
 H.questLogLayouts = 0

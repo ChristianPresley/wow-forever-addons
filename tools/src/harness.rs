@@ -642,6 +642,15 @@ mod tests {
         assert!(failures.is_empty(), "{failures:?}");
     }
 
+    /// Taint: the game refuses protected actions after its own code ran a function of an addon.
+    #[test]
+    fn a_function_of_the_game_replaced_by_the_addon_is_a_failure() {
+        fails_with("local old = ToggleAllBags\nToggleAllBags = function(...) return old(...) end\n", "in the place of the game's ToggleAllBags");
+        // A hook is what the game allows.
+        let (failures, _) = check("local count = 0\nhooksecurefunc('ToggleAllBags', function() count = count + 1 end)\nToggleAllBags()\nassert(count == 1)\n");
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
     #[test]
     fn a_library_function_that_is_not_written_fails_and_gives_no_wrong_value() {
         fails_with("local half = math.lerp(0, 10, 0.5)", "does not have math.lerp yet");

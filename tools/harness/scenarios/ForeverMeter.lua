@@ -91,3 +91,18 @@ expect(H.count("reset damage data") == 1, "with the answer no, nothing is delete
 T.world.sayNo = nil
 ns.ConfirmReset()
 expect(H.count("reset damage data") == 2, "with the answer yes, the fights are deleted")
+
+-- A number on the screen has two decimals at most. In a fight the numbers are secret, and the
+-- addon cannot round them: the game's function gets the rules of the addon.
+local shown = CreateFrame("Frame"):CreateFontString()
+local function textOf(value)
+  ns.SetNumber(shown, value)
+  return H.plain(shown:GetText())
+end
+expect(textOf(H.secret(345.678901)) == "345", "a secret 345.678901 shows as a whole number, got " .. tostring(textOf(H.secret(345.678901))))
+expect(textOf(H.secret(0.123456789)) == "0", "a secret number below 1 shows no decimals, got " .. tostring(textOf(H.secret(0.123456789))))
+expect(textOf(H.secret(1234.56789)) == "1.23K", "a secret 1234.56789 shows as 1.23K, got " .. tostring(textOf(H.secret(1234.56789))))
+expect(textOf(H.secret(12345.6789)) == "12.3K", "a secret 12345.6789 shows as 12.3K, got " .. tostring(textOf(H.secret(12345.6789))))
+expect(textOf(H.secret(2567890.123)) == "2.56M", "a secret 2567890.123 shows as 2.56M, got " .. tostring(textOf(H.secret(2567890.123))))
+expect(textOf(345.678901) == "346" and textOf(1234.56789) == "1.23K", "a plain number is rounded by the addon")
+expect(issecretvalue(shown:GetText()) == false, "a plain number gives a plain text")

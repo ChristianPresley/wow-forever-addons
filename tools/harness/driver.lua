@@ -704,6 +704,37 @@ do
   H.gameFrameSet[bag], H.gameFrameSet[bagButton] = true, true
 end
 
+-- Replaced functions. An addon that puts its own function in the place of a global function of
+-- the game makes the game's own code run addon code. The game then counts what follows as
+-- addon code, and refuses the actions that only its own UI may do (buying a bank slot, casting,
+-- using an item in a fight) with "blocked from an action only available to the Blizzard UI".
+-- hooksecurefunc is the way that the game allows. This list has each global function of the
+-- game before the addon loads; replacedFunctions() compares.
+local gameFunctions = {}
+for name, value in pairs(_G) do
+  if realType(name) == "string" and realType(value) == "function" then
+    gameFunctions[name] = value
+  end
+end
+local function replacedFunctions()
+  local names = {}
+  for name, original in pairs(gameFunctions) do
+    local now = rawget(_G, name)
+    -- A hook keeps the game's function under it.
+    while H.hookedOriginal and H.hookedOriginal[now] do
+      now = H.hookedOriginal[now]
+    end
+    if now ~= original then
+      names[#names + 1] = name
+      gameFunctions[name] = nil -- one failure for each name
+    end
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    fail("taint", "the addon put its own function in the place of the game's " .. name .. ": the game then refuses actions that only its own UI may do. Use hooksecurefunc(\"" .. name .. "\", ...)")
+  end
+end
+
 -- The game loads the files of the addon, then its saved variables, then sends ADDON_LOADED.
 for _, file in ipairs(addon.files) do
   counts.files = counts.files + 1
@@ -728,6 +759,7 @@ fire("ADDON_LOADED", addon.name, false)
 fire("PLAYER_LOGIN")
 fire("PLAYER_ENTERING_WORLD", true, false)
 H.advance(5)
+replacedFunctions()
 
 -- The scenario of the addon: what only this addon does, with checks of the results. It is for
 -- a first login: after a reload the saved data is what the first run left.
@@ -789,6 +821,7 @@ fire("GROUP_ROSTER_UPDATE")
 H.advance(5)
 
 -- The game sends PLAYER_LOGOUT, then saves the variables.
+replacedFunctions()
 phase = "logout"
 fire("PLAYER_LOGOUT")
 local saved = savedSource()

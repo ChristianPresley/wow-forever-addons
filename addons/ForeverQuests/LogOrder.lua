@@ -5,6 +5,11 @@ local _, ns = ...
 --   popProgress: a quest that made progress goes to the top of its zone, the most recent one first,
 --                and glows for a few seconds the next time the quest log shows it.
 --   sortAlpha:   the quests of each zone are in the order of their names.
+--   completeFanfare: a quest that is ready to turn in has a COMPLETED mark, and with popProgress
+--                it is above the quests that are not ready.
+--
+-- The glow starts when the player sees the quest. The game builds the log at times when it is
+-- not on the screen, so this file also runs when the log comes onto the screen.
 --
 -- The game gives each button of the quest log a layoutIndex, and its layout puts the buttons in that
 -- order. ns.ArrangeLog runs after the game has built the log and gives the buttons of one zone each
@@ -91,6 +96,74 @@ local function updateGlow(button, enabled, visible)
   end
 end
 
+-- True if the button of the quest log glows now.
+function ns.IsGlowing(button)
+  local glow = glows[button]
+  return glow ~= nil and glow:IsShown()
+end
+
+---------------------------------------------------------------------------------------------------
+-- The COMPLETED mark
+
+local badges = setmetatable({}, { __mode = "k" }) -- badges[button]
+
+local function isComplete(questID)
+  if not questID then
+    return false
+  end
+  local ok, complete = pcall(C_QuestLog.IsComplete, questID)
+  return ok and complete and true or false
+end
+
+local function updateBadge(button, enabled)
+  local badge = badges[button]
+  if enabled and isComplete(button.questID) then
+    if not badge then
+      badge = CreateFrame("Frame", nil, button)
+      badge:SetFrameLevel(button:GetFrameLevel() + 3)
+      badge:SetSize(74, 14)
+      badge:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -4)
+      local back = badge:CreateTexture(nil, "BACKGROUND")
+      back:SetAllPoints()
+      back:SetColorTexture(0.1, 0.5, 0.15, 0.85)
+      badge.text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+      badge.text:SetPoint("CENTER")
+      badge.text:SetText("COMPLETED")
+      badge.text:SetTextColor(1, 0.95, 0.6)
+      badges[button] = badge
+    end
+    badge:Show()
+  elseif badge then
+    badge:Hide()
+  end
+end
+
+-- True if the button of the quest log has the COMPLETED mark now.
+function ns.HasCompletedMark(button)
+  local badge = badges[button]
+  return badge ~= nil and badge:IsShown()
+end
+
+-- Shows the banner and the glow once, for /fq demo: on the first quest of the log.
+function ns.Demo()
+  for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(i)
+    if info and not info.isHeader and not info.isHidden and info.questID then
+      local shown = ns.GetOption("completeFanfare")
+      if not shown then
+        ns.Print("the quest complete banner is off: /fq fanfare turns it on.")
+      else
+        ns.ShowQuestComplete(info.questID, info.title)
+      end
+      ns.OnQuestProgress(info.questID)
+      ns.Print("demo: open the quest log to see \"" .. tostring(info.title) .. "\" at the top of its zone with a glow.")
+      return true
+    end
+  end
+  ns.Print("demo: the quest log has no quest.")
+  return false
+end
+
 ---------------------------------------------------------------------------------------------------
 -- Order
 
@@ -103,7 +176,7 @@ local function sortName(button)
 end
 
 -- Gives the buttons of one zone (in the game's order) their new places. True if a button moved.
-local function arrangeZone(zone, pop, alpha)
+local function arrangeZone(zone, pop, alpha, ready)
   if #zone < 2 then
     return false
   end
@@ -111,7 +184,10 @@ local function arrangeZone(zone, pop, alpha)
   for i, button in ipairs(zone) do
     places[i] = { layoutIndex = button.layoutIndex, topPadding = button.topPadding }
     local entry = pop and progressed[button.questID]
-    items[i] = { button = button, place = i, at = entry and entry.at or 0, name = alpha and sortName(button) or "" }
+    -- A quest that made progress is first, the newest at the top. Then the quests that are
+    -- ready to turn in, then the rest.
+    local at = entry and entry.at or (pop and ready and isComplete(button.questID) and 0.5) or 0
+    items[i] = { button = button, place = i, at = at, name = alpha and sortName(button) or "" }
   end
   table.sort(items, function(a, b)
     if a.at ~= b.at then
@@ -141,6 +217,7 @@ function ns.ArrangeLog()
     return false
   end
   local pop, alpha = ns.GetOption("popProgress"), ns.GetOption("sortAlpha")
+  local ready = ns.GetOption("completeFanfare")
   local visible = scroll:IsVisible()
   local buttons = {}
   for button in scroll.titleFramePool:EnumerateActive() do
@@ -148,6 +225,7 @@ function ns.ArrangeLog()
       buttons[#buttons + 1] = button
     end
     updateGlow(button, pop, visible)
+    updateBadge(button, ready)
   end
   if not (pop or alpha) then
     return false
@@ -163,17 +241,17 @@ function ns.ArrangeLog()
   for _, button in ipairs(buttons) do
     local last = zone[#zone]
     if last and button.layoutIndex ~= last.layoutIndex + 1 then
-      moved = arrangeZone(zone, pop, alpha) or moved
+      moved = arrangeZone(zone, pop, alpha, ready) or moved
       zone = {}
     end
     zone[#zone + 1] = button
   end
-  moved = arrangeZone(zone, pop, alpha) or moved
+  moved = arrangeZone(zone, pop, alpha, ready) or moved
   return moved
 end
 
 ns.OnOptionChanged(function(option)
-  if (option == "popProgress" or option == "sortAlpha") and ns.RefreshQuestLog then
+  if (option == "popProgress" or option == "sortAlpha" or option == "completeFanfare") and ns.RefreshQuestLog then
     ns.RefreshQuestLog()
   end
 end)

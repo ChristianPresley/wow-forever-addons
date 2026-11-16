@@ -156,7 +156,7 @@ What makes an error show:
 - **Arguments.** A documented function checks its arguments against the documentation: a missing required argument and a value of the wrong kind fail.
 - **Secret values.** Arithmetic with a secret value and a comparison of order fail. `type` gives the real type, so a test of the type does not protect code that calculates. A secret value fails as an argument of a function that the documentation does not open to addon code, and as a table key.
 - **Saved variables.** A function, a frame, a secret value or a table that contains itself in a saved variable fails: the game cannot save it.
-- **Checks of a scenario.**
+- **Replaced functions.** An addon that puts its own function in the place of a global function of the game (`ToggleAllBags = function() ... end`) fails. In the game this is taint: the game's own code then runs addon code, and the game refuses what only its own UI may do, with "blocked from an action only available to the Blizzard UI". Use `hooksecurefunc`.
 - **An addon that does not end.** A loop without an end stops with an error after three million lines, in a handler that runs again too. After two stops the addon is not called again.
 
 The options:
@@ -232,7 +232,7 @@ After a patch of the game: put the new commit in `tools/api/source.txt`, build b
 #### What it cannot find
 
 - How a window looks: positions, sizes, overlap.
-- Taint: an action that the game refuses because addon code touched a protected value.
+- Taint other than a replaced function: an action that the game refuses because addon code touched a protected value or a frame of the game.
 - What the game really returns. The stand-in returns a value of the documented kind, or the small world above.
 - A function that the documentation does not list and the stand-in does not have. The game's own code calls about 580 such `C_` functions (`C_PetJournal`, `C_TradeSkillUI`, `C_LFGList` and others). An addon that calls one fails the test until the function is added with the file that proves it.
 - Secret results outside the damage meter. In the fight only the damage meter and the name of an NPC are secret. The unit functions and the events that the documentation marks as secret under a restriction give plain values.

@@ -158,3 +158,80 @@ T.advance(2)
 expect(H.watched[40] == true and H.watched[176] == true, "the quests of the zone are tracked")
 ns.SetOption("zoneTracker", false)
 expect(H.watched[40] == nil and H.watched[176] == true, "the tracking of before comes back")
+
+-- The items of a quest, beside its details in the quest log: in the bags or not.
+T.world.questItems = true
+QuestMapFrame_OpenToQuestDetails(176)
+local lines = ns.QuestItemLines(176)
+expect(#lines == 6, "quest 176 has six items: one to use, two to collect, one reward and two choices, got " .. #lines)
+expect(lines[1] == "Use Stormwind Hunting Horn not in your bags", "the item to use is listed although it is not in the bags, got " .. tostring(lines[1]))
+expect(lines[2] == "Collect Gnoll Paw 3/8" and lines[3] == "Collect Linen Cloth 8/8", "the items to collect, in both forms of the objective text, got " .. tostring(lines[2]) .. " | " .. tostring(lines[3]))
+expect(lines[4] == "Reward Bent Large Shield" and lines[5] == "Choice Tough Jerky x5" and lines[6] == "Choice Linen Cloth x10", "the reward and the choices, got " .. tostring(lines[4]) .. " | " .. tostring(lines[5]) .. " | " .. tostring(lines[6]))
+local collect = ns.QuestItems(176)[2]
+expect(collect.itemID == 5001 and collect.icon == 133721, "the item of an objective is found by its name, with its icon")
+expect(ForeverQuestsItems ~= nil and ForeverQuestsItems:IsVisible(), "the panel shows beside the details of the quest")
+expect(ForeverQuestsItems:GetParent() == QuestMapFrame.DetailsFrame, "the panel is a child of the details, so it hides with them")
+QuestMapFrame.DetailsFrame:Hide()
+expect(not ForeverQuestsItems:IsVisible(), "closing the details hides the panel")
+-- A quest without items has no panel.
+QuestMapFrame_OpenToQuestDetails(40)
+expect(not ForeverQuestsItems:IsShown(), "a quest without items shows no panel")
+QuestMapFrame_OpenToQuestDetails(176)
+ns.SetOption("questItems", false)
+expect(not ForeverQuestsItems:IsShown(), "with the option off the panel is hidden")
+ns.SetOption("questItems", true)
+expect(ForeverQuestsItems:IsShown(), "with the option on again the panel is back")
+QuestMapFrame.DetailsFrame:Hide()
+T.world.questItems = nil
+
+-- A quest that becomes ready to turn in: the banner, the COMPLETED mark, and its place in the log.
+local function logButton(questID)
+  for button in QuestScrollFrame.titleFramePool:EnumerateActive() do
+    if button.questID == questID then
+      return button
+    end
+  end
+end
+ns.SetOption("popProgress", true)
+QuestLogQuests_Update()
+expect(ns.HasCompletedMark(logButton(40)) and not ns.HasCompletedMark(logButton(176)), "the quest that is ready (40) has the COMPLETED mark, the other one not")
+expect(ns.FanfareQuest() == nil, "no banner before a quest becomes ready")
+T.world.completed = { [176] = true }
+T.fire("QUEST_LOG_UPDATE")
+T.advance(1)
+expect(ns.FanfareQuest() == 176 and ForeverQuestsFanfare:IsShown(), "a quest that becomes ready shows the QUEST COMPLETE banner")
+expect(ForeverQuestsFanfare.title:GetText() == "Wanted: Hogger", "the banner has the name of the quest, got " .. tostring(ForeverQuestsFanfare.title:GetText()))
+QuestLogQuests_Update()
+expect(place(176) == 2 and ns.HasCompletedMark(logButton(176)), "the quest that became ready is at the top of its zone, with the mark")
+-- A click on the banner shows where to turn the quest in.
+local opened = H.count("open quest")
+H.click(ForeverQuestsFanfare, "LeftButton", false)
+expect(H.count("open quest") == opened + 1 and H.did[#H.did][2] == 176, "a click on the banner opens the quest on the map")
+expect(ns.FanfareQuest() == nil, "the click takes the banner away")
+-- The banner goes away by itself.
+ns.ShowQuestComplete(40, "A Fishy Peril")
+T.advance(2)
+expect(ns.FanfareQuest() == 40, "the banner stays for a few seconds")
+T.advance(4)
+expect(ns.FanfareQuest() == nil, "the banner fades out by itself")
+-- With the option off: no banner and no mark.
+ns.SetOption("completeFanfare", false)
+expect(ns.ShowQuestComplete(40, "A Fishy Peril") == false and ns.FanfareQuest() == nil, "with the option off there is no banner")
+QuestLogQuests_Update()
+expect(not ns.HasCompletedMark(logButton(40)), "with the option off there is no COMPLETED mark")
+ns.SetOption("completeFanfare", true)
+-- The glow starts when the quest log comes onto the screen, also without a new build by the game.
+T.world.completed = nil
+QuestMapFrame:Hide()
+H.questProgress = H.questProgress + 1
+T.fire("QUEST_LOG_UPDATE")
+T.advance(1)
+QuestLogQuests_Update()
+expect(not ns.IsGlowing(logButton(176)), "a quest that made progress does not glow while the quest log is closed")
+QuestMapFrame:Show()
+expect(ns.IsGlowing(logButton(176)), "when the quest log opens, the quest that made progress glows, without a new build by the game")
+T.advance(8)
+expect(not ns.IsGlowing(logButton(176)), "the glow ends after a few seconds")
+T.slash("/fq", "demo")
+expect(ns.FanfareQuest() ~= nil and T.printed("demo: open the quest log"), "/fq demo shows the banner and says what to look at")
+H.click(ForeverQuestsFanfare, "RightButton", false)
