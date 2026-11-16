@@ -29,7 +29,9 @@ Everything outside the addons is Rust, in one Cargo workspace.
 | `client/core/` | Rust | Install detection, the marketplace reader and the install logic, with the `wfam` command line |
 | `client/src-tauri/` | Rust | The desktop app (Tauri 2). It wraps `client/core` in commands for the window |
 | `client/ui/` | HTML, CSS, JavaScript | The window of the desktop app, which Tauri shows in a webview. Plain files, no build step |
-| `tools/` | Rust | Repository tools: addon lint, marketplace build and the icon source |
+| `tools/` | Rust | Repository tools: addon lint, addon tests, marketplace build and the icon source |
+| `tools/harness/` | Lua | The stand-in for the game client that the addon tests run in, and one scenario with checks for each addon |
+| `tools/api/` | JSON | The API of the game client: functions, widget methods, events and their arguments, from Blizzard's API documentation |
 | `.cargo/config.toml` | | Short names for the commands below |
 | `.github/workflows/` | | Tests on each push, and the marketplace publish |
 
@@ -50,6 +52,7 @@ Run these from any folder of the repository.
 | Command | What it does |
 |---|---|
 | `cargo dev lint` | Checks the TOC, `addon.json`, the file list, the settings page and the Lua syntax of each addon |
+| `cargo dev test` | Loads each addon in a stand-in for the game client and uses everything in it: each settings page, slash command, frame and event, out of a fight and in a fight. `--coverage` lists the lines that did not run |
 | `cargo dev marketplace` | Writes one ZIP for each addon and an `index.json` to `dist/marketplace/` |
 | `cargo dev icon <out.png>` | Draws the source image of the app icon |
 | `cargo wfam <command>` | The addon manager on the command line: `detect`, `list`, `market`, `install <id>`, `update`, `uninstall <id>` |
