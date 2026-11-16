@@ -18,8 +18,16 @@ function ns.AddPinProvider(fn)
   providers[#providers + 1] = fn
 end
 
+-- The providers, for the Forever Atlas map (Map.lua), which shows the same pins.
+function ns.PinProviders()
+  return providers
+end
+
 function ns.RefreshPins()
   dirty = true
+  if ns.RefreshMapPins then
+    ns.RefreshMapPins()
+  end
 end
 
 -- x, y (0 to 100) of a point of mapID on the shown map, when that is the same map or one above it.

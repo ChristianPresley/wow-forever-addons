@@ -65,10 +65,19 @@ expect(not ForeverBagsWindow:IsShown(), "with the option off, the bag key does n
 T.advance(0.1)
 ns.SetOption("replaceBags", true)
 
--- Categories. A quest item is what the game calls one ("Quest Item" in the tooltip). A book of
--- the item class Quest that is not for a quest is not one.
-expect(ns.CategoryOf(1, 3) == "quest", "Gnoll Paw is a quest item, got " .. tostring(ns.CategoryOf(1, 3)))
-expect(ns.CategoryOf(1, 4) == "other", "the book of the item class Quest is under Other, got " .. tostring(ns.CategoryOf(1, 4)))
+-- Categories. A quest item has any of the signs of the game: the mark of the slot, the item
+-- class Quest, the bind type, or a quest of the log that names it. A quest item whose tooltip
+-- says "Soulbound" and not "Quest Item" (the book) is one too.
+expect(ns.CategoryOf(1, 3) == "quest", "Gnoll Paw (\"Quest Item\" in the tooltip) is a quest item, got " .. tostring(ns.CategoryOf(1, 3)))
+expect(ns.CategoryOf(1, 4) == "quest", "the soulbound book of the item class Quest is a quest item, got " .. tostring(ns.CategoryOf(1, 4)))
+-- An item of another class that an objective of a quest names is a quest item while it does.
+expect(ns.CategoryOf(0, 2) == "trade", "Linen Cloth is a trade good while no quest asks for it")
+T.world.questItems = true
+T.fire("QUEST_LOG_UPDATE")
+expect(ns.CategoryOf(0, 2) == "quest", "Linen Cloth is a quest item while a quest of the log asks for it (\"8/8 Linen Cloth\"), got " .. tostring(ns.CategoryOf(0, 2)))
+T.world.questItems = nil
+T.fire("QUEST_LOG_UPDATE")
+expect(ns.CategoryOf(0, 2) == "trade", "and a trade good again when the quest is gone")
 expect(ns.CategoryOf(1, 1) == "trade" and ns.CategoryOf(0, 3) == "consumables", "meat is a trade good and jerky a consumable")
 expect(ns.CategoryOf(0, 4) == nil, "an empty slot has no category")
 

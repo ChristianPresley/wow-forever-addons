@@ -1,6 +1,6 @@
 {
   "id": "forever-atlas",
   "category": "Map & Exploration",
-  "summary": "Coordinates on the map and on screen, waypoints with a direction arrow, map notes, and pins for every area you have visited.",
-  "description": "Forever Atlas shows your coordinates on the world map and in a small movable read-out on screen. Set a waypoint with /way 45.2 61.8 and follow the arrow, which shows the distance in yards. Alt-click the world map to add your own notes. The addon also records each area you walk into and shows it as a pin on the map. Type /fatlas for commands."
+  "summary": "A map window with smooth zoom in the place of the world map, coordinates on the map and on screen, waypoints with a direction arrow, map notes, and pins for every area you have visited.",
+  "description": "Forever Atlas has its own map window, which the map key opens in the place of the world map: zoom toward the pointer with the mouse wheel in small steps, drag to move, click a zone to open it and right-click to go out. All art of a map is loaded when it opens, so zooming does not wait. It shows your position, your quests, your notes, waypoints and visited areas, and the map of the game with the quest log is one button away. Forever Atlas also shows your coordinates on the world map and in a small movable read-out on screen. Set a waypoint with /way 45.2 61.8 and follow the arrow, which shows the distance in yards. Alt-click the world map to add your own notes. The addon also records each area you walk into and shows it as a pin on the map. Type /fatlas for commands."
 }

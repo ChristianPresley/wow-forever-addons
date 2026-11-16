@@ -200,6 +200,19 @@ function ns.NoteCommand(text)
   ns.Print(string.format("note added at %s %.1f, %.1f.", ns.MapName(mapID), x, y))
 end
 
+-- Opens the editor for a new note at a place of a map (x, y from 0 to 100). For the Forever
+-- Atlas map. Returns true if the editor opened.
+function ns.EditNote(mapID, x, y)
+  if not ns.GetOption("notes") then
+    return false
+  end
+  local ok, err = pcall(edit, mapID, x, y)
+  if not ok then
+    geterrorhandler()(err)
+  end
+  return ok
+end
+
 local function onCanvasClick(_, mouseButton, cursorX, cursorY)
   if mouseButton ~= "LeftButton" or not IsAltKeyDown() or IsControlKeyDown() or IsShiftKeyDown() then
     return false

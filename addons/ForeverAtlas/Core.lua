@@ -52,6 +52,7 @@ ns.defaults = {
   hudLock = false,
   pins = true,
   notes = true,
+  mapKey = true, -- the key of the world map opens the Forever Atlas map
   arrow = true, -- the direction arrow of the newest waypoint
   arrivalYards = 5, -- a waypoint is reached, and removed, within this distance
 }

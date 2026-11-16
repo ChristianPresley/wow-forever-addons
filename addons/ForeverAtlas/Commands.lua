@@ -2,6 +2,9 @@ local _, ns = ...
 
 local function help()
   ns.Print("commands:")
+  print("  /fatlas map - open or close the Forever Atlas map")
+  print("  /fatlas mapkey - the map key opens the Forever Atlas map, or the map of the game")
+  print("  /fatlas layers - print the art that the game has for the map where you are")
   print("  /fatlas zone - show how much of the current zone you have visited")
   print("  /fatlas list - list the areas visited in the current zone")
   print("  /fatlas where - print your coordinates")
@@ -55,6 +58,7 @@ end
 
 local TOGGLES = {
   coords = { "coords", "world map coordinates" },
+  mapkey = { "mapKey", "the map key opens the Forever Atlas map" },
   announce = { "announce", "first-visit messages" },
   hud = { "hud", "on-screen coordinates" },
   lock = { "hudLock", "frame lock" },
@@ -87,6 +91,12 @@ SlashCmdList["FOREVERATLAS"] = function(input)
     ns.WaypointCommand(rest)
   elseif command == "note" then
     ns.NoteCommand(rest)
+  elseif command == "map" then
+    if not ns.ToggleMap() then
+      ns.Print("the map could not be shown here.")
+    end
+  elseif command == "layers" then
+    ns.PrintMapLayers()
   elseif command == "arrive" then
     arrive(rest)
   elseif command == "reset" then

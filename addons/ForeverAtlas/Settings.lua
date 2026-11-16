@@ -27,7 +27,10 @@ local function build()
     })
   end
 
-  page:Header("World map")
+  page:Header("Forever Atlas map")
+  check("mapKey", "Open the Forever Atlas map with the map key", "The key of the world map (M) opens the Forever Atlas map: zoom with the mouse wheel, drag to move. Off: the key opens the map of the game, and /fatlas map opens this one.")
+
+  page:Header("World map of the game")
   check("coords", "Coordinates on the world map", "Player and cursor coordinates in the corner of the world map.")
   check("pins", "Visited-area pins", "A pin on the world map for each area this character has visited.")
   check("notes", "Map notes", "Shows your notes on the world map. Alt-click the map to add one.")

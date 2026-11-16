@@ -120,15 +120,55 @@ end
 ---------------------------------------------------------------------------------------------------
 -- Layout
 
--- A quest item is an item that the game itself calls one: its tooltip says "Quest Item" (the
--- bind type), or it starts a quest. The item class Quest alone does not make one: the game
--- also gives that class to books and other things to keep, which go to "Other".
+-- The items that the quests of the quest log name: the item of an objective ("Gnoll Paw: 3/8")
+-- by its name, and the item that a quest gives to use by its ID. The game gives no item ID for
+-- an objective, only the text. Read again when the quest log changes.
+local questNames, questIDs
+local function readQuestLog()
+  questNames, questIDs = {}, {}
+  for index = 1, C_QuestLog.GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(index)
+    if info and not info.isHeader and info.questID then
+      local okObjectives, objectives = pcall(C_QuestLog.GetQuestObjectives, info.questID)
+      for _, objective in ipairs(okObjectives and type(objectives) == "table" and objectives or {}) do
+        local text = objective.text
+        if objective.type == "item" and type(text) == "string" and not (issecretvalue and issecretvalue(text)) then
+          -- "3/8 Gnoll Paw" or "Gnoll Paw: 3/8"
+          local name = text:gsub("^%s*%d+%s*/%s*%d+%s*", ""):gsub("%s*:?%s*%d+%s*/%s*%d+%s*$", "")
+          name = name:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+          if name ~= "" then
+            questNames[name] = true
+          end
+        end
+      end
+      if type(GetQuestLogSpecialItemInfo) == "function" then
+        local okItem, link = pcall(GetQuestLogSpecialItemInfo, index)
+        local itemID = okItem and type(link) == "string" and tonumber(link:match("item:(%d+)"))
+        if itemID then
+          questIDs[itemID] = true
+        end
+      end
+    end
+  end
+end
+
+-- A quest item is an item with any of the signs that the game gives:
+--   the game marks the slot as a quest item, or as an item that starts a quest
+--   the item is of the item class Quest
+--   the item binds as a quest item (its tooltip says "Quest Item")
+--   a quest of the quest log names the item, as an objective or as the item to use
+-- Many quest items say "Soulbound" and not "Quest Item" in the tooltip, so the tooltip line
+-- alone is not the test.
 local function categoryOf(info, bag, slot)
   if info.quality == 0 and not info.hasNoValue then
     return "junk"
   end
   local okQuest, quest = pcall(C_Container.GetContainerItemQuestInfo, bag, slot)
-  if okQuest and type(quest) == "table" and quest.questID then
+  if okQuest and type(quest) == "table" and (quest.isQuestItem or quest.questID) then
+    return "quest"
+  end
+  local classID = select(6, C_Item.GetItemInfoInstant(info.itemID))
+  if classID == 12 then
     return "quest"
   end
   local okInfo, bindType = pcall(function()
@@ -137,9 +177,13 @@ local function categoryOf(info, bag, slot)
   if okInfo and bindType == BIND_QUEST then
     return "quest"
   end
-  local classID = select(6, C_Item.GetItemInfoInstant(info.itemID))
-  if classID == 12 then
-    return "other"
+  if not questNames then
+    pcall(readQuestLog)
+  end
+  local name = info.itemName
+  if (questIDs and questIDs[info.itemID])
+    or (questNames and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and questNames[name:lower()]) then
+    return "quest"
   end
   for _, category in ipairs(CATEGORIES) do
     if category.classes[classID] then
@@ -148,7 +192,6 @@ local function categoryOf(info, bag, slot)
   end
   return "other"
 end
-
 -- The category of the item in a slot: the key of CATEGORIES, or nil for an empty slot.
 function ns.CategoryOf(bag, slot)
   local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -587,5 +630,11 @@ ns.OnLogin(function()
   }) do
     pcall(events.RegisterEvent, events, event)
   end
-  events:SetScript("OnEvent", scheduleRefresh)
+  pcall(events.RegisterEvent, events, "QUEST_LOG_UPDATE")
+  events:SetScript("OnEvent", function(_, event)
+    if event == "QUEST_LOG_UPDATE" or event == "QUEST_ACCEPTED" or event == "QUEST_REMOVED" then
+      questNames, questIDs = nil, nil -- read again at the next layout
+    end
+    scheduleRefresh()
+  end)
 end)

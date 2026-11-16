@@ -214,6 +214,109 @@ end)
 set("C_Map", "GetPlayerMapPosition", function() return CreateVector2D(0.42, 0.65) end)
 set("C_Map", "GetWorldPosFromMapPos", function(_, position) return 0, CreateVector2D(position.x * 1000, position.y * 1000) end)
 set("C_Map", "GetUserWaypoint", function() return { uiMapID = 37, position = CreateVector2D(0.6, 0.6) } end)
+-- The art of a map: layers of image tiles. The first layer is the whole map as one picture; a
+-- second one is a finer picture for a closer look, which the map of the game fades to as the
+-- player zooms in (Blizzard_MapCanvas/MapCanvas_ScrollContainerMixin.lua, AdjustDetailLayerAlpha).
+--   Elwynn Forest (37): a finer layer of the same size, with the zoom numbers of the game:
+--     the second layer starts at 2.5 times the scale of the first.
+--   Westfall (52): a finer layer with twice the pixels and no zoom numbers.
+--   The continent and the world: one layer.
+-- Another map has no art.
+local ZONE_LAYER = { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256, minScale = 1, maxScale = 2.5, additionalZoomSteps = 0 }
+local PLAIN_LAYER = { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256, minScale = 0, maxScale = 0, additionalZoomSteps = 0 }
+local MAP_ART = {
+  [37] = { ZONE_LAYER, { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256, minScale = 2.5, maxScale = 4, additionalZoomSteps = 1 } },
+  [52] = { PLAIN_LAYER, { layerWidth = 2004, layerHeight = 1336, tileWidth = 256, tileHeight = 256, minScale = 0, maxScale = 0, additionalZoomSteps = 0 } },
+  [13] = { PLAIN_LAYER },
+  [947] = { PLAIN_LAYER },
+}
+set("C_Map", "GetMapArtLayers", function(mapID)
+  return MAP_ART[mapID] or {}
+end)
+set("C_Map", "GetMapArtLayerTextures", function(mapID, layerIndex)
+  local layer = MAP_ART[mapID] and MAP_ART[mapID][layerIndex]
+  local files = {}
+  if layer then
+    local count = math.ceil(layer.layerWidth / layer.tileWidth) * math.ceil(layer.layerHeight / layer.tileHeight)
+    for index = 1, count do
+      files[index] = mapID * 1000 + layerIndex * 100 + index
+    end
+  end
+  return files
+end)
+-- One uncovered part of Elwynn Forest: 300 by 200 pixels, so two tiles wide and one tall.
+set("C_MapExplorationInfo", "GetExploredMapTextures", function(mapID)
+  if mapID ~= 37 then
+    return {}
+  end
+  return { {
+    textureWidth = 300, textureHeight = 200, offsetX = 100, offsetY = 50, fileDataIDs = { 370001, 370002 },
+    isShownByMouseOver = false, isDrawOnTopLayer = false, hitRect = { left = 100, right = 400, top = 50, bottom = 250 },
+  } }
+end)
+-- The map of a place of a map: on the continent, the left half is Elwynn Forest and the right
+-- half Westfall. On a zone it is the zone itself.
+set("C_Map", "GetMapInfoAtPosition", function(mapID, x)
+  if mapID == 13 then
+    return C_Map.GetMapInfo(x < 0.5 and 37 or 52)
+  elseif mapID == 947 then
+    return C_Map.GetMapInfo(13)
+  end
+  return C_Map.GetMapInfo(mapID)
+end)
+set("C_Map", "OpenWorldMap", function(mapID) did("open world map", mapID) end)
+
+-- Key bindings (Blizzard_ActionBar/Shared/ActionButton.lua asks GetBindingKey;
+-- Blizzard_GamepadSharedUtility/InputBindingStack/InputButtonBinding.lua sets an override
+-- binding that clicks a button). The game refuses a change of bindings in a fight.
+-- H.pressKey(key) presses a key: the override binding, or the action of the game.
+local BINDING_FILE = "Blizzard_GamepadSharedUtility/InputBindingStack/InputButtonBinding.lua"
+H.bindings = { TOGGLEWORLDMAP = { "M" } }
+H.overrideBindings = {} -- [key] = { owner, button name }
+setGlobal("GetBindingKey", function(action)
+  if realType(action) ~= "string" then
+    fail("GetBindingKey: the name of an action is needed")
+  end
+  return unpack(H.bindings[action] or {})
+end, "Blizzard_ActionBar/Shared/ActionButton.lua")
+local function bindingAllowed(name)
+  if H.world.secret then
+    fail(name .. ": the game refuses a change of key bindings in a fight (blocked action)")
+  end
+end
+setGlobal("SetOverrideBindingClick", function(owner, _, key, buttonName)
+  bindingAllowed("SetOverrideBindingClick")
+  if not H.isWidget(owner) or realType(key) ~= "string" or realType(buttonName) ~= "string" then
+    fail("SetOverrideBindingClick: an owner frame, a key and the name of a button are needed")
+  end
+  if not H.isWidget(_G[buttonName]) then
+    fail("SetOverrideBindingClick: no button with the name " .. buttonName)
+  end
+  H.overrideBindings[key] = { owner, buttonName }
+end, BINDING_FILE)
+setGlobal("ClearOverrideBindings", function(owner)
+  bindingAllowed("ClearOverrideBindings")
+  for key, entry in pairs(H.overrideBindings) do
+    if entry[1] == owner then
+      H.overrideBindings[key] = nil
+    end
+  end
+end, "Blizzard_RestrictedAddOnEnvironment/RestrictedFrames.lua")
+function H.pressKey(key)
+  local entry = H.overrideBindings[key]
+  if entry then
+    H.click(_G[entry[2]], "LeftButton", false)
+    return "override"
+  end
+  for action, keys in pairs(H.bindings) do
+    for _, bound in ipairs(keys) do
+      if bound == key then
+        did("game binding", action)
+        return action
+      end
+    end
+  end
+end
 set("C_QuestLine", "GetAvailableQuestLines", function()
   local floors = Enum.QuestLineFloorLocation
   return {
