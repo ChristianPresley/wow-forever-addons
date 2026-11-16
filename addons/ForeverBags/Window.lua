@@ -1,0 +1,504 @@
+local _, ns = ...
+
+-- The bag window: all bags of the character in one window, with a search box.
+--
+-- Each slot is an item button of the game (ContainerFrameItemButtonTemplate), so a click uses the
+-- item, a drag moves it, and the tooltip, the cooldown and the quest mark are the game's own.
+-- A button finds its bag through the ID of its parent frame, the same way as in the bag window of
+-- the game. So there is one parent frame for each bag, and this file sets no bag field on a
+-- button: a field set by an addon would make the game refuse to use the item in a fight.
+--
+-- With the option replaceBags, the bag key and the bag buttons open this window. If this window
+-- fails, the window of the game opens.
+
+local BUTTON = 37
+local GAP = 4
+local PAD = 10
+local TOP = 58 -- title and search box
+local BOTTOM = 34 -- money and buttons
+local HEADER = 18 -- a category name
+
+-- The categories, in the order of the window. `classes` are item class numbers (Enum.ItemClass).
+local CATEGORIES = {
+  { key = "equipment", name = "Equipment", classes = { [2] = true, [4] = true } },
+  { key = "consumables", name = "Consumables", classes = { [0] = true } },
+  { key = "trade", name = "Trade goods", classes = { [3] = true, [5] = true, [7] = true, [8] = true, [9] = true, [16] = true, [19] = true } },
+  { key = "quest", name = "Quest items", classes = { [12] = true } },
+  { key = "other", name = "Other", classes = {} },
+  { key = "junk", name = "Junk", classes = {} },
+}
+
+local window, grid
+local bagParents = {} -- [bag] = frame with the bag number as its ID
+local buttons = {} -- [bag][slot] = item button
+local headers = {}
+local search = ""
+local refreshPending = false
+
+---------------------------------------------------------------------------------------------------
+-- Item buttons
+
+local function buttonFor(bag, slot)
+  local parent = bagParents[bag]
+  if not parent then
+    parent = CreateFrame("Frame", nil, grid)
+    parent:SetID(bag)
+    parent:SetAllPoints(grid)
+    bagParents[bag] = parent
+    buttons[bag] = {}
+  end
+  local button = buttons[bag][slot]
+  if not button then
+    button = CreateFrame("ItemButton", "ForeverBagsItem" .. bag .. "_" .. slot, parent, "ContainerFrameItemButtonTemplate")
+    button:SetID(slot)
+    buttons[bag][slot] = button
+  end
+  return button
+end
+
+-- Calls a method of the button if this client has it. A method that fails does not stop the rest.
+local function call(button, method, ...)
+  local fn = button[method]
+  if type(fn) == "function" then
+    pcall(fn, button, ...)
+  end
+end
+
+local function callGlobal(name, ...)
+  local fn = _G[name]
+  if type(fn) == "function" then
+    pcall(fn, ...)
+  end
+end
+
+local function matchesSearch(info)
+  if search == "" then
+    return true
+  end
+  if not info then
+    return false
+  end
+  local name = info.itemName
+  return type(name) == "string" and name:lower():find(search, 1, true) ~= nil
+end
+
+-- Shows the item of the slot on its button, the same way as the bag window of the game.
+local function updateButton(button, bag, slot, info)
+  local texture = info and info.iconFileID
+  local quality = info and info.quality
+  callGlobal("ClearItemButtonOverlay", button)
+  call(button, "SetHasItem", texture)
+  call(button, "SetItemButtonTexture", texture)
+  call(button, "SyncAppearanceWithHasItem")
+  callGlobal("SetItemButtonQuality", button, quality, info and info.hyperlink, false, info and info.isBound)
+  callGlobal("SetItemButtonCount", button, info and info.stackCount)
+  callGlobal("SetItemButtonDesaturated", button, info and info.isLocked)
+  call(button, "UpdateExtended")
+  local okQuest, quest = pcall(C_Container.GetContainerItemQuestInfo, bag, slot)
+  if okQuest and type(quest) == "table" then
+    call(button, "UpdateQuestItem", quest.isQuestItem, quest.questID, quest.isActive)
+  end
+  call(button, "UpdateNewItem", quality)
+  call(button, "UpdateJunkItem", quality, info and info.hasNoValue)
+  call(button, "UpdateCooldown", texture)
+  call(button, "SetReadable", info and info.isReadable)
+  local matches = matchesSearch(info)
+  if type(button.SetMatchesSearch) == "function" then
+    pcall(button.SetMatchesSearch, button, matches)
+  else
+    button:SetAlpha(matches and 1 or 0.25)
+  end
+end
+
+---------------------------------------------------------------------------------------------------
+-- Layout
+
+local function categoryOf(info, bag, slot)
+  if info.quality == 0 and not info.hasNoValue then
+    return "junk"
+  end
+  local okQuest, quest = pcall(C_Container.GetContainerItemQuestInfo, bag, slot)
+  if okQuest and type(quest) == "table" and (quest.isQuestItem or quest.questID) then
+    return "quest"
+  end
+  local classID
+  if C_Item and C_Item.GetItemInfoInstant then
+    classID = select(6, C_Item.GetItemInfoInstant(info.itemID))
+  end
+  for _, category in ipairs(CATEGORIES) do
+    if category.classes[classID] then
+      return category.key
+    end
+  end
+  return "other"
+end
+
+local function headerAt(index)
+  local header = headers[index]
+  if not header then
+    header = grid:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    header:SetJustifyH("LEFT")
+    headers[index] = header
+  end
+  return header
+end
+
+-- Reads the bags and puts the buttons in their places. Returns the number of free slots.
+local function layout()
+  local columns = ns.GetOption("columns")
+  local byCategory = ns.GetOption("groupBy") == "category"
+  local used = {} -- buttons that show in this layout
+  local sections = {} -- { name, slots = { { bag, slot, info } } }
+  local free, firstFree = 0, nil
+
+  if byCategory then
+    for _, category in ipairs(CATEGORIES) do
+      sections[#sections + 1] = { key = category.key, name = category.name, slots = {} }
+    end
+  else
+    sections[1] = { slots = {} }
+  end
+  local sectionByKey = {}
+  for _, section in ipairs(sections) do
+    sectionByKey[section.key or 1] = section
+  end
+
+  for _, bag in ipairs(ns.BAGS) do
+    local okSlots, slots = pcall(C_Container.GetContainerNumSlots, bag)
+    for slot = 1, okSlots and type(slots) == "number" and slots or 0 do
+      local info = C_Container.GetContainerItemInfo(bag, slot)
+      if not info then
+        free = free + 1
+        firstFree = firstFree or { bag, slot }
+      end
+      if not byCategory then
+        table.insert(sections[1].slots, { bag, slot, info })
+      elseif info then
+        table.insert(sectionByKey[categoryOf(info, bag, slot)].slots, { bag, slot, info })
+      end
+    end
+  end
+  -- By category, one free slot shows, so there is a place to drop an item.
+  if byCategory and firstFree then
+    sections[#sections + 1] = { name = "Free (" .. free .. ")", slots = { { firstFree[1], firstFree[2], nil } } }
+  end
+
+  local y = 0
+  local headerIndex = 0
+  for _, section in ipairs(sections) do
+    if #section.slots > 0 then
+      if section.name then
+        headerIndex = headerIndex + 1
+        local header = headerAt(headerIndex)
+        header:ClearAllPoints()
+        header:SetPoint("TOPLEFT", grid, "TOPLEFT", 2, -y - 2)
+        header:SetText(section.name)
+        header:Show()
+        y = y + HEADER
+      end
+      for index, entry in ipairs(section.slots) do
+        local bag, slot, info = entry[1], entry[2], entry[3]
+        local button = buttonFor(bag, slot)
+        local column = (index - 1) % columns
+        local row = math.floor((index - 1) / columns)
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", grid, "TOPLEFT", column * (BUTTON + GAP), -y - row * (BUTTON + GAP))
+        button:Show()
+        updateButton(button, bag, slot, info)
+        used[button] = true
+      end
+      y = y + math.ceil(#section.slots / columns) * (BUTTON + GAP) + (section.name and 4 or 0)
+    end
+  end
+  for index = headerIndex + 1, #headers do
+    headers[index]:Hide()
+  end
+  for _, bagButtons in pairs(buttons) do
+    for _, button in pairs(bagButtons) do
+      if not used[button] then
+        button:Hide()
+      end
+    end
+  end
+
+  local scale = ns.GetOption("scale") / 100
+  local width = columns * (BUTTON + GAP) - GAP
+  grid:SetScale(scale)
+  grid:SetSize(width, math.max(y, BUTTON))
+  window:SetSize(math.max(width * scale + PAD * 2, 250), math.max(y, BUTTON) * scale + TOP + BOTTOM)
+  return free
+end
+
+local function refresh()
+  refreshPending = false
+  if not (window and window:IsShown()) then
+    return
+  end
+  local ok, free = pcall(layout)
+  window.background:SetColorTexture(0.04, 0.04, 0.05, ns.GetOption("alpha") / 100)
+  window.money:SetText(ns.Money(GetMoney and GetMoney() or 0))
+  window.free:SetText(ok and (free .. " free") or "")
+  window:SetMovable(not ns.GetOption("lock"))
+end
+
+local function scheduleRefresh()
+  if not refreshPending and window and window:IsShown() then
+    refreshPending = true
+    C_Timer.After(0.05, refresh)
+  end
+end
+
+---------------------------------------------------------------------------------------------------
+-- Window
+
+local function smallButton(parent, text, width, tip, click)
+  local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+  button:SetSize(width, 20)
+  button:SetText(text)
+  button:SetScript("OnClick", click)
+  button:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText(text, 1, 1, 1)
+    GameTooltip:AddLine(tip, nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  button:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+  return button
+end
+
+local function create()
+  window = CreateFrame("Frame", "ForeverBagsWindow", UIParent)
+  window:SetFrameStrata("MEDIUM")
+  window:SetClampedToScreen(true)
+  window:EnableMouse(true)
+  window:RegisterForDrag("LeftButton")
+  window:SetScript("OnDragStart", function(self)
+    if not ns.GetOption("lock") then
+      self:StartMoving()
+    end
+  end)
+  window:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    ns.SavePosition("window", self)
+  end)
+  window:Hide()
+  tinsert(UISpecialFrames, "ForeverBagsWindow") -- Escape closes the window
+
+  window.background = window:CreateTexture(nil, "BACKGROUND")
+  window.background:SetAllPoints()
+  for _, edge in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true }, { "TOPLEFT", "BOTTOMLEFT", false }, { "TOPRIGHT", "BOTTOMRIGHT", false } }) do
+    local line = window:CreateTexture(nil, "BORDER")
+    line:SetColorTexture(0.35, 0.5, 0.65, 0.9)
+    line:SetPoint(edge[1])
+    line:SetPoint(edge[2])
+    if edge[3] then
+      line:SetHeight(1)
+    else
+      line:SetWidth(1)
+    end
+  end
+
+  local title = window:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  title:SetPoint("TOPLEFT", PAD, -8)
+  title:SetText("Bags")
+
+  local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
+  close:SetPoint("TOPRIGHT", 2, 2)
+  close:SetScript("OnClick", function()
+    window:Hide()
+  end)
+
+  local ok, box = pcall(CreateFrame, "EditBox", nil, window, "SearchBoxTemplate")
+  if not ok then
+    box = CreateFrame("EditBox", nil, window, "InputBoxTemplate")
+  end
+  box:SetSize(150, 20)
+  box:SetPoint("TOPLEFT", PAD + 4, -30)
+  box:SetAutoFocus(false)
+  box:HookScript("OnTextChanged", function(self)
+    local text = ((self:GetText() or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""))
+    if text ~= search then
+      search = text
+      scheduleRefresh()
+    end
+  end)
+  box:HookScript("OnEscapePressed", function(self)
+    self:ClearFocus()
+  end)
+  window.search = box
+
+  grid = CreateFrame("Frame", nil, window)
+  grid:SetPoint("TOPLEFT", PAD, -TOP)
+  grid:SetSize(100, 100)
+
+  window.money = window:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  window.money:SetPoint("BOTTOMRIGHT", -PAD, 10)
+  window.free = window:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+  window.free:SetPoint("RIGHT", window.money, "LEFT", -10, 0)
+
+  local sort = smallButton(window, "Sort", 50, "Sorts the items in your bags, the same way as the sort button of the game.", function()
+    if C_Container and C_Container.SortBags then
+      pcall(C_Container.SortBags)
+    end
+  end)
+  sort:SetPoint("BOTTOMLEFT", PAD, 7)
+  local all = smallButton(window, "All", 40, "Opens the list of the items of all your characters.", function()
+    ns.ShowBrowser()
+  end)
+  all:SetPoint("LEFT", sort, "RIGHT", 4, 0)
+  local group = smallButton(window, "View", 50, "Changes between items by category and items in the order of the bags.", function()
+    ns.SetOption("groupBy", ns.GetOption("groupBy") == "category" and "none" or "category")
+  end)
+  group:SetPoint("LEFT", all, "RIGHT", 4, 0)
+
+  window:SetScript("OnShow", function()
+    refresh()
+    if PlaySound and SOUNDKIT and SOUNDKIT.IG_BACKPACK_OPEN then
+      PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
+    end
+  end)
+  window:SetScript("OnHide", function()
+    if PlaySound and SOUNDKIT and SOUNDKIT.IG_BACKPACK_CLOSE then
+      PlaySound(SOUNDKIT.IG_BACKPACK_CLOSE)
+    end
+  end)
+
+  ns.RestorePosition("window", window, "BOTTOMRIGHT", -80, 120)
+end
+
+-- Shows the window. Returns false if the window could not be made.
+function ns.ShowWindow()
+  if not window then
+    if not pcall(create) then
+      window = nil
+      return false
+    end
+  end
+  window:Show()
+  return true
+end
+
+function ns.HideWindow()
+  local shown = window ~= nil and window:IsShown()
+  if shown then
+    window:Hide()
+  end
+  return shown
+end
+
+function ns.ToggleWindow()
+  if window and window:IsShown() then
+    window:Hide()
+    return true
+  end
+  return ns.ShowWindow()
+end
+
+-- Puts a text in the search box of the window and opens the window.
+function ns.Search(text)
+  if ns.ShowWindow() then
+    window.search:SetText(text or "")
+  end
+end
+
+ns.OnChange(function()
+  if window and window:IsShown() then
+    refresh()
+  end
+end)
+
+ns.OnResetPositions(function()
+  if window then
+    ns.RestorePosition("window", window, "BOTTOMRIGHT", -80, 120)
+  end
+end)
+
+---------------------------------------------------------------------------------------------------
+-- In place of the bag window of the game
+
+local originals = {}
+local installed = false
+
+-- Puts fn in the place of a function of the game. With the option off, or if fn fails, the
+-- function of the game runs.
+local function replace(name, fn)
+  local original = _G[name]
+  if type(original) ~= "function" then
+    return
+  end
+  originals[name] = original
+  _G[name] = function(...)
+    if ns.GetOption("replaceBags") then
+      local ok, done, result = pcall(fn, ...)
+      if ok and done then
+        return result
+      end
+    end
+    return original(...)
+  end
+end
+
+local function isBagOfCharacter(id)
+  return id == nil or (type(id) == "number" and id >= 0 and id <= 5)
+end
+
+local function install()
+  if installed then
+    return
+  end
+  installed = true
+  local function show()
+    return ns.ShowWindow()
+  end
+  local function hide()
+    return true, ns.HideWindow()
+  end
+  local function toggle()
+    return ns.ToggleWindow()
+  end
+  replace("ToggleAllBags", toggle)
+  replace("ToggleBackpack", toggle)
+  replace("OpenAllBags", show)
+  replace("OpenBackpack", show)
+  replace("CloseAllBags", hide)
+  replace("CloseBackpack", hide)
+  -- A bag of the bank has a higher number: that one stays with the game.
+  replace("ToggleBag", function(id)
+    return isBagOfCharacter(id) and ns.ToggleWindow()
+  end)
+  replace("OpenBag", function(id)
+    return isBagOfCharacter(id) and ns.ShowWindow()
+  end)
+  replace("CloseBag", function(id)
+    if isBagOfCharacter(id) then
+      return true, ns.HideWindow()
+    end
+    return false
+  end)
+end
+
+ns.OnChange(function(key)
+  if key == "replaceBags" then
+    if ns.GetOption("replaceBags") then
+      install()
+    else
+      ns.HideWindow()
+    end
+  end
+end)
+
+ns.OnLogin(function()
+  if ns.GetOption("replaceBags") then
+    install()
+  end
+  local events = CreateFrame("Frame")
+  for _, event in ipairs({
+    "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN", "PLAYER_MONEY", "MERCHANT_SHOW",
+    "MERCHANT_CLOSED", "BAG_NEW_ITEMS_UPDATED", "QUEST_ACCEPTED", "QUEST_REMOVED", "BAG_SLOT_FLAGS_UPDATED",
+  }) do
+    pcall(events.RegisterEvent, events, event)
+  end
+  events:SetScript("OnEvent", scheduleRefresh)
+end)

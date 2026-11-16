@@ -1,0 +1,6 @@
+{
+  "id": "forever-bags",
+  "category": "Bags & Inventory",
+  "summary": "One bag window with search and categories, the items of all your characters in one list, and item counts in tooltips.",
+  "description": "Forever Bags shows all your bags in one window, in the order of the bags or sorted into categories: equipment, consumables, trade goods, quest items and junk. Type in its search box to find an item. The addon remembers the bags, the bank and the gold of each of your characters, shows them together in one searchable list, and adds to each item tooltip how many you own and which character has them. The game's own bag window comes back with one setting. Type /fbags for commands."
+}
