@@ -570,6 +570,13 @@ function QuestLogQuests_Update()
       button.topPadding = #titles == 0 and 2 or -3
       button.questID = entry.questID
       button.info = entry
+      -- QuestMapFrame.lua, QuestLogQuests_AddQuestButton: the box that tracks the quest.
+      if not button.Checkbox then
+        button.Checkbox = CreateFrame("Button", nil, button)
+        button.Checkbox:SetSize(16, 16)
+        button.Checkbox:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+        H.gameFrameSet[button.Checkbox] = true
+      end
       titles[#titles + 1] = button
       local line = H.questLogFrames["line" .. index]
       if not line then

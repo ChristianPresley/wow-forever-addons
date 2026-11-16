@@ -115,26 +115,125 @@ local function isComplete(questID)
   return ok and complete and true or false
 end
 
+-- The mark is where the game has the box that tracks the quest (button.Checkbox, at the right
+-- of the title). It covers the box in full, and the box is not drawn under it, so nothing
+-- shows through. The mark is the tracking box of a ready quest: a click tracks the quest or
+-- stops tracking it, the same as the box. The tracking symbol at the right end of the mark
+-- is grey while the quest is not tracked and bright while it is. A
+-- right-click shows where to turn the quest in. A quest that is not ready has its box back.
+-- The game uses a button again for another quest, so the box is set each time.
+local function trackBox(button)
+  local box = button.Checkbox
+  return type(box) == "table" and type(box.SetAlpha) == "function" and box or nil
+end
+
+local function isTracked(questID)
+  local ok, kind = pcall(C_QuestLog.GetQuestWatchType, questID)
+  return ok and kind ~= nil
+end
+
+-- Tracks a quest or stops tracking it, as the box of the game does
+-- (QuestMapQuestOptions_TrackQuest in QuestMapFrame.lua). Returns true if the quest is tracked after.
+function ns.ToggleTracking(questID)
+  local tracked = isTracked(questID)
+  if tracked then
+    pcall(C_QuestLog.RemoveQuestWatch, questID)
+  else
+    pcall(C_QuestLog.AddQuestWatch, questID)
+  end
+  if PlaySound and SOUNDKIT then
+    local sound = tracked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON
+    if sound then
+      PlaySound(sound)
+    end
+  end
+  return isTracked(questID)
+end
+
+-- The tracking symbol of the mark: grey and dim while the quest is not tracked, in full colour
+-- and bright while it is.
+local function showTracked(badge)
+  local tracked = badge.questID ~= nil and isTracked(badge.questID)
+  badge.tracked = tracked
+  if tracked then
+    badge.symbol:SetVertexColor(1, 0.9, 0.3, 1)
+  else
+    badge.symbol:SetVertexColor(0.55, 0.55, 0.55, 0.7)
+  end
+end
+
 local function updateBadge(button, enabled)
   local badge = badges[button]
+  local box = trackBox(button)
   if enabled and isComplete(button.questID) then
     if not badge then
-      badge = CreateFrame("Frame", nil, button)
-      badge:SetFrameLevel(button:GetFrameLevel() + 3)
-      badge:SetSize(74, 14)
-      badge:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -4)
+      badge = CreateFrame("Button", nil, button)
       local back = badge:CreateTexture(nil, "BACKGROUND")
       back:SetAllPoints()
-      back:SetColorTexture(0.1, 0.5, 0.15, 0.85)
+      back:SetColorTexture(0.1, 0.5, 0.15, 1)
       badge.text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-      badge.text:SetPoint("CENTER")
+      -- The text is in the part of the mark to the left of the symbol.
+      badge.text:SetPoint("CENTER", -8, 0)
       badge.text:SetText("COMPLETED")
       badge.text:SetTextColor(1, 0.95, 0.6)
+      -- The tracking symbol at the right end: the picture of this addon (Media/Track.tga, drawn
+      -- by `cargo dev track-icon`). It is white, so its colour is the one set here.
+      badge.symbol = badge:CreateTexture(nil, "OVERLAY")
+      badge.symbol:SetTexture("Interface\\AddOns\\ForeverQuests\\Media\\Track")
+      badge.symbol:SetSize(16, 16)
+      badge.symbol:SetPoint("RIGHT", -2, 0)
+      badge:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+      badge:SetScript("OnClick", function(self, mouseButton)
+        if not self.questID then
+          return
+        end
+        if mouseButton == "RightButton" then
+          if ns.ShowTurnIn then
+            ns.ShowTurnIn(self.questID)
+          end
+        else
+          ns.ToggleTracking(self.questID)
+          showTracked(self)
+        end
+      end)
+      badge:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Ready to turn in", 1, 1, 1)
+        GameTooltip:AddLine(self.questID and isTracked(self.questID) and "Click to stop tracking this quest." or "Click to track this quest.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Right-click to see where to turn it in.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+      end)
+      badge:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+      end)
       badges[button] = badge
     end
+    badge.questID = button.questID
+    badge:ClearAllPoints()
+    local height = 16
+    if box then
+      -- The right edge and the height of the box, and a little more on each side.
+      local boxHeight = box:GetHeight()
+      if type(boxHeight) == "number" and boxHeight + 4 > height then
+        height = boxHeight + 4
+      end
+      badge:SetPoint("RIGHT", box, "RIGHT", 2, 0)
+      badge:SetFrameLevel(box:GetFrameLevel() + 2)
+      box:SetAlpha(0)
+    else
+      badge:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -4)
+      badge:SetFrameLevel(button:GetFrameLevel() + 3)
+    end
+    badge:SetSize(94, height)
+    showTracked(badge)
     badge:Show()
-  elseif badge then
-    badge:Hide()
+  else
+    if badge then
+      badge:Hide()
+    end
+    if box then
+      box:SetAlpha(1)
+    end
   end
 end
 
