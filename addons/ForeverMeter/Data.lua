@@ -1,0 +1,271 @@
+local _, ns = ...
+
+-- The game's damage data (C_DamageMeter) and the helpers that show its numbers.
+--
+-- Every call is in a pcall: a client without the API, or a call that the game refuses during a
+-- fight, gives nil and the meter shows less, not an error.
+
+local CVAR = "damageMeterEnabled" -- the switch of the game's own damage meter
+
+local function api()
+  return C_DamageMeter and C_DamageMeter.GetCombatSessionFromType and C_DamageMeter
+end
+
+-- Returns true, or false and the reason, for the damage data of the game.
+function ns.Available()
+  local meter = api()
+  if not meter then
+    return false, "This game client has no damage data for addons."
+  end
+  if meter.IsDamageMeterAvailable then
+    local ok, available, reason = pcall(meter.IsDamageMeterAvailable)
+    if ok and available == false then
+      return false, type(reason) == "string" and reason ~= "" and reason or "The game does not allow the damage meter now."
+    end
+  end
+  return true
+end
+
+-- True, false, or nil if this client has no such switch.
+function ns.GameMeterEnabled()
+  local get = C_CVar and C_CVar.GetCVar or GetCVar
+  if not get then
+    return nil
+  end
+  local ok, value = pcall(get, CVAR)
+  if not ok or value == nil then
+    return nil
+  end
+  return value == "1"
+end
+
+-- Turns on the damage meter of the game. Its own window can be hidden in the Edit Mode of the game.
+function ns.EnableGameMeter()
+  local set = C_CVar and C_CVar.SetCVar or SetCVar
+  if not set then
+    return false
+  end
+  return (pcall(set, CVAR, "1"))
+end
+
+local function modeID(mode)
+  local enum = Enum and Enum.DamageMeterType
+  local id = enum and enum[mode.type]
+  return id == nil and mode.id or id
+end
+
+-- The data of a fight for a mode: { combatSources = { ... }, maxAmount, totalAmount }, or nil.
+-- The sources are in the order of the game: the highest first.
+function ns.GetSession(mode, segment)
+  local meter = api()
+  if not meter then
+    return nil
+  end
+  local ok, session
+  if segment.id then
+    ok, session = pcall(meter.GetCombatSessionFromID, segment.id, modeID(mode))
+  else
+    ok, session = pcall(meter.GetCombatSessionFromType, segment.type, modeID(mode))
+  end
+  if ok and type(session) == "table" and type(session.combatSources) == "table" then
+    return session
+  end
+  return nil
+end
+
+-- The spells of one source: { combatSpells = { ... }, maxAmount, totalAmount }, or nil.
+-- The game refuses this during a fight for a source whose identity is secret.
+function ns.GetSource(mode, segment, guid, creatureID)
+  local meter = api()
+  if not (meter and meter.GetCombatSessionSourceFromType) then
+    return nil
+  end
+  local ok, source
+  if segment.id then
+    ok, source = pcall(meter.GetCombatSessionSourceFromID, segment.id, modeID(mode), guid, creatureID)
+  else
+    ok, source = pcall(meter.GetCombatSessionSourceFromType, segment.type, modeID(mode), guid, creatureID)
+  end
+  if ok and type(source) == "table" and type(source.combatSpells) == "table" then
+    return source
+  end
+  return nil
+end
+
+-- The fights that the game remembers: { { sessionID, name, durationSeconds }, ... }, the oldest first.
+function ns.Sessions()
+  local meter = api()
+  if not (meter and meter.GetAvailableCombatSessions) then
+    return {}
+  end
+  local ok, sessions = pcall(meter.GetAvailableCombatSessions)
+  return ok and type(sessions) == "table" and sessions or {}
+end
+
+-- Seconds that a fight lasted, or nil.
+function ns.Duration(segment)
+  local meter = api()
+  if not meter then
+    return nil
+  end
+  if segment.id then
+    for _, session in ipairs(ns.Sessions()) do
+      if session.sessionID == segment.id then
+        return ns.Usable(session.durationSeconds) and session.durationSeconds or nil
+      end
+    end
+    return nil
+  end
+  if not meter.GetSessionDurationSeconds then
+    return nil
+  end
+  local ok, seconds = pcall(meter.GetSessionDurationSeconds, segment.type)
+  return ok and ns.Usable(seconds) and seconds or nil
+end
+
+function ns.ResetData()
+  local meter = api()
+  if not (meter and meter.ResetAllCombatSessions) then
+    return false
+  end
+  local ok = pcall(meter.ResetAllCombatSessions)
+  ns.segment = { type = 1 }
+  ns.Changed(nil)
+  return ok
+end
+
+function ns.SegmentName(segment)
+  if segment.id then
+    return type(segment.name) == "string" and segment.name ~= "" and segment.name or ("Fight " .. segment.id)
+  end
+  return segment.type == 0 and "Whole session" or "Current fight"
+end
+
+---------------------------------------------------------------------------------------------------
+-- Numbers and text
+
+-- 1234 -> "1.2K". For a number that the addon can calculate with.
+function ns.Short(value)
+  local size = math.abs(value)
+  if size >= 1e9 then
+    return string.format("%.2fB", value / 1e9)
+  elseif size >= 1e6 then
+    return string.format("%.2fM", value / 1e6)
+  elseif size >= 1e4 then
+    return string.format("%.1fK", value / 1e3)
+  elseif size >= 1e3 then
+    return string.format("%.2fK", value / 1e3)
+  end
+  return string.format("%d", math.floor(value + 0.5))
+end
+
+function ns.Clock(seconds)
+  seconds = math.max(0, math.floor(seconds + 0.5))
+  return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
+end
+
+-- The text of a number: short for a number that the addon can read. For a secret number, the
+-- text comes from the game's own function, which can read it, and is secret too.
+-- Returns true and the text, or false. (A secret text cannot be compared, not even with nil,
+-- so the first result says if there is a text.)
+local function numberText(value)
+  if ns.Usable(value) then
+    return true, ns.Short(value)
+  end
+  if not ns.IsSecret(value) then
+    return false
+  end
+  for _, abbreviate in ipairs({ AbbreviateNumbers, AbbreviateLargeNumbers }) do
+    if abbreviate then
+      local ok, text = pcall(abbreviate, value)
+      if ok then
+        return true, text
+      end
+    end
+  end
+  local ok, text = pcall(string.format, "%.0f", value)
+  if ok then
+    return true, text
+  end
+  return false
+end
+
+-- Shows a number in a font string. With hasSecond, a second number follows in brackets. The
+-- suffix is a text of the addon that goes at the end. Works for secret numbers.
+function ns.SetNumber(fontString, value, hasSecond, second, suffix)
+  local found, text = numberText(value)
+  if not found then
+    -- The last way for a secret number: the font string itself can show it.
+    if not (ns.IsSecret(value) and pcall(fontString.SetText, fontString, value)) then
+      fontString:SetText("")
+    end
+    return
+  end
+  local foundSecond, secondText = false, nil
+  if hasSecond then
+    foundSecond, secondText = numberText(second)
+  end
+  -- Joining texts works for secret texts too. If this client refuses it, the first number stays.
+  local ok, joined = pcall(function()
+    if foundSecond then
+      return text .. " (" .. secondText .. ")" .. (suffix or "")
+    end
+    return text .. (suffix or "")
+  end)
+  if ok and pcall(fontString.SetText, fontString, joined) then
+    return
+  end
+  if not pcall(fontString.SetText, fontString, text) then
+    fontString:SetText("")
+  end
+end
+
+-- Shows a text that can be secret (a player name during a fight), with an optional number before it.
+function ns.SetName(fontString, name, rank)
+  if rank then
+    if not ns.IsSecret(name) and type(name) == "string" then
+      fontString:SetText(rank .. ". " .. name)
+      return
+    end
+    if pcall(fontString.SetFormattedText, fontString, "%d. %s", rank, name) then
+      return
+    end
+  end
+  if not pcall(fontString.SetText, fontString, name) then
+    fontString:SetText("")
+  end
+end
+
+-- Fills a status bar. Works for secret numbers.
+function ns.SetBar(bar, value, max)
+  if ns.Usable(max) and max <= 0 then
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(0)
+    return
+  end
+  if not (pcall(bar.SetMinMaxValues, bar, 0, max) and pcall(bar.SetValue, bar, value)) then
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(0)
+  end
+end
+
+-- Red, green and blue for a source: the colour of its class, or grey.
+function ns.SourceColor(classFilename)
+  if ns.GetOption("classColors") and type(classFilename) == "string" and not ns.IsSecret(classFilename) then
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFilename]
+    if color then
+      return color.r, color.g, color.b
+    end
+  end
+  return 0.55, 0.55, 0.6
+end
+
+-- The source of the player in a fight, and its place in the list. Nil if the player did nothing.
+function ns.OwnSource(session)
+  for index, source in ipairs(session.combatSources) do
+    if source.isLocalPlayer == true then
+      return source, index
+    end
+  end
+  return nil
+end

@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: Forever Meter
+## Notes: A damage and healing meter for solo play, parties and raids: bars for each player, your own DPS on screen, fights to look back at, a spell breakdown and reports to chat.
+## Author: Christian Presley
+## Version: 0.1.0
+## Category: Combat
+## SavedVariables: ForeverMeterDB
+## X-Website: https://github.com/ChristianPresley/wow-forever-addons
+
+Core.lua
+Data.lua
+Window.lua
+Details.lua
+Personal.lua
+Report.lua
+SettingsKit.lua
+Settings.lua
+Commands.lua

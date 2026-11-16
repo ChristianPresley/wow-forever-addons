@@ -1,0 +1,6 @@
+{
+  "id": "forever-meter",
+  "category": "Combat",
+  "summary": "A damage and healing meter for solo play, parties and raids, with your own DPS on screen.",
+  "description": "Forever Meter shows a bar for each player of your group with damage per second, damage, healing, absorbs, interrupts, dispels, damage taken or deaths. It works solo, in a party and in a raid, with its own number of bars for each, and it always keeps your own bar in view. A small read-out shows your own DPS. Look at the current fight, the whole session or an earlier fight, click a player for the spells, and report the list to your group. The numbers come from the game's own damage data. Type /fmeter for commands."
+}

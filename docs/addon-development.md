@@ -42,7 +42,12 @@ Where the position of a thing comes from:
 Rules that follow from the Mainline API:
 
 - **Secret values.** In combat, some API results (health, auras, threat, names) are secret: an addon can show them, but cannot calculate with them or compare them. Check with `issecretvalue(value)` before you use a number from a combat-related API.
-- **The combat log is closed to addons.**
+- **The combat log is closed to addons.** Damage and healing numbers come from the game's own damage meter data, `C_DamageMeter`:
+  - `GetCombatSessionFromType(sessionType, damageMeterType)` gives the sources of the current fight (`Enum.DamageMeterSessionType.Current`) or the whole session (`Overall`), the highest first. `GetAvailableCombatSessions()` lists earlier fights, for `GetCombatSessionFromID`.
+  - `GetCombatSessionSourceFromType` gives the spells of one source. During a fight the game refuses it for a source whose GUID is secret.
+  - During a fight every number and each player name is secret. Show them with `FontString:SetText`, `StatusBar:SetValue` and `AbbreviateNumbers`, and calculate (percentages, text for chat) after the fight. `classFilename` and `isLocalPlayer` are never secret. A secret value cannot be compared, not even with `nil`: test with `issecretvalue` first.
+  - The CVar `damageMeterEnabled` is the switch of the game's own meter.
+  - Forever Meter is the example.
 - Lua `require` has the name `import`.
 - Classic Era addon packages do not load. An addon needs `16001` in its `## Interface` line.
 
