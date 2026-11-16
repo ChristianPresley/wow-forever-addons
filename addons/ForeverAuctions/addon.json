@@ -1,6 +1,6 @@
 {
   "id": "forever-auctions",
   "category": "Auction House",
-  "summary": "Remembers auction house prices, scans all listings, helps you price your auctions and shows prices in item tooltips.",
-  "description": "Forever Auctions records the lowest price of each item you see at the auction house, per realm and faction. A full scan button reads every listing at once. The sell tab shows the lowest price and fills in an undercut for you. Item tooltips show the auction price, the vendor price and the value of the stack. Type /fah to open the price history window."
+  "summary": "Remembers auction house prices, scans all listings, finds deals, keeps a shopping list and price alerts, and helps you price your auctions.",
+  "description": "Forever Auctions records the lowest price of each item you see at the auction house, per realm and faction. A full scan button reads every listing at once. A shopping list beside the auction house window runs your saved searches with one click, the price window marks items that are far below their average price, and a price alert tells you when an item is seen at your target price. The sell tab shows the lowest price and fills in an undercut for you, and the addon tells you when your auctions are no longer the lowest. A ledger records each sale and purchase from your auction house mail, with totals for the day and the week. Item tooltips show the auction price, the vendor price and the value of the stack. Type /fah to open the price window and /fah help for commands."
 }

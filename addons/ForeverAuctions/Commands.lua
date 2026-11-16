@@ -5,6 +5,16 @@ local function help()
   print("  /fah - open or close the price history window")
   print("  /fah scan - scan every listing (at the auction house, once per 15 minutes)")
   print("  /fah price [item link] - show the stored price of an item")
+  print("  /fah deals - open the price window with the items far below their average price")
+  print("  /fah list - show the shopping list. /fah list add [text], /fah list remove [text], /fah list [text] to search")
+  print("  /fah watch [item link] [price] - alert when the item is seen at that price or lower, for example 5g")
+  print("  /fah watch - show the price alerts. /fah unwatch [item link] removes one")
+  print("  /fah mine - your auctions that are above the lowest stored price")
+  print("  /fah bags - the auction and vendor value of your bags")
+  print("  /fah ledger - open the window with your sales and purchases. /fah ledger text prints the totals")
+  print("  /fah record - turn the recording of sales and purchases on or off. /fah ledgerdays [number] sets the days kept")
+  print("  /fah dealpercent [number] - set the percentage of the average that makes a deal")
+  print("  /fah panel, /fah alerts, /fah undercutcheck - turn the shopping list panel, the price alerts or the undercut message on or off")
   print("  /fah stats - show how many prices are stored for this realm")
   print("  /fah tooltip - turn the tooltip auction price on or off")
   print("  /fah vendor - turn the tooltip vendor price on or off")
@@ -48,7 +58,75 @@ local TOGGLES = {
   stackvendor = { key = "tooltipStackVendor", name = "tooltip stack value (vendor)" },
   helper = { key = "sellHelper", name = "price helper on the sell tab" },
   scanbutton = { key = "scanButton", name = "full scan button" },
+  panel = { key = "shoppingPanel", name = "shopping list panel" },
+  alerts = { key = "priceAlerts", name = "price alerts" },
+  undercutcheck = { key = "undercutCheck", name = "message about your undercut auctions" },
+  record = { key = "ledger", name = "recording of sales and purchases" },
 }
+
+-- /fah ledgerdays 90
+local function ledgerDays(rest)
+  if tonumber(rest) then
+    ns.SetOption("ledgerDays", tonumber(rest))
+  end
+  ns.Print("the ledger keeps a sale or a purchase for " .. ns.GetOption("ledgerDays") .. " days. Change it with /fah ledgerdays 90.")
+end
+
+-- /fah list, /fah list add linen cloth, /fah list remove linen cloth, /fah list linen cloth
+local function shopping(rest)
+  local action, text = rest:match("^(%S*)%s*(.-)$")
+  action = action:lower()
+  if rest == "" then
+    local list = ns.ShoppingList()
+    if #list == 0 then
+      ns.Print("the shopping list is empty. Add a search with /fah list add [text].")
+      return
+    end
+    ns.Print("shopping list (" .. #list .. "): " .. table.concat(list, ", "))
+  elseif action == "add" then
+    local ok, problem = ns.AddSearch(text)
+    ns.Print(ok and "added to the shopping list." or problem)
+  elseif action == "remove" or action == "delete" then
+    ns.Print(ns.RemoveSearch(text) and "removed from the shopping list." or "that search is not on the shopping list.")
+  else
+    ns.RunSearch(rest)
+  end
+end
+
+-- /fah watch [link] 5g, /fah watch
+local function watch(rest)
+  if rest == "" then
+    ns.PrintWatchList()
+    return
+  end
+  local itemID = tonumber(rest:match("item:(%d+)"))
+  -- The price is the text after the link.
+  local amount = ns.ParseMoney(rest:match("|h|r%s*(.-)$") or "")
+  if not itemID or not amount or amount <= 0 then
+    ns.Print("shift-click an item into the chat box and type a price after it: /fah watch [item link] 5g.")
+    return
+  end
+  ns.SetWatch(itemID, amount)
+  ns.Print("price alert: " .. ns.ItemLabel(itemID) .. " at " .. ns.Money(amount) .. " or lower.")
+end
+
+local function unwatch(rest)
+  local itemID = tonumber(rest:match("item:(%d+)")) or tonumber(rest)
+  if not itemID or not ns.WatchTarget(itemID) then
+    ns.Print("no price alert for that item. /fah watch shows the alerts.")
+    return
+  end
+  ns.SetWatch(itemID, nil)
+  ns.Print("price alert removed: " .. ns.ItemLabel(itemID) .. ".")
+end
+
+-- /fah dealpercent 60
+local function dealPercent(rest)
+  if tonumber(rest) then
+    ns.SetOption("dealPercent", tonumber(rest))
+  end
+  ns.Print("an item is a deal at " .. ns.GetOption("dealPercent") .. "% of its average price or lower. Change it with /fah dealpercent 60.")
+end
 
 -- /fah days 21
 local function days(rest)
@@ -88,6 +166,28 @@ SlashCmdList["FOREVERAUCTIONS"] = function(input)
     price(rest)
   elseif command == "stats" then
     stats()
+  elseif command == "deals" then
+    ns.ShowDeals()
+  elseif command == "list" or command == "shop" then
+    shopping(rest)
+  elseif command == "watch" then
+    watch(rest)
+  elseif command == "unwatch" then
+    unwatch(rest)
+  elseif command == "mine" then
+    ns.PrintMyAuctions()
+  elseif command == "bags" then
+    ns.PrintBagValue()
+  elseif command == "ledger" then
+    if rest:lower() == "text" then
+      ns.PrintLedger()
+    else
+      ns.ToggleLedger()
+    end
+  elseif command == "ledgerdays" then
+    ledgerDays(rest)
+  elseif command == "dealpercent" then
+    dealPercent(rest)
   elseif toggle then
     ns.SetOption(toggle.key, not ns.GetOption(toggle.key))
     ns.Print(toggle.name .. " " .. (ns.GetOption(toggle.key) and "on" or "off") .. ".")

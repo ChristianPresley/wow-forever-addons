@@ -24,7 +24,9 @@ local COLUMNS = {
   { key = "low", label = "Low", width = MONEY_WIDTH, descending = true },
   { key = "high", label = "High", width = MONEY_WIDTH, descending = true },
   { key = "avg", label = "Average", width = MONEY_WIDTH, descending = true },
+  { key = "pct", label = "Of avg", width = 60, descending = false },
 }
+local DEAL_MIN_DAYS = 2 -- an average of one day says nothing about a deal
 
 local frame, list, searchBox, countText
 local headers = {}
@@ -37,6 +39,13 @@ local loaderRunning = false
 local sortKey, sortDescending = "seen", true
 local filter = ""
 local dirty = false -- names arrived since the last redraw
+local dealsOnly = false
+local dealsButton
+
+-- A deal: the latest price is at most the "deal" percentage of the average of at least two days.
+local function isDeal(row)
+  return row.days >= DEAL_MIN_DAYS and row.pct <= ns.GetOption("dealPercent")
+end
 
 local function getItemInfo(itemID)
   local get = C_Item and C_Item.GetItemInfo or GetItemInfo
@@ -94,6 +103,9 @@ local function compare(a, b)
 end
 
 local function matches(row)
+  if dealsOnly and not isDeal(row) then
+    return false
+  end
   if filter == "" then
     return true
   end
@@ -117,7 +129,14 @@ local function rebuild(keepPosition)
   end
   table.sort(shown, compare)
   list.SetItems(shown, keepPosition)
-  countText:SetText(string.format("%d of %d items", #shown, #allRows))
+  if dealsOnly then
+    countText:SetText(string.format("%d deals (at most %d%% of the average) among %d items", #shown, ns.GetOption("dealPercent"), #allRows))
+  else
+    countText:SetText(string.format("%d of %d items", #shown, #allRows))
+  end
+  if dealsButton then
+    dealsButton:SetText(dealsOnly and "Show all items" or "Show deals only")
+  end
   dirty = false
 end
 
@@ -167,9 +186,11 @@ local function reload()
   queue, queuePosition = {}, 1
   for itemID, entry in pairs(ns.Prices()) do
     if type(itemID) == "number" and type(entry) == "table" and type(entry.price) == "number" then
-      local low, high, average = ns.DayStats(entry)
+      local low, high, average, days = ns.DayStats(entry)
       allRows[#allRows + 1] = {
         id = itemID, price = entry.price, seen = entry.seen or 0, low = low, high = high, avg = average,
+        days = days,
+        pct = average > 0 and math.floor(entry.price / average * 100 + 0.5) or 100,
       }
       if not info[itemID] then
         queue[#queue + 1] = itemID
@@ -181,6 +202,40 @@ local function reload()
     loaderRunning = true
     loadStep()
   end
+end
+
+-- Right-click on a row: search for the item, save it as a search, or set a price alert.
+local function showRowMenu(owner, item)
+  if not (MenuUtil and MenuUtil.CreateContextMenu) then
+    return
+  end
+  local known = info[item.id]
+  MenuUtil.CreateContextMenu(owner, function(_, root)
+    root:CreateTitle(known and known.name or ("Item " .. item.id))
+    if known then
+      root:CreateButton("Search at the auction house", function()
+        ns.RunSearch(known.name)
+      end)
+      root:CreateButton("Add to the shopping list", function()
+        local ok, problem = ns.AddSearch(known.name)
+        ns.Print(ok and ("\"" .. known.name .. "\" added to the shopping list.") or problem)
+      end)
+    end
+    local target = ns.WatchTarget(item.id)
+    if target then
+      root:CreateButton("Remove the price alert (" .. ns.Money(target) .. ")", function()
+        ns.SetWatch(item.id, nil)
+        ns.Print("price alert removed.")
+      end)
+    else
+      -- Below the price of now, so the alert does not fire at once.
+      local below = math.max(1, math.floor(item.price * 0.9))
+      root:CreateButton("Alert at " .. ns.Money(below) .. " or lower (10% below now)", function()
+        ns.SetWatch(item.id, below)
+        ns.Print("price alert set at " .. ns.Money(below) .. ". For a different price: /fah watch [item link] 5g.")
+      end)
+    end
+  end)
 end
 
 local function createRow(parent)
@@ -228,11 +283,30 @@ local function createRow(parent)
     self.highlight:Hide()
     GameTooltip:Hide()
   end)
+  row:SetScript("OnMouseUp", function(self, mouseButton)
+    if mouseButton == "RightButton" and self.item then
+      showRowMenu(self, self.item)
+    end
+  end)
   return row
 end
 
 local function setupRow(row, item)
   row.itemID = item.id
+  row.item = item
+  if item.days >= DEAL_MIN_DAYS then
+    row.pct:SetText(item.pct .. "%")
+    if isDeal(item) then
+      row.pct:SetTextColor(0.3, 0.9, 0.3)
+    elseif item.pct > 100 then
+      row.pct:SetTextColor(0.9, 0.5, 0.4)
+    else
+      row.pct:SetTextColor(1, 1, 1)
+    end
+  else
+    row.pct:SetText("-")
+    row.pct:SetTextColor(0.6, 0.6, 0.6)
+  end
   row.icon:SetTexture(iconOf(item.id))
   local known = info[item.id]
   if known then
@@ -474,6 +548,25 @@ local function createWindow()
     self:ClearFocus()
   end)
 
+  dealsButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+  dealsButton:SetSize(150, 22)
+  dealsButton:SetPoint("LEFT", searchBox, "RIGHT", 12, 0)
+  dealsButton:SetText("Show deals only")
+  dealsButton:SetScript("OnClick", function()
+    dealsOnly = not dealsOnly
+    rebuild(false)
+  end)
+  dealsButton:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Deals", 1, 1, 1)
+    GameTooltip:AddLine(string.format("Items whose latest price is at most %d%% of their average, with prices of at least %d days. Change the percentage in the settings. Right-click a row for more actions.",
+      ns.GetOption("dealPercent"), DEAL_MIN_DAYS), nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  dealsButton:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+
   countText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   countText:SetPoint("BOTTOMLEFT", 16, 10)
 
@@ -551,6 +644,26 @@ function ns.ShowHistory()
     frame:Raise()
   end
 end
+
+-- Opens the window with only the deals, the lowest percentage of the average first.
+function ns.ShowDeals()
+  dealsOnly = true
+  sortKey, sortDescending = "pct", false
+  local wasShown = frame and frame:IsShown()
+  ns.ShowHistory()
+  if frame then
+    updateHeaders()
+    if wasShown then
+      rebuild(false) -- a window that opens now reads the prices itself
+    end
+  end
+end
+
+ns.OnOptionChanged(function(key)
+  if key == "dealPercent" and frame and frame:IsShown() then
+    rebuild(true)
+  end
+end)
 
 function ns.ToggleHistory()
   if frame and frame:IsShown() then

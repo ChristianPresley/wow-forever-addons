@@ -69,6 +69,11 @@ local function addLines(tooltip, itemID)
     end
     added = true
   end
+  local target = showAuction and ns.GetOption("priceAlerts") and ns.WatchTarget(itemID)
+  if target then
+    tooltip:AddDoubleLine("Price alert at", ns.Money(target), 0.4, 0.8, 1, 1, 1, 1)
+    added = true
+  end
   if vendor and showVendor then
     if vendorPaysMore then
       tooltip:AddDoubleLine("Vendor (pays more than auction)", ns.Money(vendor), 1, 0.4, 0.3, 1, 1, 1)

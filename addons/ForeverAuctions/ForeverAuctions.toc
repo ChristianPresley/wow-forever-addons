@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Forever Auctions
-## Notes: Remembers auction house prices, scans all listings, helps you price your auctions and shows prices in item tooltips.
+## Notes: Remembers auction house prices, scans all listings, finds deals, keeps a shopping list, price alerts and a ledger of your sales and purchases, helps you price your auctions and shows prices in item tooltips.
 ## Author: Christian Presley
-## Version: 0.3.0
+## Version: 0.4.0
 ## Category: Auctions
 ## SavedVariables: ForeverAuctionsDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons
@@ -13,6 +13,11 @@ FullScan.lua
 SellHelper.lua
 Tooltip.lua
 History.lua
+Shopping.lua
+Alerts.lua
+MyAuctions.lua
+Bags.lua
+Ledger.lua
 SettingsKit.lua
 Options.lua
 Commands.lua
