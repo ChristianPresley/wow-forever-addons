@@ -631,6 +631,27 @@ mod tests {
     }
 
     /// True if each failure is from the fight, and there is one about a secret value.
+    #[test]
+    fn a_config_refuses_a_breakpoint_of_zero_and_breakpoint_data_does_not() {
+        // Seen on the client (see CreateAbbreviateConfig in 01-api.lua).
+        let rules = r#"
+            local rules = {
+              { breakpoint = 1000, abbreviation = "K", significandDivisor = 10, fractionDivisor = 100 },
+              { breakpoint = 0, abbreviation = "", significandDivisor = 1, fractionDivisor = 1 },
+            }
+            USE
+        "#;
+        let (failures, _) = check(&rules.replace("USE", "local config = CreateAbbreviateConfig(rules)"));
+        assert!(
+            failures.iter().any(|failure| failure.contains("CreateAbbreviateConfig(): Invalid Breakpoint - must be greater than zero and finite")),
+            "{failures:?}"
+        );
+        let (failures, _) = check(&rules.replace("USE", "local text = AbbreviateNumbers(345.678901, { breakpointData = rules })"));
+        assert!(failures.is_empty(), "{failures:?}");
+        let (failures, _) = check(&rules.replace("USE", "rules[2].breakpoint = 1 local config = CreateAbbreviateConfig(rules)"));
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
     fn fails_in_the_fight_only(lua: &str) {
         let (failures, _) = check(lua);
         assert!(failures.iter().any(|failure| failure.contains("secret value")), "expected a failure about a secret value, got {failures:?}");

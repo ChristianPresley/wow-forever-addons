@@ -232,7 +232,7 @@ local DEFAULT_BREAKPOINTS = {
   { breakpoint = 1e3, abbreviation = "K", significandDivisor = 100, fractionDivisor = 10 },
 }
 local abbreviateConfigs = setmetatable({}, { __mode = "k" })
-local function checkBreakpoints(list, where)
+local function checkBreakpoints(list, where, always)
   if realType(list) ~= "table" then
     fail(where .. ": the breakpoints are not a table")
   end
@@ -249,9 +249,16 @@ local function checkBreakpoints(list, where)
     if entry.significandDivisor <= 0 or entry.fractionDivisor <= 0 then
       fail(where .. ": breakpoint " .. index .. " has a divisor that is not above zero")
     end
-    -- The documentation has an error "InvalidBreakpoint" (Enum.AbbreviationDataError) and does
-    -- not say which numbers it is for. With H.world.strictAbbreviate the stand-in is a client
-    -- that refuses a breakpoint of zero, so an addon that counts on it is tested both ways.
+    -- CreateAbbreviateConfig refuses a breakpoint of zero, with this text: seen on client
+    -- 1.60.1 on 2026-11-17 (the user's screenshot of "/fmeter status", told by the Forever
+    -- Meter session). The same rules as breakpointData of AbbreviateNumbers worked there, and
+    -- only that the texts had two decimals at most was seen, not the texts. So for
+    -- breakpointData the stand-in takes them, and with H.world.strictAbbreviate it is a client
+    -- that refuses them, so an addon that counts on it is tested both ways.
+    local positive = entry.breakpoint > 0 and entry.breakpoint < math.huge
+    if always and not positive then
+      fail(where .. "(): Invalid Breakpoint - must be greater than zero and finite")
+    end
     if H.world and H.world.strictAbbreviate and entry.breakpoint <= 0 then
       fail(where .. ": breakpoint " .. index .. " is not above zero (InvalidBreakpoint)")
     end
@@ -264,7 +271,7 @@ local function checkBreakpoints(list, where)
 end
 function CreateAbbreviateConfig(breakpoints)
   local config = {}
-  abbreviateConfigs[config] = checkBreakpoints(breakpoints, "CreateAbbreviateConfig")
+  abbreviateConfigs[config] = checkBreakpoints(breakpoints, "CreateAbbreviateConfig", true)
   return config
 end
 function AbbreviateNumbers(value, options)
