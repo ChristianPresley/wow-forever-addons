@@ -110,7 +110,8 @@ function ns.Duration(segment)
   end
   if segment.id then
     for _, session in ipairs(ns.Sessions()) do
-      if session.sessionID == segment.id then
+      -- The test of secrecy comes first: a comparison with a secret value is an error.
+      if ns.Usable(session.sessionID) and session.sessionID == segment.id then
         return ns.Usable(session.durationSeconds) and session.durationSeconds or nil
       end
     end
@@ -180,59 +181,79 @@ local BREAKPOINTS = { -- from the largest to the smallest, as the game wants the
   { breakpoint = 1e3, abbreviation = "K", significandDivisor = 10, fractionDivisor = 100, abbreviationIsGlobal = false },
   { breakpoint = 0, abbreviation = "", significandDivisor = 1, fractionDivisor = 1, abbreviationIsGlobal = false },
 }
--- No source says that the game takes these rules as they are (the row for the numbers below
--- 1000 most of all), so the addon tries them once, with numbers that it can read: the rules are
--- used only if every text that comes back has two decimals at most. If not, the font string
--- formats the number itself, with two decimals.
+-- Client 1.60.1 takes these rules (seen in the game with /fmeter status). Another client may
+-- not, so the addon tries them once, with numbers that it can read: the rules are
+-- used only if every text that comes back has two decimals at most. If not, the same test
+-- decides if the game's own rules are good enough, and if not, the font string formats the
+-- number itself, with two decimals.
 local SAMPLES = { 0.123456, 345.678901, 999.999, 1234.56789, 12345.6789, 2567890.123, 3500000000.123 }
 local function twoDecimalsAtMost(text)
   return type(text) == "string" and text ~= "" and not text:find("%.%d%d%d") and not text:find("[eE][+-]?%d")
 end
+-- Returns true, or false and why not: the error of the game, or the text that is too long.
 local function rulesWork(options)
   for _, sample in ipairs(SAMPLES) do
     local ok, text = pcall(AbbreviateNumbers, sample, options)
-    if not ok or not twoDecimalsAtMost(text) then
-      return false
+    if not ok then
+      return false, tostring(text)
+    end
+    if not twoDecimalsAtMost(text) then
+      return false, sample .. " gives " .. tostring(text)
     end
   end
   return true
 end
-local abbreviateOptions -- nil: not tried yet; false: the game does not take the rules
+
+-- How a secret number gets its text. nil: not tried yet.
+--   "rules": the game's function with the rules of the addon (abbreviateOptions).
+--   "game":  the game's function with its own rules, as the game's own damage meter does it
+--            (Blizzard_DamageMeter/DamageMeterEntry.lua): 1.2K and 12K.
+--   "plain": two decimals, by the font string, without K and M.
+local numberWay
+local abbreviateOptions
+local refusals = {} -- why a way was not taken: { "name: reason", ... }, for /fmeter status
 
 local function chooseRules()
-  abbreviateOptions = false
+  numberWay, abbreviateOptions, refusals = "plain", nil, {}
   if type(AbbreviateNumbers) ~= "function" then
+    refusals[1] = "no AbbreviateNumbers"
     return
   end
-  local candidates = {}
-  if type(CreateAbbreviateConfig) == "function" then
-    -- A config object makes the many calls cheaper, where the client has it.
-    local okConfig, config = pcall(CreateAbbreviateConfig, BREAKPOINTS)
-    if okConfig and config then
-      candidates[#candidates + 1] = { config = config }
+  local function try(name, way, options)
+    local ok, reason = rulesWork(options)
+    if ok then
+      numberWay, abbreviateOptions = way, options
+      return true
     end
+    refusals[#refusals + 1] = name .. ": " .. reason
+    return false
   end
-  candidates[#candidates + 1] = { breakpointData = BREAKPOINTS }
-  for _, options in ipairs(candidates) do
-    if rulesWork(options) then
-      abbreviateOptions = options
-      return
-    end
+  -- The rules go with each call. A config object (CreateAbbreviateConfig) would make the calls
+  -- cheaper, but client 1.60.1 refuses it for these rules ("Invalid Breakpoint - must be greater
+  -- than zero and finite", for the row below 1000) and takes the same rules here.
+  if try("rules", "rules", { breakpointData = BREAKPOINTS }) then
+    return
   end
+  try("game", "game", nil)
 end
 
--- How a secret number gets its text: "rules" (the game's function with the rules of the
--- addon) or "plain" (two decimals, by the font string). For /fmeter status and the tests.
+-- "rules", "game" or "plain": see above. For /fmeter status and the tests.
 function ns.NumberWay()
-  if abbreviateOptions == nil then
+  if numberWay == nil then
     chooseRules()
   end
-  return abbreviateOptions and "rules" or "plain"
+  return numberWay
+end
+
+-- Why the ways before the chosen one were not taken, one text for each. For /fmeter status.
+function ns.NumberWayRefusals()
+  ns.NumberWay()
+  return refusals
 end
 
 -- Tries the rules again (after a change of the game's functions; for the tests).
 function ns.ResetNumberWay()
-  abbreviateOptions = nil
+  numberWay = nil
 end
 
 local function numberText(value)
@@ -242,7 +263,7 @@ local function numberText(value)
   if not ns.IsSecret(value) then
     return false
   end
-  if ns.NumberWay() == "rules" then
+  if ns.NumberWay() ~= "plain" then
     local ok, text = pcall(AbbreviateNumbers, value, abbreviateOptions)
     if ok then
       return true, text

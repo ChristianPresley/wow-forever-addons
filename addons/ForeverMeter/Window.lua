@@ -65,13 +65,15 @@ local function showMenu(owner)
       -- A fight can have no name (the game's own meter numbers such a fight too:
       -- Blizzard_DamageMeter/DamageMeterSessionWindow.lua).
       local named = not ns.IsSecret(session.name) and type(session.name) == "string" and session.name ~= ""
-      local number = ns.Usable(session.sessionID) and session.sessionID or i
+      local readable = ns.Usable(session.sessionID)
+      local number = readable and session.sessionID or i
       local label = named and session.name or ("Fight " .. number)
       if ns.Usable(session.durationSeconds) then
         label = label .. " (" .. ns.Clock(session.durationSeconds) .. ")"
       end
       fight:CreateRadio(label, function()
-        return ns.segment.id == session.sessionID
+        -- A comparison with a secret value is an error, so the test of secrecy comes first.
+        return readable and ns.segment.id == session.sessionID
       end, function()
         ns.SetSegment({ id = session.sessionID, name = label })
       end)

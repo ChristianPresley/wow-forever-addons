@@ -120,6 +120,19 @@ ns.SetNumber(shown, H.secret(1234.56789), true, H.secret(45.678901), "  45%")
 expect(H.plain(shown:GetText()) == "1234.57 (45.68)  45%", "and two secret numbers too, got " .. tostring(H.plain(shown:GetText())))
 T.slash("/fmeter", "status")
 expect(T.printed("two decimals, without K and M"), "/fmeter status says how the numbers of a fight are shown")
+expect(T.printed("not rules: ") and T.printed("not game: 0.123456 gives 0.123456"), "/fmeter status says why each way was not taken")
+-- The same client, but its own rules give a whole number below 1000, as the game's own damage
+-- meter shows it: then the addon takes the rules of the game.
+T.world.abbreviateWhole = true
+ns.ResetNumberWay()
+expect(ns.NumberWay() == "game", "a client whose own rules are short enough: the addon takes them, got " .. ns.NumberWay())
+expect(textOf(H.secret(345.678901)) == "345", "then a secret 345.678901 shows as 345, got " .. tostring(textOf(H.secret(345.678901))))
+expect(textOf(H.secret(1234.56789)) == "1.2K", "and a secret 1234.56789 as 1.2K, got " .. tostring(textOf(H.secret(1234.56789))))
+ns.SetNumber(shown, H.secret(12345.6789), true, H.secret(45.678901), "  45%")
+expect(H.plain(shown:GetText()) == "12K (45)  45%", "and two secret numbers too, got " .. tostring(H.plain(shown:GetText())))
+T.slash("/fmeter", "status")
+expect(T.printed("by the game's function with its own rules"), "/fmeter status says that the rules of the game are used")
+T.world.abbreviateWhole = nil
 T.world.strictAbbreviate = nil
 ns.ResetNumberWay()
 expect(ns.NumberWay() == "rules", "without that the rules are back")
