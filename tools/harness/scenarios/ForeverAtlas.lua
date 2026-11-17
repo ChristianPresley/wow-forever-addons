@@ -249,14 +249,46 @@ ForeverAtlasMap:Hide()
 -- not use it: it would put a bright colour over all of the map.
 ns.ShowMap(37)
 expect(select(2, ns.HoverMap(0.5, 0.5)) == false, "on the map of a zone, the zone itself does not light up")
--- The terrain (a trial, off at first): the images of the minimap over the map, zoomed in.
+-- The terrain: the images of the minimap over the map, zoomed in. The option is on at first.
+expect(ns.GetOption("terrainDetail") == true and ns.MapTerrain() ~= nil, "the terrain is on at first")
+ns.SetOption("terrainDetail", false)
 expect(ns.MapTerrain() == nil, "no terrain while the option is off")
 local maxBefore = ns.MapView().maxScale
-ns.SetOption("terrain", true)
+ns.SetOption("terrainDetail", true)
 local terrain = ns.MapTerrain()
 -- The zone of the stand-in is 1000 yards wide, from 0 to 1000: the squares 30 and 31 each way.
-expect(terrain ~= nil and terrain.columns == 2 and terrain.rows == 2 and terrain.images == 4, "the zone of 1000 yards needs two terrain images each way, got " .. tostring(terrain and terrain.images))
-expect(terrain.folder == "Azeroth" and terrain.first == "World\\Minimaps\\Azeroth\\map30_30", "an image has the name of its square of the world, got " .. tostring(terrain.first))
+-- The terrain goes on half a map past each edge, for the way to the next zone: the squares
+-- 29 to 32 each way, as far as the table has an image for them.
+local function terrainCount()
+  local count = 0
+  for column = 29, 32 do
+    for row = 29, 32 do
+      if ns.TERRAIN_IMAGES[0][column * 64 + row] then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+local allImages = terrainCount()
+expect(allImages > 4, "the table has images past the edges of the zone of the stand-in")
+expect(terrain ~= nil and terrain.columns == 2 and terrain.rows == 2 and terrain.images == allImages, "the zone of 1000 yards has two terrain images each way and more past its edges, got " .. tostring(terrain and terrain.images))
+expect(terrain.world == 0 and terrain.first == ns.TERRAIN_IMAGES[0][30 * 64 + 30] and type(terrain.first) == "number", "an image has the number of the file of its square of the world, got " .. tostring(terrain.first))
+-- A square of the world without an image is left out, and a world without images has no terrain.
+local kept = ns.TERRAIN_IMAGES[0][31 * 64 + 31]
+ns.TERRAIN_IMAGES[0][31 * 64 + 31] = nil
+ns.SetOption("terrainDetail", false)
+ns.SetOption("terrainDetail", true)
+expect(ns.MapTerrain().images == allImages - 1, "a square without an image is left out, got " .. tostring(ns.MapTerrain().images))
+ns.TERRAIN_IMAGES[0][31 * 64 + 31] = kept
+local world = ns.TERRAIN_IMAGES[0]
+ns.TERRAIN_IMAGES[0] = nil
+ns.SetOption("terrainDetail", false)
+ns.SetOption("terrainDetail", true)
+expect(ns.MapTerrain() == nil, "a world without images has no terrain")
+ns.TERRAIN_IMAGES[0] = world
+ns.SetOption("terrainDetail", false)
+ns.SetOption("terrainDetail", true)
 -- Far enough in for one and a half screen units for each pixel of a terrain image.
 expect(ns.MapView().maxScale >= maxBefore and ns.MapView().maxScale >= 1.5 * 256 / (1000 / 1.875 / 1000 * 1002) - 0.001, "with the terrain the map zooms in far enough for the pixels of the terrain, got " .. ns.MapView().maxScale)
 expect(terrain.alpha == 0, "with the whole map in the window the terrain does not show")
@@ -264,9 +296,100 @@ ns.ZoomMap(100)
 expect(ns.MapTerrain().alpha == 1, "zoomed all the way in, the terrain shows in full")
 ns.ZoomMap(-100)
 ns.ShowMap(13)
-expect(ns.MapTerrain() ~= nil and ns.MapTerrain().images == 4, "the continent of the stand-in has the same four images")
-ns.SetOption("terrain", false)
+expect(ns.MapTerrain() ~= nil and ns.MapTerrain().images == allImages, "the continent of the stand-in has the same images")
+-- From zone to zone. Close enough for the terrain in full, the map moves past the edge of the
+-- zone, and the zone that is there shows, with the same place in the middle.
+ns.ShowMap(37)
+expect(ns.PanMapTo(1.03, 0.5) == false and ns.MapView().mapID == 37, "with the whole zone in the window the map does not go past its edge")
+-- A move with the mouse goes past the edge at any zoom, also with the whole zone in the window.
+do
+  local view = ns.MapView()
+  local placeBefore = view.x
+  expect(ns.PanMapTo(0.8, 0.5, true) == false and view.mapID == 37 and view.x == placeBefore, "a move with the mouse inside the whole zone keeps the map, and the map goes back to its place after it")
+  expect(ns.PanMapTo(1.03, 0.5, true) == true and view.mapID == 52, "a move with the mouse past the edge of the whole zone shows the next zone, got map " .. tostring(view.mapID))
+  expect(view.scale == view.minScale and ns.MapTerrain().alpha == 0, "and the next zone is whole in the window too")
+  expect(ns.PanMapTo(-0.03, 0.5, true) == true and view.mapID == 37 and view.x == placeBefore, "and back with the mouse, to the place of before")
+end
+while ns.MapView().scale / ns.MapView().minScale < 3.2 do
+  ns.ZoomMap(1)
+end
+expect(ns.MapTerrain().alpha == 1, "close enough, the terrain shows in full")
+local scaleBefore = ns.MapView().scale
+expect(ns.PanMapTo(0.5, 0.5) == false and ns.MapView().mapID == 37, "a move inside the zone keeps its map")
+expect(ns.PanMapTo(1.03, 0.5) == true and ns.MapView().mapID == 52, "past the east edge of Elwynn Forest the map shows Westfall, got map " .. tostring(ns.MapView().mapID))
+local crossed = ns.MapView()
+expect(math.abs(crossed.scale - scaleBefore) < 0.0001, "the land keeps its size from zone to zone")
+expect(ForeverAtlasMap.title:GetText() == "Westfall", "the window has the name of the new zone")
+expect(ns.PanMapTo(-0.03, 0.5) == true and ns.MapView().mapID == 37, "and back past the west edge of Westfall the map shows Elwynn Forest again")
+-- North of the zones the continent has nothing: the map stays, with its edge in the middle.
+expect(ns.PanMapTo(0.5, -0.2) == false and ns.MapView().mapID == 37, "where the continent has no zone the map stays")
+T.slash("/fatlas", "status")
+expect(T.printed("from zone to zone: on map 13") and T.printed("the last try: "), "/fatlas status says where the zone is on its continent and how the last move past the edge went")
+-- Zoomed all the way in, the two maps have the same closest zoom: the map still goes across.
+ns.ZoomMap(100)
+expect(ns.PanMapTo(1.03, 0.5) == true and ns.MapView().mapID == 52, "at the closest zoom the map goes to the next zone too")
+expect(ns.PanMapTo(-0.03, 0.5) == true and ns.MapView().mapID == 37, "and back")
+-- A next zone that is smaller on the continent: at the same size of the land it would be too
+-- far out for its terrain, so it comes just close enough, and the map can go back from it.
+do
+  local rectOnMap = C_Map.GetMapRectOnMap
+  C_Map.GetMapRectOnMap = function(mapID, onMapID)
+    if onMapID == 13 and mapID == 52 then
+      return 0.5, 0.75, 0.25, 0.75
+    end
+    return rectOnMap(mapID, onMapID)
+  end
+  ns.ShowMap(37)
+  while ns.MapView().scale / ns.MapView().minScale < 3.2 do
+    ns.ZoomMap(1)
+  end
+  expect(ns.PanMapTo(1.03, 0.5) == true and ns.MapView().mapID == 52, "the map goes to a smaller next zone too, got map " .. tostring(ns.MapView().mapID))
+  expect(ns.MapTerrain().alpha == 1, "and the smaller zone is close enough for its terrain in full")
+  expect(ns.PanMapTo(-0.03, 0.5) == true and ns.MapView().mapID == 37, "and back from the smaller zone")
+  C_Map.GetMapRectOnMap = rectOnMap
+end
+-- Zones with their own world places, as in the game (north and west, in yards, falling to the
+-- south and east): Elwynn Forest the west half, Westfall the east half. The new zone is placed
+-- by the world, so the terrain stays where it is under the window.
+do
+  local worldPos = C_Map.GetWorldPosFromMapPos
+  C_Map.GetWorldPosFromMapPos = function(mapID, position)
+    local left = mapID == 52 and 0.5 or 0
+    local wide = (mapID == 37 or mapID == 52) and 0.5 or 1
+    return 0, CreateVector2D(1000 - position.y * 1000, 1000 - (left + position.x * wide) * 1000)
+  end
+  ns.ShowMap(13)
+  ns.ShowMap(37)
+  while ns.MapView().scale / ns.MapView().minScale < 3.2 do
+    ns.ZoomMap(1)
+  end
+  ns.PanMapTo(0.5, 0.5)
+  local view = ns.MapView()
+  local half = view.x + 0.5 * view.width * view.scale -- the middle of the window
+  local perYard = view.scale * view.width / 500
+  expect(ns.PanMapTo(1.03, 0.4) == true and view.mapID == 52, "with world places of their own the map goes to the next zone, got map " .. tostring(view.mapID))
+  local middleX = (half - view.x) / (view.width * view.scale)
+  expect(math.abs(middleX - 0.03) < 0.0005,"the same place of the world is in the middle of the window, got " .. middleX)
+  expect(math.abs(view.scale * view.width / 500 - perYard) < 0.0001, "and a yard keeps its size")
+  T.slash("/fatlas", "status")
+  expect(T.printed("placed by the world"), "/fatlas status says that the world placed the new zone")
+  expect(ns.PanMapTo(-0.03, 0.4) == true and view.mapID == 37, "and back by the world")
+  C_Map.GetWorldPosFromMapPos = worldPos
+  ns.ShowMap(13)
+  ns.ShowMap(37)
+end
+ns.SetOption("terrainDetail", false)
+ns.ShowMap(37)
+ns.ZoomMap(100)
+expect(ns.PanMapTo(1.03, 0.5) == false and ns.MapView().mapID == 37, "without the terrain the map does not go past the edge of the zone")
+expect(ns.PanMapTo(1.03, 0.5, true) == true and ns.MapView().mapID == 52, "but a move with the mouse does, without the terrain too")
+expect(ns.PanMapTo(-0.03, 0.5, true) == true and ns.MapView().mapID == 37, "and back")
+ns.SetOption("terrainDetail", true)
+ns.ZoomMap(-100)
+ns.ShowMap(13)
+ns.SetOption("terrainDetail", false)
 expect(ns.MapTerrain() == nil, "with the option off again there is no terrain")
+ns.SetOption("terrainDetail", true)
 ns.ShowMap(37)
 ForeverAtlasMap:Hide()
 
@@ -357,6 +480,26 @@ do
   expect(tooltipOf(pinOf("bosses", 2)) == "Dungeon boss | Defeated" and pinOf("bosses", 2).data.look.color[1] == 0.5, "a defeated boss is grey and says so")
   ns.ShowMap(37)
   expect(count("bosses") == 0, "a map without bosses has none")
+  -- The other places that the game lists: the quest hub and the pet tamer. The abbey is a quest
+  -- hub too, and stays with the landmarks.
+  expect(count("otherPlaces") == 2 and count("areaPOIs") == 2, "the quest hub and the pet tamer have a pin, and a landmark is not there twice, got " .. count("otherPlaces"))
+  expect(tooltipOf(pinOf("otherPlaces", 1)) == "Eastvale Logging Camp | Quest hub | Quests" and pinOf("otherPlaces", 1).data.look.atlas == "poi-hub", "the quest hub says what it is, got " .. tooltipOf(pinOf("otherPlaces", 1)))
+  expect(tooltipOf(pinOf("otherPlaces", 2)) == "Julia Stevens | Pet tamer" and math.abs(pinOf("otherPlaces", 2).x - 0.3) < 0.001, "and so does the pet tamer, got " .. tooltipOf(pinOf("otherPlaces", 2)))
+  ns.SetOption("show_otherPlaces", false)
+  expect(count("otherPlaces") == 0, "with the option off they are gone")
+  ns.SetOption("show_otherPlaces", true)
+  -- A dead player: the corpse, and the spirit healer once the game names the place.
+  T.world.dead = true
+  ns.RefreshMapPins()
+  expect(count("corpse") == 1 and not pinOf("corpse").data.release, "without a place to come back to life, only the corpse shows")
+  T.world.release = true
+  ns.RefreshMapPins()
+  local healer = pinOf("corpse", 2)
+  expect(count("corpse") == 2 and healer.data.release == true and math.abs(healer.x - 0.3) < 0.001 and tooltipOf(healer):find("^Spirit healer | "), "the spirit healer shows where the spirit comes back, got " .. count("corpse"))
+  T.world.dead = false
+  ns.RefreshMapPins()
+  expect(count("corpse") == 0, "alive again, neither shows")
+  T.world.release = nil
   -- The tooltip of a quest has its objectives as they are now, the finished ones marked.
   local objective = tooltipOf(pinOf("questObjectives"))
   expect(objective:find(" | Hogger slain: %d+/8 | Click to open the quest$") and not objective:find("In progress", 1, true), "a quest pin lists the objectives of the quest, got " .. objective)

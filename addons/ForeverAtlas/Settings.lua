@@ -36,7 +36,7 @@ local function build()
   end
   check("zoneNames", "Names of the zones", "On the map of a continent: the name of each zone, in its middle.")
   check("zoneHighlight", "Light up the zone under the pointer", "The zone under the pointer lights up, as on the map of the game.")
-  check("terrain", "Terrain when zoomed in (a trial)", "Zoomed in on a zone, the map shows the terrain itself, as the minimap does, and zooms in much further. If the map shows plain green squares when you zoom in, this client does not have these pictures: turn this off.")
+  check("terrainDetail", "Terrain when zoomed in", "Zoomed in on a zone, the map shows the terrain itself, as the minimap does, and zooms in much further.")
 
   page:Header("World map of the game")
   check("coords", "Coordinates on the world map", "Player and cursor coordinates in the corner of the world map.")
@@ -79,8 +79,8 @@ local function build()
       notes = notes + count(list)
     end
     return string.format(
-      "This character: %d visited areas, %d waypoints.   All characters: %d map notes.",
-      areas, #ForeverAtlasCharDB.waypoints, notes
+      "This character: %d visited areas, %d waypoints.   All characters: %d map notes, %d remembered NPCs.",
+      areas, #ForeverAtlasCharDB.waypoints, notes, ns.CountNpcs and ns.CountNpcs() or 0
     )
   end)
   page:Buttons({
@@ -113,6 +113,16 @@ local function build()
       click = function()
         wipe(ForeverAtlasCharDB.zones)
         ns.RefreshPins()
+      end,
+    },
+  })
+  page:Buttons({
+    {
+      label = "Forget remembered NPCs",
+      hint = "Deletes the vendors, trainers and other NPCs the addon remembers, and their pins. They are shared by all your characters.",
+      confirm = "Delete all remembered vendors, trainers and other NPCs? This is for all your characters.",
+      click = function()
+        ns.ForgetNpcs()
       end,
     },
   })
