@@ -6,7 +6,7 @@ local _, ns = ...
 -- Saved data, in ForeverCompassDB (for all characters):
 --   version   = 2
 --   options   = { show, lock, hideInCombat, showDegrees, barAlpha, barWidth, fov }
---   compasses = { [1..4] = { enabled, kind, color, size, alpha, showName, showDistance, maxYards } }
+--   compasses = { [1..4] = { enabled, kind, color, size, alpha, showName, showDistance, icon, maxYards } }
 --               (the four trackers; the key has its name from version 1, which had four dials)
 --   frames    = { bar = { point, relativePoint, x, y } }
 --   places    = { [kind] = { { mapID = n, x = n, y = n, name = s }, ... } }   -- see Places.lua
@@ -60,6 +60,7 @@ ns.COMPASS_DEFAULTS = {
   alpha = 75, -- percent, of the marker
   showName = true, -- the name of the target under the marker
   showDistance = true,
+  icon = true, -- the marker is the icon of what the tracker points to; off: a round marker in the colour
   maxYards = 0, -- ignore targets farther than this; 0 is no limit
   questID = 0, -- for the kind "quest": the quest it points to; 0 is none
 }

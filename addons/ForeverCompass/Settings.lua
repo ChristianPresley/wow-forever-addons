@@ -149,7 +149,8 @@ local function buildTracker(index)
       return value .. " percent"
     end,
   })
-  page:Choice({ label = "Colour", hint = "The colour of the marker and of the name.", values = colorValues(), get = get("color"), set = set("color") })
+  page:Check({ label = "Show the icon of what it tracks", hint = "The marker is the icon that the game has for the target: the question mark of a turn-in, the exclamation mark of a quest giver, the skull of a rare enemy. Off, or for a target without an icon, the marker is a round dot in the colour of the tracker, with its number.", get = get("icon"), set = set("icon") })
+  page:Choice({ label = "Colour", hint = "The colour of the name, and of the round marker.", values = colorValues(), get = get("color"), set = set("color") })
   page:Slider({
     label = "Size of the marker",
     hint = "The width of the marker on the bar.",

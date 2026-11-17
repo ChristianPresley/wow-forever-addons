@@ -92,6 +92,31 @@ for _, frame in ipairs(H.frames) do
   end
 end
 expect(ns.TrackerQuest(1) == 176, "the marker of the quest objectives points to quest 176 (Wanted: Hogger), got " .. tostring(ns.TrackerQuest(1)))
+-- A marker is the icon of what its tracker points to, not a dot.
+expect(ns.TrackerIcon(1) == "QuestObjective" and questMarker.icon:IsShown() and not questMarker.dot:IsShown() and not questMarker.number:IsShown(), "the marker of a quest objective is the icon of an objective, got " .. tostring(ns.TrackerIcon(1)))
+expect(ns.TrackerIcon(2) == "FlightMaster", "the marker of a flight master is its icon, got " .. tostring(ns.TrackerIcon(2)))
+-- With the option off the marker is the round dot with the number of the tracker.
+ns.SetCompass(1, "icon", false)
+T.advance(2)
+expect(ns.TrackerIcon(1) == nil and questMarker.dot:IsShown() and questMarker.number:IsShown() and not questMarker.icon:IsShown(), "with the option off the marker is the dot with the number")
+ns.SetCompass(1, "icon", true)
+-- A kind without an icon of the game (party members) keeps the dot.
+expect(ns.KindByKey.party.look == nil and ns.KindByKey.vendor.look ~= nil and ns.KindByKey.corpse.look.coords ~= nil, "party members have no icon; a vendor and a corpse have one")
+-- A quest that is ready has the icon of a turn-in on the tracker for one quest.
+ns.SetCompass(1, "kind", "questTurnIns")
+T.advance(2)
+expect(ns.TrackerQuest(1) == 40 and ns.TrackerIcon(1) == "QuestTurnin", "the marker of a turn-in is the icon of a turn-in, got " .. tostring(ns.TrackerIcon(1)))
+-- The tracker for one quest has the icon of the state of its quest: ready, or not yet.
+ns.SetCompass(1, "kind", "quest")
+ns.SetCompass(1, "questID", 40)
+T.advance(2)
+expect(ns.TrackerIcon(1) == "QuestTurnin", "one quest that is ready has the icon of a turn-in, got " .. tostring(ns.TrackerIcon(1)))
+ns.SetCompass(1, "questID", 176)
+T.advance(2)
+expect(ns.TrackerIcon(1) == "QuestObjective", "one quest with something left to do has the icon of an objective, got " .. tostring(ns.TrackerIcon(1)))
+ns.SetCompass(1, "questID", 0)
+ns.SetCompass(1, "kind", "questObjectives")
+T.advance(2)
 expect(questMarker ~= nil and questMarker:IsMouseEnabled(), "the marker of a quest takes the mouse")
 H.run(questMarker, "OnMouseUp", "LeftButton")
 expect(H.count("open quest") == 1 and H.did[#H.did][2] == 176, "a click on the marker opens quest 176 in the quest log")

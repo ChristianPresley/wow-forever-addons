@@ -5,7 +5,9 @@ local _, ns = ...
 -- player turns. The bar shows a part of the circle at one time (the option fov).
 --
 -- Each tracker that is on puts a marker on the bar, at the bearing of its nearest target, with
--- the name of the target and the distance under it. A target outside the shown part of the
+-- the name of the target and the distance under it. The marker is the icon that the game has
+-- for the target (the question mark of a turn-in, the skull of a rare enemy); a target without
+-- an icon, or a tracker with the option off, has a round dot in the colour of the tracker. A target outside the shown part of the
 -- circle has its marker at the end of the bar on that side, dimmed.
 --
 -- A marker of a quest of the quest log takes a click: it opens the quest in the quest log, the
@@ -148,6 +150,10 @@ local function createMarker(index)
     mask:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     marker.dot:AddMaskTexture(mask)
   end
+  -- The icon of what the tracker points to, in the place of the dot.
+  marker.icon = marker:CreateTexture(nil, "ARTWORK")
+  marker.icon:SetAllPoints()
+  marker.icon:Hide()
   marker.number = marker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   marker.number:SetPoint("CENTER")
   marker.number:SetTextColor(0, 0, 0)
@@ -185,6 +191,44 @@ local function createMarker(index)
   marker.status = "off"
   marker:Hide()
   return marker
+end
+
+-- Shows a marker as the icon of its target, or as the round dot with the number of the
+-- tracker when `look` is nil. look = { atlas = , texture = , coords = { left, right, top, bottom } }:
+-- the atlas of the game where the client has it, else the texture.
+local function setLook(marker, look)
+  if marker.look == look then
+    return
+  end
+  marker.look = look
+  marker.icon:SetShown(look ~= nil)
+  marker.dot:SetShown(look == nil)
+  marker.number:SetShown(look == nil)
+  if not look then
+    return
+  end
+  local icon = marker.icon
+  icon:SetTexCoord(0, 1, 0, 1)
+  local has = C_Texture and C_Texture.GetAtlasInfo
+  if look.atlas and has and has(look.atlas) then
+    icon:SetAtlas(look.atlas)
+  else
+    icon:SetTexture(look.texture)
+    local coords = look.coords
+    if coords then
+      icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+    end
+  end
+end
+
+-- The icon that a marker shows now: its atlas or its texture, or nil for the round dot.
+function ns.TrackerIcon(index)
+  local marker = markers[index]
+  if not (marker and marker:IsShown() and marker.look) then
+    return nil
+  end
+  local atlas = marker.icon:GetAtlas()
+  return atlas ~= nil and atlas ~= "" and atlas or marker.icon:GetTexture()
 end
 
 -- Sets the look of the bar and of the markers from the settings.
@@ -283,6 +327,9 @@ local function updateMarker(marker, elapsed, heading, half, scale, continent, no
   marker.distance:SetText(distanceText(yards))
   marker.name:SetText(target[4] or "")
   marker.targetName = target[4]
+  -- The icon of this target, else of its kind; the dot with the option off.
+  local kind = ns.KindByKey[ns.GetCompass(index, "kind")]
+  setLook(marker, ns.GetCompass(index, "icon") and (target[6] or (kind and kind.look)) or nil)
   -- Only a marker of a quest takes the mouse: the others let a click through to the bar.
   if marker.questID ~= target[5] then
     marker.questID = target[5]
