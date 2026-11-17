@@ -572,6 +572,12 @@ local POINTS = {
   TOPLEFT = true, TOP = true, TOPRIGHT = true, LEFT = true, CENTER = true, RIGHT = true,
   BOTTOMLEFT = true, BOTTOM = true, BOTTOMRIGHT = true,
 }
+-- A point is taken in any letter case: the game's own code has SetPoint("Left", ...)
+-- (Blizzard_GlueXML/Mainline/CharacterServices.lua). The game does the same for every list of
+-- names that a source shows in another case: frame types (CreateFrame("FRAME") in
+-- Blizzard_ActionBar/Mainline/AssistedCombatManager.lua), object types (IsObjectType("frame") in
+-- Blizzard_Dispatcher/Blizzard_Dispatcher.lua). The stand-in takes draw layers, strata and
+-- justify values by the same rule.
 -- The texts of the game's errors: "Invalid region point nonsense" for the point and "Unknown
 -- region point nonsense" for the relative point (wowless, Region > SetPoint > badpoint).
 local function pointName(value, what)
@@ -801,6 +807,9 @@ local function newRegion(kindName, layerArgument)
     end
     local region = newObject(kindName, self, name)
     table.insert(state(self).regions, region)
+    if layerArgument and layer ~= nil then
+      state(region).drawLayer = realTostring(layer):upper()
+    end
     if name then
       _G[name] = region
     end
@@ -1206,7 +1215,11 @@ end)
 define("SimpleSliderAPI", "SetObeyStepOnDrag", function(self, obey)
   state(self).obeyStep = obey and true or false
 end)
--- The value stays in the range of the slider.
+-- SetValue brings the value into the range of the slider: the game's own code steps past the
+-- ends and leaves the rest to the slider (Blizzard_SharedXML/SecureScrollTemplates.lua,
+-- ScrollFrameTemplate_OnMouseWheel). A new range does not move the value: the game's code sets
+-- the value itself after SetMinMaxValues (Blizzard_SharedXML/HybridScrollFrame.lua,
+-- HybridScrollFrame_Update).
 local function setSliderValue(self, value, userInput)
   local s = state(self)
   value = number(value, "SetValue")
@@ -1228,6 +1241,11 @@ H.setSliderValue = setSliderValue
 define("SimpleSliderAPI", "GetValue", function(self)
   return state(self).value
 end)
+-- A status bar keeps a value outside its range and tells OnValueChanged that value: the game's
+-- own handler tests for it (Blizzard_GameTooltip/HealthBar.lua, HealthBar_OnValueChanged:
+-- "if ( (value < min) or (value > max) ) then return"). The same holds when the range becomes
+-- smaller than the value. The game's code brings a value into the range before the call where
+-- it wants that (Blizzard_SharedXML/SmoothStatusBar.lua).
 define("SimpleStatusBarAPI", "SetValue", function(self, value)
   local s = state(self)
   if secrets[value] == nil then

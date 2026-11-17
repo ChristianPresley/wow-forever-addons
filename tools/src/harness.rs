@@ -1005,6 +1005,40 @@ mod tests {
             assert(CreateFrame("Frame", "$parentChild", named):GetName() == "ProbeParentChild", "$parent")
             assert(CreateFrame("Frame", "$parentAlone"):GetName() == "TopAlone", "$parent without a parent")
             assert(WorldFrame:GetFrameStrata() == "WORLD" and WorldFrame:GetObjectType() == "Frame", "the world frame")
+            -- A name of a point, a layer, a strata or a justify value in any letter case:
+            -- Blizzard_GlueXML/Mainline/CharacterServices.lua has SetPoint("Left", ...).
+            local cased = CreateFrame("Frame", nil, UIParent)
+            cased:SetPoint("Left", 4, 0)
+            cased:SetPoint("topright", UIParent, "TopRight")
+            assert(cased:GetPoint(1) == "TOPRIGHT" and cased:GetPoint(2) == "LEFT" and select(3, cased:GetPoint(1)) == "TOPRIGHT", "points in any case")
+            cased:SetFrameStrata("dialog")
+            assert(cased:GetFrameStrata() == "DIALOG", "strata in any case")
+            local label = cased:CreateFontString(nil, "overlay", "GameFontNormal")
+            label:SetJustifyH("Right")
+            assert(label:GetJustifyH() == "RIGHT" and label:GetDrawLayer() == "OVERLAY", "layer and justify in any case")
+            -- A status bar keeps a value outside its range, and OnValueChanged gets that value:
+            -- Blizzard_GameTooltip/HealthBar.lua tests for it in its handler.
+            local health = CreateFrame("StatusBar")
+            local told
+            health:SetScript("OnValueChanged", function(_, value) told = value end)
+            health:SetMinMaxValues(0, 10)
+            health:SetValue(50)
+            assert(health:GetValue() == 50 and told == 50, "a value above the range")
+            health:SetValue(5)
+            health:SetMinMaxValues(0, 2)
+            assert(health:GetValue() == 5, "a range below the value")
+            -- A slider brings the value into its range (Blizzard_SharedXML/SecureScrollTemplates.lua);
+            -- a new range does not move the value (Blizzard_SharedXML/HybridScrollFrame.lua).
+            local scroll = CreateFrame("Slider")
+            scroll:SetMinMaxValues(0, 100)
+            scroll:SetValue(scroll:GetValue() - 20)
+            assert(scroll:GetValue() == 0, "below the range")
+            scroll:SetValue(250)
+            assert(scroll:GetValue() == 100, "above the range")
+            scroll:SetMinMaxValues(0, 40)
+            assert(scroll:GetValue() == 100, "a new range")
+            scroll:SetValue(40)
+            assert(scroll:GetValue() == 40, "set again, as the game's code does")
             "#,
         );
         assert!(failures.is_empty(), "{failures:?}");

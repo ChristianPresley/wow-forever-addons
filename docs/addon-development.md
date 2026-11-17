@@ -247,12 +247,12 @@ The stand-in follows these sources, in this order:
 
 The source is named beside the code.
 
-For two things no source says what the game does. The stand-in takes what the game's own code does and nothing more:
+Two questions looked open and are settled by the game's own code:
 
-- A point, a draw layer, a strata or a justify value in lower case, such as `SetPoint("topleft")`. The game's files write these in upper case. The stand-in takes them in any case, as the game does for frame types (`CreateFrame("frame")` is in a wowless test).
-- A value outside the range: `StatusBar:SetValue(50)` in a range of 0 to 10, and the value of a slider or a status bar when `SetMinMaxValues` makes the range smaller. The game's code brings the value into the range before the call. The stand-in keeps the value as it was given.
-`tools/ingame-probe/ForeverProbe` is a small addon that asks the game. Copy the folder to `Interface/AddOns`, log in and type `/foreverprobe`: it prints one line for each case, with these two and with each case above that comes from a page outside the game's files, and saves the lines in `ForeverProbeDB`. Where the game answers otherwise than the stand-in, change the stand-in and name the probe as the proof.
+- **Letter case.** A point is taken in any case: `Blizzard_GlueXML/Mainline/CharacterServices.lua` has `SetPoint("Left", ...)`. The game does the same for every list of names that a source shows in another case: frame types (`CreateFrame("FRAME")`), object types (`IsObjectType("frame")`). The stand-in takes draw layers, strata and justify values by the same rule.
+- **A value outside the range.** A status bar keeps the value and tells `OnValueChanged` that value: the game's own handler tests for it (`HealthBar_OnValueChanged` in `Blizzard_GameTooltip/HealthBar.lua`). A slider brings the value into its range in `SetValue`: the game's scroll code steps past the ends and leaves the rest to the slider (`Blizzard_SharedXML/SecureScrollTemplates.lua`). A new range does not move the value: the game's code sets it again itself (`Blizzard_SharedXML/HybridScrollFrame.lua`).
 
+`tools/ingame-probe/ForeverProbe` is a small addon that asks the game client the same questions, and each case above that comes from a page outside the game's files. Copy the folder to `Interface/AddOns`, log in and type `/foreverprobe`: it prints one line for each case and saves the lines in `ForeverProbeDB`. Use it after a patch of the game, or when a source is in doubt: where the game answers otherwise than the stand-in, change the stand-in and name the probe as the proof.
 #### What it cannot find
 
 - How a window looks: positions, sizes, overlap.
