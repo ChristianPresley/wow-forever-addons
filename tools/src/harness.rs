@@ -985,7 +985,7 @@ mod tests {
             local thumb = slider:CreateTexture()
             slider:SetThumbTexture(thumb)
             slider:SetThumbTexture(12345)
-            assert(slider:GetThumbTexture() == thumb and thumb:GetTexture() == "12345", "the thumb")
+            assert(slider:GetThumbTexture() == thumb and tostring(thumb:GetTexture()) == "12345", "the thumb")
             -- The alpha of a colour is the alpha of the region.
             local dot = f:CreateTexture()
             assert(dot:GetAlpha() == 1, "alpha at first")

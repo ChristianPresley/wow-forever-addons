@@ -1132,7 +1132,7 @@ define("SimpleSliderAPI", "SetThumbTexture", function(self, asset)
     s.thumb = asset
   elseif asset ~= nil then
     s.thumb = s.thumb or newObject("Texture", self)
-    state(s.thumb).texture = asset
+    s.thumb:SetTexture(asset)
   end
 end)
 
@@ -1505,7 +1505,7 @@ define("SimpleStatusBarAPI", "SetStatusBarTexture", function(self, asset)
     s.barTexture = asset
   else
     s.barTexture = s.barTexture or newObject("Texture", self)
-    state(s.barTexture).texture = asset
+    s.barTexture:SetTexture(asset)
   end
   return true
 end)
