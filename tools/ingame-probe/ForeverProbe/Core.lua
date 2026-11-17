@@ -180,6 +180,35 @@ local function run()
     button:Click()
     return calls
   end)
+  -- Number texts. Forever Meter gives the game's function its own rules, so that a number of
+  -- a fight (secret, the addon cannot round it) has two decimals at most. No source says if
+  -- the game takes a rule for the numbers below 1000 (a breakpoint of 0).
+  local rules = {
+    { breakpoint = 1e9, abbreviation = "B", significandDivisor = 1e7, fractionDivisor = 100, abbreviationIsGlobal = false },
+    { breakpoint = 1e6, abbreviation = "M", significandDivisor = 1e4, fractionDivisor = 100, abbreviationIsGlobal = false },
+    { breakpoint = 1e4, abbreviation = "K", significandDivisor = 100, fractionDivisor = 10, abbreviationIsGlobal = false },
+    { breakpoint = 1e3, abbreviation = "K", significandDivisor = 10, fractionDivisor = 100, abbreviationIsGlobal = false },
+    { breakpoint = 0, abbreviation = "", significandDivisor = 1, fractionDivisor = 1, abbreviationIsGlobal = false },
+  }
+  local function texts(options)
+    return AbbreviateNumbers(0.123456, options), AbbreviateNumbers(345.678901, options), AbbreviateNumbers(1234.56789, options),
+      AbbreviateNumbers(12345.6789, options), AbbreviateNumbers(2567890.123, options)
+  end
+  case("AbbreviateNumbers without rules: 0.123456, 345.678901, 1234.56789, 12345.6789, 2567890.123", function()
+    return texts(nil)
+  end)
+  case("CreateAbbreviateConfig with a breakpoint of 0", function()
+    return type(CreateAbbreviateConfig(rules))
+  end)
+  case("AbbreviateNumbers with a config with a breakpoint of 0: the same five numbers", function()
+    return texts({ config = CreateAbbreviateConfig(rules) })
+  end)
+  case("AbbreviateNumbers with breakpointData with a breakpoint of 0: the same five numbers", function()
+    return texts({ breakpointData = rules })
+  end)
+  case("string.format('%.2f') and '..' of a text from AbbreviateNumbers", function()
+    return string.format("%.2f", 345.678901), AbbreviateNumbers(1234.56789) .. "!"
+  end)
   host:Hide()
 
   ForeverProbeDB = { client = (select(4, GetBuildInfo())), build = (select(2, GetBuildInfo())), lines = lines }

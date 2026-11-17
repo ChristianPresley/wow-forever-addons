@@ -180,7 +180,60 @@ local BREAKPOINTS = { -- from the largest to the smallest, as the game wants the
   { breakpoint = 1e3, abbreviation = "K", significandDivisor = 10, fractionDivisor = 100, abbreviationIsGlobal = false },
   { breakpoint = 0, abbreviation = "", significandDivisor = 1, fractionDivisor = 1, abbreviationIsGlobal = false },
 }
-local abbreviateOptions
+-- No source says that the game takes these rules as they are (the row for the numbers below
+-- 1000 most of all), so the addon tries them once, with numbers that it can read: the rules are
+-- used only if every text that comes back has two decimals at most. If not, the font string
+-- formats the number itself, with two decimals.
+local SAMPLES = { 0.123456, 345.678901, 999.999, 1234.56789, 12345.6789, 2567890.123, 3500000000.123 }
+local function twoDecimalsAtMost(text)
+  return type(text) == "string" and text ~= "" and not text:find("%.%d%d%d") and not text:find("[eE][+-]?%d")
+end
+local function rulesWork(options)
+  for _, sample in ipairs(SAMPLES) do
+    local ok, text = pcall(AbbreviateNumbers, sample, options)
+    if not ok or not twoDecimalsAtMost(text) then
+      return false
+    end
+  end
+  return true
+end
+local abbreviateOptions -- nil: not tried yet; false: the game does not take the rules
+
+local function chooseRules()
+  abbreviateOptions = false
+  if type(AbbreviateNumbers) ~= "function" then
+    return
+  end
+  local candidates = {}
+  if type(CreateAbbreviateConfig) == "function" then
+    -- A config object makes the many calls cheaper, where the client has it.
+    local okConfig, config = pcall(CreateAbbreviateConfig, BREAKPOINTS)
+    if okConfig and config then
+      candidates[#candidates + 1] = { config = config }
+    end
+  end
+  candidates[#candidates + 1] = { breakpointData = BREAKPOINTS }
+  for _, options in ipairs(candidates) do
+    if rulesWork(options) then
+      abbreviateOptions = options
+      return
+    end
+  end
+end
+
+-- How a secret number gets its text: "rules" (the game's function with the rules of the
+-- addon) or "plain" (two decimals, by the font string). For /fmeter status and the tests.
+function ns.NumberWay()
+  if abbreviateOptions == nil then
+    chooseRules()
+  end
+  return abbreviateOptions and "rules" or "plain"
+end
+
+-- Tries the rules again (after a change of the game's functions; for the tests).
+function ns.ResetNumberWay()
+  abbreviateOptions = nil
+end
 
 local function numberText(value)
   if ns.Usable(value) then
@@ -189,55 +242,71 @@ local function numberText(value)
   if not ns.IsSecret(value) then
     return false
   end
-  if AbbreviateNumbers then
-    if not abbreviateOptions then
-      -- A config object makes the many calls cheaper, where the client has it.
-      local okConfig, config = pcall(CreateAbbreviateConfig, BREAKPOINTS)
-      abbreviateOptions = okConfig and config and { config = config } or { breakpointData = BREAKPOINTS }
-    end
+  if ns.NumberWay() == "rules" then
     local ok, text = pcall(AbbreviateNumbers, value, abbreviateOptions)
     if ok then
       return true, text
     end
   end
-  -- The game's formatting takes a secret number: two decimals at most.
-  local ok, text = pcall(string.format, "%.2f", value)
-  if ok then
-    return true, text
-  end
   return false
+end
+
+-- A number that a font string can format: one that the addon can read, or a secret one.
+local function isNumber(value)
+  return ns.IsSecret(value) or ns.Usable(value)
 end
 
 -- Shows a number in a font string. With hasSecond, a second number follows in brackets. The
 -- suffix is a text of the addon that goes at the end. Works for secret numbers.
+--
+-- The font string puts the parts together (SetFormattedText, which the game's documentation
+-- opens to addons for secret values). The addon itself joins no secret text and formats no
+-- secret number: no source says that the game lets an addon do that.
 function ns.SetNumber(fontString, value, hasSecond, second, suffix)
+  suffix = suffix or ""
   local found, text = numberText(value)
-  if not found then
-    -- The last way for a secret number: the font string itself formats it, with two decimals.
-    if not (ns.IsSecret(value) and pcall(fontString.SetFormattedText, fontString, "%.2f", value)) then
-      fontString:SetText("")
-    end
-    return
-  end
   local foundSecond, secondText = false, nil
   if hasSecond then
     foundSecond, secondText = numberText(second)
   end
-  -- Joining texts works for secret texts too. If this client refuses it, the first number stays.
-  local ok, joined = pcall(function()
+  if found then
     if foundSecond then
-      return text .. " (" .. secondText .. ")" .. (suffix or "")
+      if pcall(fontString.SetFormattedText, fontString, "%s (%s)%s", text, secondText, suffix) then
+        return
+      end
+    elseif not hasSecond or not isNumber(second) then
+      if pcall(fontString.SetFormattedText, fontString, "%s%s", text, suffix) then
+        return
+      end
     end
-    return text .. (suffix or "")
-  end)
-  if ok and pcall(fontString.SetText, fontString, joined) then
-    return
   end
-  if not pcall(fontString.SetText, fontString, text) then
+  -- Without a text from the game's function: the font string formats the numbers, two decimals.
+  if isNumber(value) then
+    if hasSecond and isNumber(second) and pcall(fontString.SetFormattedText, fontString, "%.2f (%.2f)%s", value, second, suffix) then
+      return
+    end
+    if pcall(fontString.SetFormattedText, fontString, "%.2f%s", value, suffix) then
+      return
+    end
+  end
+  if not (found and pcall(fontString.SetText, fontString, text)) then
     fontString:SetText("")
   end
 end
 
+-- The numbers at the right of a bar have a column of a fixed width, and the name ends where
+-- the column starts. A font string with a secret text has a secret width, and what hangs on
+-- it could not be placed (the game's own code gives such texts a fixed width for that:
+-- Blizzard_ChatFrameBase/Mainline/FloatingChatFrame.lua).
+-- row: { value = , name = , bar = }. wide: two numbers and a share; else one number.
+function ns.SetValueColumn(row, wide)
+  local width = wide and 132 or 78
+  if row.valueWidth ~= width then
+    row.valueWidth = width
+    row.value:SetWidth(width)
+    row.name:SetPoint("RIGHT", row.bar, "RIGHT", -(width + 10), 0)
+  end
+end
 -- Shows a text that can be secret (a player name during a fight), with an optional number before it.
 function ns.SetName(fontString, name, rank)
   if rank then

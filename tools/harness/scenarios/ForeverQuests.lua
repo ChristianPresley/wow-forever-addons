@@ -190,6 +190,15 @@ ns.SetOption("questItems", false)
 expect(not ForeverQuestsItems:IsShown(), "with the option off the panel is hidden")
 ns.SetOption("questItems", true)
 expect(ForeverQuestsItems:IsShown(), "with the option on again the panel is back")
+expect(select(2, ForeverQuestsItems:GetPoint(1)) == QuestMapFrame, "without a picture of the quest giver the panel is beside the quest log")
+-- A quest with a picture of its quest giver: the game shows it at that same place, over other
+-- windows. The panel goes to the right of the picture.
+T.world.questPortrait = true
+QuestMapFrame_OpenToQuestDetails(176)
+expect(QuestModelScene:IsShown() and select(2, ForeverQuestsItems:GetPoint(1)) == QuestModelScene, "with the picture of the quest giver the panel is at the right of the picture")
+T.world.questPortrait = nil
+QuestMapFrame_OpenToQuestDetails(176)
+expect(select(2, ForeverQuestsItems:GetPoint(1)) == QuestMapFrame, "and beside the quest log again without it")
 QuestMapFrame.DetailsFrame:Hide()
 T.world.questItems = nil
 

@@ -93,6 +93,31 @@ local function scanEquipped()
   me.equipped = counts
 end
 
+-- False while the game does not show the bank that all characters share: the player may not
+-- see it, or it is locked (another character of the account has it open). The game then says
+-- that its tabs are empty, and the counts that are known must stay.
+local function sharedBankReadable()
+  local bank = C_Bank
+  local kind = Enum and Enum.BankType and Enum.BankType.Account
+  if not (bank and kind) then
+    return true
+  end
+  if bank.CanViewBank then
+    local ok, can = pcall(bank.CanViewBank, kind)
+    if ok and can == false then
+      return false
+    end
+  end
+  if bank.FetchBankLockedReason then
+    local ok, reason = pcall(bank.FetchBankLockedReason, kind)
+    if ok and reason ~= nil then
+      return false
+    end
+  end
+  return true
+end
+ns.SharedBankReadable = sharedBankReadable
+
 -- Only while the bank window is open: at other times the game says that the bank is empty.
 local function scanBank()
   if not bankOpen then
@@ -101,7 +126,9 @@ local function scanBank()
   local me = ns.Me()
   me.bank = countBags(BANK_FIRST, BANK_LAST)
   me.bankSeen = time()
-  ForeverBagsDB.accountBank = countBags(ACCOUNT_FIRST, ACCOUNT_LAST)
+  if sharedBankReadable() then
+    ForeverBagsDB.accountBank = countBags(ACCOUNT_FIRST, ACCOUNT_LAST)
+  end
 end
 
 function ns.BankIsOpen()

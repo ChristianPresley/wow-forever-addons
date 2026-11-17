@@ -34,6 +34,7 @@ local function fillRow(row, spell, source, mode)
   if ns.Usable(spell.totalAmount) and ns.Usable(source.totalAmount) and source.totalAmount > 0 then
     suffix = string.format("  %d%%", math.floor(spell.totalAmount / source.totalAmount * 100 + 0.5))
   end
+  ns.SetValueColumn(row, not mode.noRate)
   if mode.noRate then
     ns.SetNumber(row.value, spell.totalAmount, false, nil, suffix)
   else
@@ -147,7 +148,9 @@ local function create()
     row.value:SetPoint("RIGHT", -4, 0)
     row.name = row.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.name:SetPoint("LEFT", 5, 0)
-    row.name:SetPoint("RIGHT", row.value, "LEFT", -6, 0)
+    row.value:SetJustifyH("RIGHT")
+    row.value:SetWordWrap(false)
+    ns.SetValueColumn(row, true)
     row.name:SetJustifyH("LEFT")
     row.name:SetWordWrap(false)
     row:EnableMouse(true)

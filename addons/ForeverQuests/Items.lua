@@ -219,6 +219,16 @@ local function show(questID)
     rows[index]:Hide()
   end
   panel:SetHeight(26 + #items * ROW + PAD)
+  -- The game shows the picture of the quest giver at the same place, over other windows
+  -- (QuestFrame_ShowQuestPortrait in QuestFrame.lua: QuestModelScene, at the top right of the
+  -- map). With that picture on the screen the panel goes to the right of it.
+  local portrait = _G["QuestModelScene"]
+  panel:ClearAllPoints()
+  if type(portrait) == "table" and type(portrait.IsShown) == "function" and portrait:IsShown() then
+    panel:SetPoint("TOPLEFT", portrait, "TOPRIGHT", 6, 0)
+  else
+    panel:SetPoint("TOPLEFT", QuestMapFrame, "TOPRIGHT", 6, -24)
+  end
   panel:Show()
 end
 

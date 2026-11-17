@@ -61,6 +61,9 @@ expect(ns.AddSearch(linen) == false, "an item link becomes the name of the item,
 T.slash("/fah", "list add Copper Ore")
 T.slash("/fah", "list")
 expect(ns.RunSearch("Linen Cloth") == true and H.auctionSearches[#H.auctionSearches] == "Linen Cloth", "a click starts the search in the search box of the game")
+-- The house is on the buy tab now: a second search does not set the tab again.
+local modeSets = H.count("auction display mode")
+expect(ns.RunSearch("Linen Cloth") == true and H.count("auction display mode") == modeSets, "a search on the buy tab leaves the tab of the game's window alone")
 expect(ns.RemoveSearch("COPPER ORE") == true and #ns.ShoppingList() == 1, "a search is removed by its text")
 
 -- The value of the bags: 32 Linen Cloth at 140 and 8 Chunk of Boar Meat at 35.

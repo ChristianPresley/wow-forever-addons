@@ -79,8 +79,11 @@ function ns.RunSearch(text)
     ns.Print("this game client has no search bar that an addon can use.")
     return false
   end
+  -- The buy tab, only if the house shows another one: the addon changes as little of the
+  -- game's window as it can.
   local buy = AuctionHouseFrameDisplayMode and AuctionHouseFrameDisplayMode.Buy
-  if buy and house.SetDisplayMode then
+  local now = house.GetDisplayMode and house:GetDisplayMode()
+  if buy and house.SetDisplayMode and now ~= buy then
     pcall(house.SetDisplayMode, house, buy)
   end
   bar:SetSearchText(text)

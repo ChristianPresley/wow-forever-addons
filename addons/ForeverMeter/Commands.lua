@@ -28,6 +28,7 @@ local function status()
   ns.Print(string.format("showing %s, %s. Group: %s.", ns.Mode().label:lower(), ns.SegmentName(ns.segment):lower(), ns.GroupType()))
   print("  window " .. onOff(ns.GetOption("show")) .. ", own read-out " .. onOff(ns.GetOption("personal")) .. ", locked " .. onOff(ns.GetOption("lock")))
   print(string.format("  bars: %d alone, %d in a party, %d in a raid", ns.GetOption("rowsSolo"), ns.GetOption("rowsParty"), ns.GetOption("rowsRaid")))
+  print("  numbers in a fight: " .. (ns.NumberWay() == "rules" and "short (12.3K), by the game's function with the rules of the addon" or "two decimals, without K and M: this game client does not take the rules of the addon"))
   if not available then
     print("  " .. reason)
   elseif ns.GameMeterEnabled() == false then

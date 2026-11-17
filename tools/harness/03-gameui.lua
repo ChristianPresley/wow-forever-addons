@@ -66,7 +66,21 @@ function QuestMapFrame_ShowQuestDetails(questID)
   end
   QuestMapFrame.DetailsFrame.questID = questID
   QuestMapFrame.DetailsFrame:Show()
+  if H.world.questPortrait then
+    QuestModelScene:ClearAllPoints()
+    QuestModelScene:SetPoint("TOPLEFT", QuestMapFrame:GetParent(), "TOPRIGHT", 1, -43)
+    QuestModelScene:SetFrameStrata("HIGH")
+    QuestModelScene:Show()
+  else
+    QuestModelScene:Hide()
+  end
 end
+-- Blizzard_UIPanels_Game/Mainline/QuestFrame.lua, QuestFrame_ShowQuestPortrait: the picture of
+-- the quest giver, at the top right of the map, over other windows. Shown for a quest that has
+-- one (H.world.questPortrait).
+QuestModelScene = CreateFrame("Frame", "QuestModelScene", UIParent)
+QuestModelScene:SetSize(198, 230)
+QuestModelScene:Hide()
 -- QuestMapFrame.lua: opens the quest log with the details of a quest. It calls
 -- QuestMapFrame_ShowQuestDetails by its global name, so a hook on that one runs.
 function QuestMapFrame_OpenToQuestDetails(questID)
@@ -147,6 +161,12 @@ function H.openAuctionHouse()
     if realType(mode) ~= "table" then
       fail("SetDisplayMode: not a display mode")
     end
+    self.displayMode = mode
+    H.did[#H.did + 1] = { "auction display mode" }
+  end
+  -- Blizzard_AuctionHouseUI/Shared/Blizzard_AuctionHouseFrame.lua: AuctionHouseFrameMixin:GetDisplayMode
+  function house:GetDisplayMode()
+    return self.displayMode
   end
   local function newSellFrame(itemKey)
     local frame = CreateFrame("Frame", nil, house)

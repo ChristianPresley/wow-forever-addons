@@ -249,6 +249,12 @@ local function checkBreakpoints(list, where)
     if entry.significandDivisor <= 0 or entry.fractionDivisor <= 0 then
       fail(where .. ": breakpoint " .. index .. " has a divisor that is not above zero")
     end
+    -- The documentation has an error "InvalidBreakpoint" (Enum.AbbreviationDataError) and does
+    -- not say which numbers it is for. With H.world.strictAbbreviate the stand-in is a client
+    -- that refuses a breakpoint of zero, so an addon that counts on it is tested both ways.
+    if H.world and H.world.strictAbbreviate and entry.breakpoint <= 0 then
+      fail(where .. ": breakpoint " .. index .. " is not above zero (InvalidBreakpoint)")
+    end
     if last and entry.breakpoint >= last then
       fail(where .. ": the breakpoints are not in order from the largest to the smallest")
     end

@@ -142,3 +142,17 @@ T.slash("/fbags", "all")
 T.advance(2)
 expect(ns.Forget("Tester-TestRealm") == false, "the character that is logged in cannot be forgotten")
 expect(ns.Forget("Alt-TestRealm") == true and ForeverBagsDB.characters["Alt-TestRealm"] == nil, "another character is forgotten")
+
+-- The bank that all characters share. While another character has it open the game says that
+-- its tabs are empty: the counts that are known stay.
+ForeverBagsDB.accountBank = { [2589] = 7 }
+T.world.bankLocked = true
+T.fire("BANKFRAME_OPENED")
+T.advance(1)
+expect(ns.SharedBankReadable() == false and ForeverBagsDB.accountBank[2589] == 7, "a locked shared bank keeps the counts that are known")
+T.world.bankLocked = nil
+T.fire("BAG_UPDATE_DELAYED")
+T.advance(1)
+expect(ns.SharedBankReadable() == true and ForeverBagsDB.accountBank[2589] == nil, "a shared bank that can be read is counted again")
+T.fire("BANKFRAME_CLOSED")
+T.advance(1)

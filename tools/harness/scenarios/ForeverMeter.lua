@@ -106,3 +106,20 @@ expect(textOf(H.secret(12345.6789)) == "12.3K", "a secret 12345.6789 shows as 12
 expect(textOf(H.secret(2567890.123)) == "2.56M", "a secret 2567890.123 shows as 2.56M, got " .. tostring(textOf(H.secret(2567890.123))))
 expect(textOf(345.678901) == "346" and textOf(1234.56789) == "1.23K", "a plain number is rounded by the addon")
 expect(issecretvalue(shown:GetText()) == false, "a plain number gives a plain text")
+expect(ns.NumberWay() == "rules", "the game takes the rules of the addon: " .. ns.NumberWay())
+-- Two numbers and a share: the font string puts them together.
+ns.SetNumber(shown, H.secret(1234.56789), true, H.secret(45.678901), "  45%")
+expect(H.plain(shown:GetText()) == "1.23K (45)  45%", "two secret numbers and a share, got " .. tostring(H.plain(shown:GetText())))
+-- A game client that refuses the rules of the addon (a breakpoint of zero): the addon tries the
+-- rules with plain numbers first, sees that, and shows two decimals without K and M.
+T.world.strictAbbreviate = true
+ns.ResetNumberWay()
+expect(ns.NumberWay() == "plain", "a client that refuses the rules: the addon sees it, got " .. ns.NumberWay())
+expect(textOf(H.secret(345.678901)) == "345.68", "then a secret 345.678901 shows with two decimals, got " .. tostring(textOf(H.secret(345.678901))))
+ns.SetNumber(shown, H.secret(1234.56789), true, H.secret(45.678901), "  45%")
+expect(H.plain(shown:GetText()) == "1234.57 (45.68)  45%", "and two secret numbers too, got " .. tostring(H.plain(shown:GetText())))
+T.slash("/fmeter", "status")
+expect(T.printed("two decimals, without K and M"), "/fmeter status says how the numbers of a fight are shown")
+T.world.strictAbbreviate = nil
+ns.ResetNumberWay()
+expect(ns.NumberWay() == "rules", "without that the rules are back")

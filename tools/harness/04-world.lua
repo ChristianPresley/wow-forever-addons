@@ -489,6 +489,11 @@ set("C_Item", "DoesItemExist", function(location) return slotOf(location) ~= nil
 set("C_Item", "GetItemID", function(location) return slotOf(location) and slotOf(location)[1] end)
 set("C_Item", "GetStackCount", function(location) return slotOf(location) and slotOf(location)[2] or 0 end)
 
+-- The bank that all characters share: not to see (H.world.bankHidden) or locked, because
+-- another character of the account has it open (H.world.bankLocked).
+set("C_Bank", "CanViewBank", function() return not H.world.bankHidden end)
+set("C_Bank", "FetchBankLockedReason", function() return H.world.bankLocked and 0 or nil end)
+
 -- The bag window of the game: the functions behind the bag key and the bag buttons.
 -- H.gameBags counts the calls that reach the game.
 -- H.gameBagsOpen: the bag window of the game is open. As in the game, a function calls the

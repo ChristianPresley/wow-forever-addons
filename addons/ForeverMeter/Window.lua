@@ -149,12 +149,13 @@ local function createRow(index)
   row.value = row.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   row.value:SetPoint("RIGHT", -4, 0)
   row.value:SetJustifyH("RIGHT")
+  row.value:SetWordWrap(false)
 
   row.name = row.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   row.name:SetPoint("LEFT", 5, 0)
-  row.name:SetPoint("RIGHT", row.value, "LEFT", -6, 0)
   row.name:SetJustifyH("LEFT")
   row.name:SetWordWrap(false)
+  ns.SetValueColumn(row, true)
 
   row:SetScript("OnClick", function(self, mouseButton)
     if mouseButton == "RightButton" then
@@ -181,9 +182,11 @@ local function setValue(row, source, mode, session)
   if mode.deaths then
     -- The time of the death in the fight. -1 means that the whole session has no such time.
     local seconds = source.deathTimeSeconds
+    ns.SetValueColumn(row, false)
     row.value:SetText(ns.Usable(seconds) and seconds >= 0 and ns.Clock(seconds) or "")
     return
   end
+  ns.SetValueColumn(row, not mode.noRate)
   local total, rate = source.totalAmount, source.amountPerSecond
   -- The share of the group total needs a calculation, so it comes when the numbers are readable.
   local suffix
@@ -375,9 +378,13 @@ local function createWindow()
   window.time:SetPoint("RIGHT", -5, 0)
   window.total = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   window.total:SetPoint("RIGHT", window.time, "LEFT", -8, 0)
+  -- A fixed width: the total is secret in a fight, and the title must not hang on it.
+  window.total:SetWidth(64)
+  window.total:SetJustifyH("RIGHT")
+  window.total:SetWordWrap(false)
   window.title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   window.title:SetPoint("LEFT", 5, 0)
-  window.title:SetPoint("RIGHT", window.total, "LEFT", -6, 0)
+  window.title:SetPoint("RIGHT", window.time, "LEFT", -(64 + 14), 0)
   window.title:SetJustifyH("LEFT")
   window.title:SetWordWrap(false)
 
