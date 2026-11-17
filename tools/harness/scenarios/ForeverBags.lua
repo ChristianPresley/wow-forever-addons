@@ -22,6 +22,21 @@ ForeverBagsDB.characters["Alt-TestRealm"] = { name = "Alt", realm = "TestRealm",
 local lines, _, all = ns.OwnerLines(2589)
 expect(#lines == 2 and all == 80, "two characters own 80 Linen Cloth")
 expect(lines[1].isMe and lines[2].name == "Alt" and lines[2].text == "48 (bags 8, bank 40)", "the line of the other character: " .. tostring(lines[2] and lines[2].text))
+-- The tooltip of an item: a line for each owner, the shared bank, and the total of all.
+local function tooltipOf(itemID)
+  local seen = {}
+  ns.AddOwnerLines({ AddDoubleLine = function(_, left, right) seen[#seen + 1] = left .. ": " .. tostring(right) end }, itemID)
+  return table.concat(seen, " | ")
+end
+ForeverBagsDB.accountBank[2589] = 5
+expect(tooltipOf(2589) == "Tester: 32 (bags 32) | Alt: 48 (bags 8, bank 40) | Shared bank: 5 | Owned in total: 85", "the tooltip names each owner, the shared bank and the total, got " .. tooltipOf(2589))
+ns.SetOption("tooltipAlts", false)
+expect(tooltipOf(2589) == "Tester: 32 (bags 32)", "without the other characters the tooltip has this character alone and no total, got " .. tooltipOf(2589))
+ns.SetOption("tooltipCounts", false)
+expect(tooltipOf(2589) == "", "with both options off the tooltip gets no line")
+ns.SetOption("tooltipAlts", true)
+ns.SetOption("tooltipCounts", true)
+ForeverBagsDB.accountBank[2589] = nil
 T.slash("/fbags", "count " .. H.itemLink(2589))
 T.slash("/fbags", "characters")
 expect(T.printed("Gold of all characters"), "/fbags characters prints the gold of all characters")
@@ -141,7 +156,8 @@ expect(H.count("sort bags") == 1, "/fbags sort asks the game to sort the bags")
 T.slash("/fbags", "all")
 T.advance(2)
 expect(ns.Forget("Tester-TestRealm") == false, "the character that is logged in cannot be forgotten")
-expect(ns.Forget("Alt-TestRealm") == true and ForeverBagsDB.characters["Alt-TestRealm"] == nil, "another character is forgotten")
+expect(ns.Forget("Nobody-TestRealm") == false, "a character that is not stored cannot be forgotten")
+expect(ns.Forget("alt-testrealm") == true and ForeverBagsDB.characters["Alt-TestRealm"] == nil, "another character is forgotten, with its name in any letter case")
 
 -- The bank that all characters share. While another character has it open the game says that
 -- its tabs are empty: the counts that are known stay.
@@ -154,5 +170,16 @@ T.world.bankLocked = nil
 T.fire("BAG_UPDATE_DELAYED")
 T.advance(1)
 expect(ns.SharedBankReadable() == true and ForeverBagsDB.accountBank[2589] == nil, "a shared bank that can be read is counted again")
+-- The same for the bank of the character: while the game does not show it, its counts stay.
+local tester = ForeverBagsDB.characters["Tester-TestRealm"]
+T.world.bankHidden = true
+tester.bank = { [1] = 9 }
+T.fire("BAG_UPDATE_DELAYED")
+T.advance(1)
+expect(tester.bank[1] == 9, "a bank of the character that the game does not show keeps the counts that are known")
+T.world.bankHidden = nil
+T.fire("BAG_UPDATE_DELAYED")
+T.advance(1)
+expect(tester.bank[1] == nil, "a bank of the character that can be read is counted again")
 T.fire("BANKFRAME_CLOSED")
 T.advance(1)

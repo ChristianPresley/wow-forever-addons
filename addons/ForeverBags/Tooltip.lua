@@ -41,6 +41,8 @@ local function addLines(tooltip, itemID)
   end
 end
 
+ns.AddOwnerLines = addLines
+
 local function isItemTooltip(tooltip)
   return tooltip == GameTooltip or tooltip == ItemRefTooltip
 end

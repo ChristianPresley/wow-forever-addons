@@ -18,12 +18,12 @@ local offset = 0
 local requested = {} -- [itemID] = true after the client was asked to load the item
 
 local function itemName(itemID)
-  local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)
+  local name = C_Item.GetItemNameByID(itemID)
   if type(name) == "string" and name ~= "" then
     return name
   end
   -- The client loads the item, and a later look has the name.
-  if not requested[itemID] and C_Item and C_Item.RequestLoadItemDataByID then
+  if not requested[itemID] then
     requested[itemID] = true
     pcall(C_Item.RequestLoadItemDataByID, itemID)
   end
@@ -31,8 +31,7 @@ local function itemName(itemID)
 end
 
 local function itemIcon(itemID)
-  local icon = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)
-  return icon or UNKNOWN_ICON
+  return C_Item.GetItemIconByID(itemID) or UNKNOWN_ICON
 end
 
 -- Adds the counts of one table to the totals.
@@ -161,38 +160,25 @@ end
 
 local function chooseCharacter(owner)
   local characters = ns.Characters()
-  if MenuUtil and MenuUtil.CreateContextMenu then
-    MenuUtil.CreateContextMenu(owner, function(_, root)
-      root:CreateRadio("All characters", function()
-        return onlyCharacter == nil
+  MenuUtil.CreateContextMenu(owner, function(_, root)
+    root:CreateRadio("All characters", function()
+      return onlyCharacter == nil
+    end, function()
+      onlyCharacter = nil
+      offset = 0
+      rebuild()
+    end)
+    for _, character in ipairs(characters) do
+      local label = (character.record.name or character.key) .. " - " .. (character.record.realm or "")
+      root:CreateRadio(label, function()
+        return onlyCharacter == character.key
       end, function()
-        onlyCharacter = nil
+        onlyCharacter = character.key
         offset = 0
         rebuild()
       end)
-      for _, character in ipairs(characters) do
-        local label = (character.record.name or character.key) .. " - " .. (character.record.realm or "")
-        root:CreateRadio(label, function()
-          return onlyCharacter == character.key
-        end, function()
-          onlyCharacter = character.key
-          offset = 0
-          rebuild()
-        end)
-      end
-    end)
-    return
-  end
-  -- Without the menu of the game, a click goes to the next character.
-  local nextKey
-  for index, character in ipairs(characters) do
-    if character.key == onlyCharacter then
-      nextKey = characters[index + 1] and characters[index + 1].key
     end
-  end
-  onlyCharacter = onlyCharacter == nil and characters[1] and characters[1].key or nextKey
-  offset = 0
-  rebuild()
+  end)
 end
 
 local function showRowTooltip(row)

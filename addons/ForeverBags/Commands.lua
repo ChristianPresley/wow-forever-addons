@@ -82,11 +82,7 @@ SlashCmdList["FOREVERBAGS"] = function(input)
   elseif command == "count" then
     count(rest)
   elseif command == "sort" then
-    if C_Container and C_Container.SortBags then
-      pcall(C_Container.SortBags)
-    else
-      ns.Print("this game client cannot sort the bags.")
-    end
+    pcall(C_Container.SortBags)
   elseif command == "view" then
     ns.SetOption("groupBy", ns.GetOption("groupBy") == "category" and "none" or "category")
     ns.Print("items " .. (ns.GetOption("groupBy") == "category" and "by category." or "in the order of the bags."))

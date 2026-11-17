@@ -88,10 +88,7 @@ function ns.SetOption(key, value)
 end
 
 function ns.Money(copper)
-  if GetMoneyString then
-    return GetMoneyString(copper, true)
-  end
-  return string.format("%dg %ds %dc", math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100)
+  return GetMoneyString(copper, true)
 end
 
 ---------------------------------------------------------------------------------------------------

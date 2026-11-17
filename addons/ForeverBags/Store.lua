@@ -118,14 +118,31 @@ local function sharedBankReadable()
 end
 ns.SharedBankReadable = sharedBankReadable
 
+-- False while the game does not show the bank of this character: the bank window can be open
+-- for the shared bank alone. The game then says that the tabs of the character are empty, and
+-- the counts that are known must stay.
+local function ownBankReadable()
+  local bank = C_Bank
+  local kind = Enum and Enum.BankType and Enum.BankType.Character
+  if bank and kind and bank.CanViewBank then
+    local ok, can = pcall(bank.CanViewBank, kind)
+    if ok and can == false then
+      return false
+    end
+  end
+  return true
+end
+
 -- Only while the bank window is open: at other times the game says that the bank is empty.
 local function scanBank()
   if not bankOpen then
     return
   end
-  local me = ns.Me()
-  me.bank = countBags(BANK_FIRST, BANK_LAST)
-  me.bankSeen = time()
+  if ownBankReadable() then
+    local me = ns.Me()
+    me.bank = countBags(BANK_FIRST, BANK_LAST)
+    me.bankSeen = time()
+  end
   if sharedBankReadable() then
     ForeverBagsDB.accountBank = countBags(ACCOUNT_FIRST, ACCOUNT_LAST)
   end
@@ -183,13 +200,20 @@ function ns.Owners(itemID)
 end
 
 -- Removes the stored data of a character that is not logged in. Returns true if it was there.
+-- The name is taken in any letter case, as a player types it.
 function ns.Forget(key)
-  if key == ns.CharacterKey() or not ForeverBagsDB.characters[key] then
+  if type(key) ~= "string" then
     return false
   end
-  ForeverBagsDB.characters[key] = nil
-  changed()
-  return true
+  local myKey, wanted = ns.CharacterKey(), key:lower()
+  for stored in pairs(ForeverBagsDB.characters) do
+    if stored ~= myKey and stored:lower() == wanted then
+      ForeverBagsDB.characters[stored] = nil
+      changed()
+      return true
+    end
+  end
+  return false
 end
 
 function ns.ForgetOthers()

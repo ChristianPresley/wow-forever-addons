@@ -423,9 +423,7 @@ local function create()
   window.free:SetPoint("RIGHT", window.money, "LEFT", -10, 0)
 
   local sort = smallButton(window, "Sort", 50, "Sorts the items in your bags, the same way as the sort button of the game.", function()
-    if C_Container and C_Container.SortBags then
-      pcall(C_Container.SortBags)
-    end
+    pcall(C_Container.SortBags)
   end)
   sort:SetPoint("BOTTOMLEFT", PAD, 7)
   local all = smallButton(window, "All", 40, "Opens the list of the items of all your characters.", function()
@@ -693,6 +691,8 @@ ns.OnLogin(function()
     pcall(events.RegisterEvent, events, event)
   end
   pcall(events.RegisterEvent, events, "QUEST_LOG_UPDATE")
+  -- The game loads the data of an item late (after login): its category can change then.
+  pcall(events.RegisterEvent, events, "GET_ITEM_INFO_RECEIVED")
   events:SetScript("OnEvent", function(_, event)
     if event == "QUEST_LOG_UPDATE" or event == "QUEST_ACCEPTED" or event == "QUEST_REMOVED" then
       questNames, questIDs = nil, nil -- read again at the next layout
