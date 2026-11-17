@@ -31,19 +31,28 @@ function ns.MapName(mapID)
   return ok and info and info.name or ("map " .. tostring(mapID))
 end
 
--- Sets a texture from { atlas = , texture = , coords = { left, right, top, bottom }, color = { r, g, b } }.
+-- Sets a texture from { atlas = , texture = , coords = { left, right, top, bottom }, color = { r, g, b },
+-- fallbackColor = { r, g, b } }.
 -- The texture is the fallback for a missing atlas; coords cut a part out of the texture file.
+-- fallbackColor is the colour of the fallback only: an atlas with its own colours keeps them.
+-- fallbackAtlas is a second atlas to try before the texture; it has the fallback colour too.
 function ns.SetIcon(texture, look)
   texture:SetTexCoord(0, 1, 0, 1)
-  if look.atlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(look.atlas) then
+  local color = look.color
+  local has = C_Texture and C_Texture.GetAtlasInfo
+  if look.atlas and has and has(look.atlas) then
     texture:SetAtlas(look.atlas)
   else
-    texture:SetTexture(look.texture)
-    if look.coords then
-      texture:SetTexCoord(look.coords[1], look.coords[2], look.coords[3], look.coords[4])
+    if look.fallbackAtlas and has and has(look.fallbackAtlas) then
+      texture:SetAtlas(look.fallbackAtlas)
+    else
+      texture:SetTexture(look.texture)
+      if look.coords then
+        texture:SetTexCoord(look.coords[1], look.coords[2], look.coords[3], look.coords[4])
+      end
     end
+    color = look.fallbackColor or color
   end
-  local color = look.color
   texture:SetVertexColor(color and color[1] or 1, color and color[2] or 1, color and color[3] or 1, 1)
 end
 

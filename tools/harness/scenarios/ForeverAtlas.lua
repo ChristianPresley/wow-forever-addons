@@ -296,3 +296,126 @@ ns.ShowMap(37)
 T.slash("/fatlas", "status")
 expect(T.printed("what the game draws") and T.printed("layer 1 image 1: visible") and T.printed("pin 1 %("), "/fatlas status lists the drawn parts of the map")
 ForeverAtlasMap:Hide()
+
+---------------------------------------------------------------------------------------------------
+-- PINS AND MARKERS. This block belongs to the session of the pins (MapKinds.lua): the kinds
+-- that came after the first ones. It uses nothing of the blocks above but `count`.
+do
+  local function pinOf(kind, index)
+    local found = 0
+    for _, pin in ipairs(ns.MapPins()) do
+      if pin.kind == kind then
+        found = found + 1
+        if found == (index or 1) then
+          return pin
+        end
+      end
+    end
+  end
+  -- The lines of the tooltip of a pin, joined with " | ".
+  local function tooltipOf(pin)
+    local seen = {}
+    pin.data.tooltip({ AddLine = function(_, line) seen[#seen + 1] = line end })
+    return table.concat(seen, " | ")
+  end
+  ns.ShowMap(37)
+  -- An event of the map, with the time that is left.
+  expect(count("events") == 1 and pinOf("events").data.look.atlas == "poi-event" and math.abs(pinOf("events").x - 0.7) < 0.001, "the event of the map has a pin with its own icon, got " .. count("events"))
+  expect(tooltipOf(pinOf("events")) == "Harvest Festival | Event | A feast | 1 h 30 min left", "the event says how long it lasts, got " .. tooltipOf(pinOf("events")))
+  T.world.eventSeconds = 600
+  expect(tooltipOf(pinOf("events")):find("| 10 min left", 1, true), "and ten minutes before its end, got " .. tooltipOf(pinOf("events")))
+  T.world.eventSeconds = nil
+  expect(count("areaPOIs") == 2, "an event is not among the towns and landmarks")
+  -- A bonus objective: the one of this map, not the one that the game lists for a map under it.
+  expect(count("taskQuests") == 1 and tooltipOf(pinOf("taskQuests")):find("^Clear the Fields | ") and pinOf("taskQuests").data.task == 900, "the bonus objective of this map has a pin with its name, got " .. count("taskQuests"))
+  -- The place that a guard pointed out comes with the event of the game, and has its picture of the sheet of map icons.
+  expect(count("guide") == 0, "no guard has pointed out a place yet")
+  T.world.guide = true
+  T.fire("DYNAMIC_GOSSIP_POI_UPDATED")
+  local guide = pinOf("guide")
+  expect(count("guide") == 1 and guide.data.look.texture == "Interface/Minimap/POIIcons" and math.abs(guide.data.look.coords[1] - 0.6) < 0.001, "the place that a guard pointed out is on the map at once, got " .. count("guide"))
+  expect(tooltipOf(guide) == "Goldshire Smithy | A guard showed you this place", "and says what it is, got " .. tooltipOf(guide))
+  T.world.guide = nil
+  T.fire("DYNAMIC_GOSSIP_POI_UPDATED")
+  expect(count("guide") == 0, "and is gone when the game drops it")
+  -- The way to the quest that the player follows, when its goal is on another map.
+  expect(count("questWaypoint") == 0, "a quest with its goal on this map has no way to show")
+  T.world.questWaypoint = true
+  T.fire("SUPER_TRACKING_CHANGED")
+  local way = pinOf("questWaypoint")
+  expect(count("questWaypoint") == 1 and math.abs(way.x - 0.85) < 0.001 and way.data.wayTo == 176, "the next step to the followed quest is on the map, got " .. count("questWaypoint"))
+  local opened = H.count("open quest")
+  H.run(way.frame, "OnMouseUp", "LeftButton")
+  expect(H.count("open quest") == opened + 1, "a click on it opens the quest")
+  T.world.questWaypoint = nil
+  ns.ShowMap(37)
+  expect(count("questWaypoint") == 0, "without a next step there is no pin")
+  -- The bosses of a dungeon, the defeated one in grey.
+  ns.ShowMap(52)
+  expect(count("bosses") == 2, "both bosses of the map have a pin, got " .. count("bosses"))
+  expect(tooltipOf(pinOf("bosses", 1)) == "Dungeon boss | Not defeated yet" and pinOf("bosses", 1).data.look.color == nil, "a boss that lives has the plain icon")
+  expect(tooltipOf(pinOf("bosses", 2)) == "Dungeon boss | Defeated" and pinOf("bosses", 2).data.look.color[1] == 0.5, "a defeated boss is grey and says so")
+  ns.ShowMap(37)
+  expect(count("bosses") == 0, "a map without bosses has none")
+  -- The tooltip of a quest has its objectives as they are now, the finished ones marked.
+  local objective = tooltipOf(pinOf("questObjectives"))
+  expect(objective:find(" | Hogger slain: %d+/8 | Click to open the quest$") and not objective:find("In progress", 1, true), "a quest pin lists the objectives of the quest, got " .. objective)
+  T.world.questItems = true
+  objective = tooltipOf(pinOf("questObjectives"))
+  expect(objective:find(" | Gnoll Paw: 3/8 | Done: 8/8 Linen Cloth | ", 1, true), "the same pin follows the quest, with the finished objective marked, got " .. objective)
+  T.world.questItems = nil
+  expect(tooltipOf(pinOf("questTurnIns")):find(" | Ready to turn in | Click to open the quest$"), "a quest that is ready says so, without its objectives, got " .. tooltipOf(pinOf("questTurnIns")))
+
+  -- NPCs that the player has used: the game does not give their places, the addon remembers them.
+  expect(count("npcs") == 0 and ns.CountNpcs() == 0, "no NPC is known at first")
+  T.world.npc = "Brog Hamfist"
+  T.fire("MERCHANT_SHOW")
+  local known = ForeverAtlasDB.npcs[37]
+  expect(known and #known == 1 and known[1].name == "Brog Hamfist" and known[1].roles.vendor and known[1].roles.repair, "a vendor that repairs is remembered with both roles")
+  expect(math.abs(known[1].x - 42) < 0.01 and math.abs(known[1].y - 65) < 0.01, "at the place of the player, got " .. tostring(known[1].x) .. ", " .. tostring(known[1].y))
+  expect(count("npcs") == 1 and tooltipOf(pinOf("npcs")):find("^Brog Hamfist | Repairer, Vendor | Last used: "), "the vendor is on the map at once, got " .. (pinOf("npcs") and tooltipOf(pinOf("npcs")) or "no pin"))
+  T.fire("TRAINER_SHOW")
+  expect(#known == 1 and count("npcs") == 1 and tooltipOf(pinOf("npcs")):find("| Trainer, Repairer, Vendor |", 1, true), "the same NPC with one more role stays one pin, got " .. tooltipOf(pinOf("npcs")))
+  -- The icon: the one of the game for the role if the client has it, else a dot of the colour of the role.
+  local red, green = pinOf("npcs").frame.icon:GetVertexColor()
+  if C_Texture.GetAtlasInfo("Profession") then
+    expect(red == 1 and green == 1, "an icon of the game keeps its own colours")
+  else
+    expect(math.abs(red - 0.5) < 0.01 and green == 1, "without the icon of the game the pin is a dot in the colour of the role, got " .. tostring(red))
+  end
+  -- A click sets a waypoint to the NPC.
+  local before = #ForeverAtlasCharDB.waypoints
+  H.run(pinOf("npcs").frame, "OnMouseUp", "LeftButton")
+  local newest = ForeverAtlasCharDB.waypoints[before + 1]
+  expect(newest ~= nil and newest.label == "Brog Hamfist" and newest.mapID == 37, "a click on the NPC sets a waypoint with its name")
+  ns.ClearWaypoints()
+  -- A mailbox has no NPC: one entry for each place.
+  T.world.npc = nil
+  T.fire("MAIL_SHOW")
+  T.fire("MAIL_SHOW")
+  expect(#known == 2 and known[2].name == "Mailbox" and known[2].roles.mailbox, "a mailbox is remembered once, got " .. #known)
+  -- A quest from an item has no NPC, and in a fight the game hides the name: nothing is remembered.
+  T.fire("QUEST_DETAIL")
+  T.world.secret = true
+  T.world.npc = "Hidden One"
+  T.fire("GOSSIP_SHOW")
+  T.world.secret = false
+  expect(#known == 2, "without an NPC, or with a hidden name, nothing is remembered, got " .. #known)
+  T.fire("GOSSIP_SHOW")
+  expect(#known == 3 and known[3].roles.talk, "out of the fight the NPC is remembered")
+  T.world.npc = nil
+  -- The places of Forever Compass: the one that this addon remembers too is left out while its own kind is on.
+  local compass = _G["ForeverCompassDB"]
+  _G["ForeverCompassDB"] = { places = { vendor = { { mapID = 37, x = 0.42, y = 0.65, name = "Brog Hamfist" }, { mapID = 37, x = 0.1, y = 0.3, name = "Far Vendor" } } } }
+  ns.RefreshMapPins()
+  expect(count("learned") == 1 and tooltipOf(pinOf("learned")):find("^Far Vendor | Vendor | "), "a place that both addons know has one pin, got " .. count("learned"))
+  ns.SetOption("show_npcs", false)
+  expect(count("npcs") == 0 and count("learned") == 2, "with the NPCs off they are gone, and Forever Compass has both of its places")
+  ns.SetOption("show_npcs", true)
+  _G["ForeverCompassDB"] = compass
+  -- Forgetting them.
+  expect(ns.CountNpcs() == 3 and count("npcs") == 3, "three are known, got " .. ns.CountNpcs())
+  ns.ForgetNpcs()
+  expect(ns.CountNpcs() == 0 and count("npcs") == 0, "after forgetting them none is left")
+  ForeverAtlasMap:Hide()
+end

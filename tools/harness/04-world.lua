@@ -413,6 +413,49 @@ set("C_TaxiMap", "GetTaxiNodesForMap", function()
 end)
 set("C_DeathInfo", "GetCorpseMapPosition", function() return CreateVector2D(0.41, 0.6) end)
 
+-- More of what a map shows, for the kinds of Forever Atlas (MapKinds.lua). Each is what the
+-- game's own map reads in Blizzard_SharedMapDataProviders.
+-- An event of Elwynn Forest with time left (AreaPOIEventDataProvider.lua). H.world.eventSeconds
+-- is the time left, 90 minutes at first.
+AREA_POIS[106] = { areaPoiID = 106, name = "Harvest Festival", description = "A feast", position = CreateVector2D(0.7, 0.3), atlasName = "poi-event" }
+set("C_AreaPoiInfo", "GetEventsForMap", function(mapID) return mapID == 37 and { 106 } or {} end)
+set("C_AreaPoiInfo", "GetAreaPOISecondsLeft", function(id) return id == 106 and (H.world.eventSeconds or 5400) or 0 end)
+-- The place that a guard pointed out (GossipDataProvider.lua): none until H.world.guide is set.
+set("C_GossipInfo", "GetPoiForUiMapID", function(mapID) return mapID == 37 and H.world.guide and 7 or nil end)
+set("C_GossipInfo", "GetPoiInfo", function(mapID, id)
+  if mapID == 37 and id == 7 and H.world.guide then
+    return { inBattleMap = false, name = "Goldshire Smithy", position = CreateVector2D(0.75, 0.8), textureIndex = 6 }
+  end
+end)
+-- A bonus objective of Elwynn Forest, and one of a map under it, which the game lists too
+-- (BonusObjectiveDataProvider.lua).
+set("C_TaskQuest", "GetQuestsOnMap", function(mapID)
+  if mapID ~= 37 then
+    return {}
+  end
+  return {
+    { questID = 900, x = 0.15, y = 0.25, mapID = 37, inProgress = false, numObjectives = 1, isQuestStart = false, isDaily = false },
+    { questID = 901, x = 0.16, y = 0.26, mapID = 425, inProgress = false, numObjectives = 1, isQuestStart = false, isDaily = false },
+  }
+end)
+set("C_TaskQuest", "GetQuestInfoByQuestID", function(questID) return questID == 900 and "Clear the Fields" or "", nil, false, false end)
+-- The next step on the way to a quest with its goal on another map (QuestDataProvider.lua):
+-- none until H.world.questWaypoint is set.
+set("C_QuestLog", "GetNextWaypointForMap", function(_, mapID)
+  if mapID == 37 and H.world.questWaypoint then
+    return 0.85, 0.45
+  end
+end)
+H.allowNil("C_QuestLog.GetNextWaypointForMap", "The game gives nothing for a quest without a step on this map: Blizzard_SharedMapDataProviders/QuestDataProvider.lua tests the result with `if x and y then`.")
+-- Two bosses on the map of Westfall, the second one defeated (EncounterJournalDataProvider.lua).
+set("C_EncounterJournal", "GetEncountersOnMap", function(mapID)
+  if mapID ~= 52 then
+    return {}
+  end
+  return { { encounterID = 1, mapX = 0.3, mapY = 0.3 }, { encounterID = 2, mapX = 0.6, mapY = 0.35 } }
+end)
+set("C_EncounterJournal", "IsEncounterComplete", function(encounterID) return encounterID == 2 end)
+
 ---------------------------------------------------------------------------------------------------
 -- Bags and items
 
