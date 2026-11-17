@@ -238,13 +238,19 @@ After a patch of the game: put the new commit in `tools/api/source.txt`, build b
 
 #### Where the sources say nothing
 
-The stand-in follows three sources, in this order: Blizzard's API documentation, the game's own UI code, and for a behaviour that neither shows, the page of the method on [warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/Widget_API) or a report of the game's own error text. The page is named beside the code. From these: alpha stays between 0 and 1; `SetParent` takes no name; `SetAllPoints` takes a name; an intrinsic frame such as `ItemButton` says that it is of the type it is made from (`"Button"`); two regions anchored to each other fail with "Cannot anchor to a region dependent on it".
+The stand-in follows these sources, in this order:
+
+1. Blizzard's API documentation.
+2. The game's own UI code.
+3. The tests of the [wowless](https://github.com/wowless/wowless) project (`addon/Wowless/uiobjects.lua` and `test.lua`). They run in the game client, so each one is a fact about the game: `OnShow` runs for the widgets under a frame before the frame; a tooltip with a text that is not an anchor takes `ANCHOR_LEFT` without an error; a button has no font string until it has a text; an anchor to itself and two regions anchored to each other fail with the game's error texts; an animation type that the game does not make from Lua gives a plain animation.
+4. The page of the method on [warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/Widget_API): alpha stays between 0 and 1; `SetParent` takes no name; `SetAllPoints` takes a name; an intrinsic frame such as `ItemButton` says that it is of the type it is made from (`"Button"`).
+
+The source is named beside the code.
 
 For two things no source says what the game does. The stand-in takes what the game's own code does and nothing more:
 
-- A name in another letter case, such as `CreateAnimation("alpha")` or `SetOwner(frame, "anchor_right")`. The game's code writes these names in one spelling, and the stand-in takes that spelling. (Frame types and point names are taken in any case: the game's code has `CreateFrame("BUTTON")`.)
+- A point, a draw layer, a strata or a justify value in lower case, such as `SetPoint("topleft")`. The game's files write these in upper case. The stand-in takes them in any case, as the game does for frame types (`CreateFrame("frame")` is in a wowless test).
 - A value outside the range: `StatusBar:SetValue(50)` in a range of 0 to 10, and the value of a slider or a status bar when `SetMinMaxValues` makes the range smaller. The game's code brings the value into the range before the call. The stand-in keeps the value as it was given.
-
 `tools/ingame-probe/ForeverProbe` is a small addon that asks the game. Copy the folder to `Interface/AddOns`, log in and type `/foreverprobe`: it prints one line for each case, with these two and with each case above that comes from a page outside the game's files, and saves the lines in `ForeverProbeDB`. Where the game answers otherwise than the stand-in, change the stand-in and name the probe as the proof.
 
 #### What it cannot find

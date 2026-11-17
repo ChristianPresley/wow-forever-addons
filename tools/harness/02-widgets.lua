@@ -240,6 +240,7 @@ end
 H.run = run
 
 local kinds = {} -- [kind] = { methods = {}, scripts = {}, isA = {} }, made at the first use
+H.made = 0 -- the number of widgets made so far: each widget keeps its number
 
 local function kindOf(name)
   local kind = kinds[name]
@@ -311,8 +312,9 @@ local function newObject(kindName, parent, name)
   rawset(object, "__state", {
     kind = kindName, class = kind, parent = parent, name = name, shown = true, scripts = {}, events = {}, points = {},
     width = 0, height = 0, value = 0, min = 0, max = 1, id = 0, alpha = 1, scale = 1, level = 1,
-    attributes = {}, children = {}, regions = {}, groups = {}, lines = 0,
+    attributes = {}, children = {}, regions = {}, groups = {}, lines = 0, made = H.made,
   })
+  H.made = H.made + 1
   return object
 end
 H.newObject = newObject
@@ -437,20 +439,32 @@ local function isVisible(self)
 end
 
 -- The widgets under one that are shown themselves: they become visible or hidden with it.
+-- Regions and child frames together, in the order in which they were made.
 local function eachShownChild(self, fn)
   local s = state(self)
+  local shown = {}
   for _, list in ipairs({ s.regions, s.children }) do
     for _, child in ipairs(list) do
       if state(child).shown then
-        fn(child)
+        shown[#shown + 1] = child
       end
     end
   end
+  table.sort(shown, function(a, b)
+    return state(a).made < state(b).made
+  end)
+  for _, child in ipairs(shown) do
+    fn(child)
+  end
 end
 
+-- OnShow runs for the widgets under a frame first, then for the frame, and each handler sees
+-- every one of them as visible already. The tests "visible updated on kids before calling any
+-- OnShow" and "OnShow order between frame children and regions" of the wowless project run in
+-- the game client: https://github.com/wowless/wowless (addon/Wowless/test.lua).
 local function fireShown(self)
-  run(self, "OnShow")
   eachShownChild(self, fireShown)
+  run(self, "OnShow")
 end
 local function fireHidden(self)
   eachShownChild(self, fireHidden)
@@ -558,13 +572,17 @@ local POINTS = {
   TOPLEFT = true, TOP = true, TOPRIGHT = true, LEFT = true, CENTER = true, RIGHT = true,
   BOTTOMLEFT = true, BOTTOM = true, BOTTOMRIGHT = true,
 }
+-- The texts of the game's errors: "Invalid region point nonsense" for the point and "Unknown
+-- region point nonsense" for the relative point (wowless, Region > SetPoint > badpoint).
 local function pointName(value, what)
   local name = realType(value) == "string" and value:upper()
   if not name or not POINTS[name] then
-    fail("SetPoint: unknown " .. what .. " " .. realTostring(value))
+    fail("SetPoint: " .. (what == "point" and "Invalid" or "Unknown") .. " region point " .. realTostring(value))
   end
   return name
 end
+-- GetPoint gives the anchors in this order, not in the order of the calls (wowless, Region > GetPoint).
+local POINT_ORDER = { TOPLEFT = 1, TOP = 2, TOPRIGHT = 3, LEFT = 4, CENTER = 5, RIGHT = 6, BOTTOMLEFT = 7, BOTTOM = 8, BOTTOMRIGHT = 9 }
 
 -- The forms of the game: (point), (point, x, y), (point, relativeTo), (point, relativeTo, x, y),
 -- (point, relativeTo, relativePoint), (point, relativeTo, relativePoint, x, y).
@@ -588,6 +606,9 @@ end
 -- The game refuses an anchor to a region whose own place hangs on this one, with this text
 -- (a report of it: https://www.wowace.com/projects/skada/issues/605).
 local function checkAnchor(self, relativeTo, what)
+  if relativeTo == self then
+    fail("Action[" .. what .. "] failed because[Cannot anchor to itself]: attempted from: " .. (state(self).name or "<unnamed>") .. ":" .. what .. ".")
+  end
   if relativeTo ~= nil and dependsOn(relativeTo, self, 0) then
     fail("Action[" .. what .. "] failed because[Cannot anchor to a region dependent on it]: attempted from: " .. (state(self).name or "<unnamed>") .. ":" .. what .. ".")
   end
@@ -639,6 +660,17 @@ define("SimpleScriptRegionResizingAPI", "SetPoint", function(self, point, a, b, 
     end
   end
   points[#points + 1] = entry
+  table.sort(points, function(a, b)
+    return POINT_ORDER[a[1]] < POINT_ORDER[b[1]]
+  end)
+end)
+define("SimpleScriptRegionResizingAPI", "GetPointByName", function(self, point)
+  point = pointName(point, "point")
+  for _, anchor in ipairs(state(self).points) do
+    if anchor[1] == point then
+      return unpack(anchor, 1, 5)
+    end
+  end
 end)
 define("SimpleScriptRegionResizingAPI", "ClearAllPoints", function(self)
   state(self).points = {}
@@ -788,8 +820,18 @@ define("SimpleAnimatableObjectAPI", "CreateAnimationGroup", function(self, name)
 end)
 define("SimpleAnimGroupAPI", "CreateAnimation", function(self, animationType, name)
   local kindName = animationType or "Animation"
-  if realType(kindName) ~= "string" or not (LAYERS[kindName] and NOT_A_FRAME[kindName]) or kindName == "AnimationGroup" then
-    fail("CreateAnimation: unknown animation type " .. realTostring(animationType))
+  if animationType ~= nil and realType(animationType) ~= "string" then
+    fail("CreateAnimation: the animation type is not a text")
+  end
+  -- A type that the game does not make from Lua gives a plain animation, without an error:
+  -- CreateAnimation("TextureCoordTranslation") is of the type "Animation" in the game client
+  -- (wowless, TextureCoordTranslation > objecttype: "The XML name doesn't work from Lua").
+  local isAnimation = false
+  for _, known in ipairs(UI_NAMES.animationTypes or { "Animation", "Alpha", "Rotation", "Scale", "Translation", "Path" }) do
+    isAnimation = isAnimation or known == kindName
+  end
+  if not isAnimation or not LAYERS[kindName] or kindName == "TextureCoordTranslation" then
+    kindName = "Animation"
   end
   return newObject(kindName, self, realType(name) == "string" and name or nil)
 end)
@@ -984,21 +1026,29 @@ define("FrameAPITooltip", "SetText", function(self, text)
   s.text, s.lines = text, 1
 end)
 -- The text of a button is the text of its font string.
+-- A button has no font string until it gets a text: GetFontString and GetText give nil
+-- before, and SetText makes the font string (wowless, "button text", a test that runs in the
+-- game client: https://github.com/wowless/wowless, addon/Wowless/test.lua).
 define("SimpleButtonAPI", "SetText", function(self, text)
   checkText(text, "SetText")
-  state(self).text = text
-  local fontString = state(self).fontString
-  if fontString then
-    state(fontString).text = text
+  local s = state(self)
+  s.text = text
+  if not s.fontString and text ~= nil then
+    s.fontString = newObject("FontString", self)
+  end
+  if s.fontString then
+    state(s.fontString).text = text
   end
 end)
 define("SimpleButtonAPI", "GetFontString", function(self)
-  local s = state(self)
-  if not s.fontString then
-    s.fontString = newObject("FontString", self)
-    state(s.fontString).text = s.text
+  return state(self).fontString
+end)
+define("SimpleButtonAPI", "SetFontString", function(self, fontString)
+  if not (isWidget(fontString) and state(fontString).kind == "FontString") then
+    fail("SetFontString: a font string is needed")
   end
-  return s.fontString
+  state(self).fontString = fontString
+  state(self).text = state(fontString).text
 end)
 define("SimpleEditBoxAPI", "SetText", function(self, text)
   checkText(text, "SetText")
@@ -1070,10 +1120,20 @@ define("SimpleStatusBarAPI", "GetStatusBarTexture", function(self)
   s.barTexture = s.barTexture or newObject("Texture", self)
   return s.barTexture
 end)
+-- A slider has no thumb texture until SetThumbTexture, which takes a texture or a picture; a
+-- picture goes into the thumb texture that is there (wowless, Slider, a test that runs in the
+-- game client).
 define("SimpleSliderAPI", "GetThumbTexture", function(self)
+  return state(self).thumb
+end)
+define("SimpleSliderAPI", "SetThumbTexture", function(self, asset)
   local s = state(self)
-  s.thumb = s.thumb or newObject("Texture", self)
-  return s.thumb
+  if isWidget(asset) then
+    s.thumb = asset
+  elseif asset ~= nil then
+    s.thumb = s.thumb or newObject("Texture", self)
+    state(s.thumb).texture = asset
+  end
 end)
 
 ---------------------------------------------------------------------------------------------------
@@ -1205,10 +1265,12 @@ undocumented("FrameAPITooltip", "SetOwner", GAME_TOOLTIP, function(self, owner, 
   if not isWidget(owner) then
     fail("SetOwner: the owner is not a region")
   end
-  if anchor ~= nil and not ANCHORS[anchor] then
-    fail("SetOwner: unknown anchor " .. realTostring(anchor))
-  end
+  -- Without an anchor, and with a text that is not an anchor, the game takes ANCHOR_LEFT and
+  -- gives no error: the tests GameTooltip > SetOwner > OneArg and InvalidAnchorType of the
+  -- wowless project run in the game client (https://github.com/wowless/wowless,
+  -- addon/Wowless/uiobjects.lua).
   local s = state(self)
+  s.anchor = ANCHORS[anchor] and anchor or "ANCHOR_LEFT"
   s.owner, s.lines, s.text = owner, 0, nil
   -- SetOwner clears and hides the tooltip. It shows again when it gets an item or a spell, or
   -- with Show() after AddLine: an addon that adds lines and forgets Show() has no tooltip.
@@ -1216,6 +1278,9 @@ undocumented("FrameAPITooltip", "SetOwner", GAME_TOOLTIP, function(self, owner, 
 end)
 undocumented("FrameAPITooltip", "GetOwner", "Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.lua", function(self)
   return state(self).owner
+end)
+undocumented("FrameAPITooltip", "GetAnchorType", "Blizzard_SharedXMLGame/Tooltip/TooltipComparisonManager.lua", function(self)
+  return state(self).anchor or "ANCHOR_LEFT"
 end)
 undocumented("FrameAPITooltip", "IsOwned", "Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.lua", function(self, owner)
   return state(self).owner == owner
@@ -1354,6 +1419,9 @@ for _, layer in ipairs({ "SimpleScriptRegionAPI", "SimpleAnimAPI", "SimpleAnimGr
 end
 allowNilFor("SimpleScriptRegionResizingAPI", "GetPoint", "An anchor to the screen has no region: Blizzard_EditMode/Shared/EditModeManager.lua has `if not relativeTo then` after GetPoint(1).")
 allowNilFor("SimpleButtonAPI", "GetText", "The text of a button is the text of its font string, which is nil without a text (FontString:GetText above).")
+allowNilFor("SimpleScriptRegionResizingAPI", "GetPointByName", "An anchor to the screen has no region, as for GetPoint; a point that is not set gives nothing (wowless, Region > GetPointByName, a test that runs in the game client).")
+allowNilFor("SimpleButtonAPI", "GetFontString", "A button without a text has no font string (wowless, button text, a test that runs in the game client: addon/Wowless/test.lua).")
+allowNilFor("SimpleSliderAPI", "GetThumbTexture", "A slider has no thumb texture until SetThumbTexture (wowless, Slider, a test that runs in the game client: addon/Wowless/uiobjects.lua).")
 
 -- The part of the picture that a texture shows. SetTexCoord takes (left, right, top, bottom) or
 -- the four corners; GetTexCoord gives the four corners: upper left, lower left, upper right,
@@ -1386,6 +1454,64 @@ end)
 define("SimpleRegionAPI", "GetDrawLayer", function(self)
   local s = state(self)
   return s.drawLayer or "ARTWORK", s.sublevel or 0
+end)
+
+-- The colour of a region. Its alpha part is the alpha of the region: after
+-- SetVertexColor(0.2, 0.4, 0.6, 0.8), GetAlpha gives 0.8 (wowless, Texture > color texture,
+-- vertex color, and gradient).
+define("SimpleRegionAPI", "SetVertexColor", function(self, r, g, b, a)
+  local s = state(self)
+  s.vertexColor = { number(r, "SetVertexColor"), number(g, "SetVertexColor"), number(b, "SetVertexColor") }
+  if a ~= nil then
+    s.alpha = math.max(0, math.min(1, number(a, "SetVertexColor")))
+  end
+end)
+define("SimpleRegionAPI", "GetVertexColor", function(self)
+  local s = state(self)
+  local color = s.vertexColor or { 1, 1, 1 }
+  return color[1], color[2], color[3], plain(s.alpha)
+end)
+
+-- The state of a button: NORMAL, PUSHED, or DISABLED for a disabled button. Another text
+-- fails (wowless, "button states").
+define("SimpleButtonAPI", "SetButtonState", function(self, buttonState)
+  if buttonState ~= "NORMAL" and buttonState ~= "PUSHED" and buttonState ~= "DISABLED" then
+    fail("SetButtonState: unknown state " .. realTostring(buttonState))
+  end
+  state(self).buttonState = buttonState
+end)
+define("SimpleButtonAPI", "GetButtonState", function(self)
+  local s = state(self)
+  if s.disabled then
+    return "DISABLED"
+  end
+  return s.buttonState == "PUSHED" and "PUSHED" or "NORMAL"
+end)
+
+-- A status bar without a bar texture has the colour 1, 1, 1, 1: the colour belongs to the
+-- texture (wowless, StatusBar).
+define("SimpleStatusBarAPI", "SetStatusBarColor", function(self, r, g, b, a)
+  local s = state(self)
+  if s.barTexture then
+    s.barColor = { number(r, "SetStatusBarColor"), number(g, "SetStatusBarColor"), number(b, "SetStatusBarColor"), a ~= nil and number(a, "SetStatusBarColor") or 1 }
+  end
+end)
+define("SimpleStatusBarAPI", "SetStatusBarTexture", function(self, asset)
+  local s = state(self)
+  s.barColor = nil
+  if asset == nil then
+    s.barTexture = nil
+  elseif isWidget(asset) then
+    s.barTexture = asset
+  else
+    s.barTexture = s.barTexture or newObject("Texture", self)
+    state(s.barTexture).texture = asset
+  end
+  return true
+end)
+define("SimpleStatusBarAPI", "GetStatusBarColor", function(self)
+  local color = state(self).barColor or { 1, 1, 1, 1 }
+  return color[1], color[2], color[3], color[4]
 end)
 
 -- A value that must be one of a list of UI.xsd: the blend mode of a texture (ALPHAMODE), the
@@ -1439,6 +1565,10 @@ end
 local function fontPair(layer, setter, getter)
   local spec = H.parseSpec(snapshot.widgets[layer].methods[getter])
   define(layer, setter, function(self, font)
+    -- Without a font the game refuses (wowless, EditBox > fontobject: SetFontObject(nil) fails).
+    if font == nil then
+      fail(setter .. ": a font is needed")
+    end
     state(self)["font:" .. setter] = fontObject(font, setter)
   end)
   define(layer, getter, function(self)
@@ -1855,11 +1985,22 @@ function CreateFrame(kindName, name, parent, template, id)
   if not kind then
     fail("CreateFrame: unknown frame type '" .. realTostring(kindName) .. "'")
   end
-  if name ~= nil and realType(name) ~= "string" then
+  -- The name: a number becomes its text, and a frame in the place of the name is no name
+  -- (wowless, Frame > creation with number name, creation with frame in name position).
+  if realType(name) == "number" then
+    name = realTostring(name)
+  elseif isWidget(name) then
+    name = nil
+  elseif name ~= nil and realType(name) ~= "string" then
     fail("CreateFrame: the name is not a text")
   end
   if parent ~= nil and not (isWidget(parent) and not NOT_A_FRAME[state(parent).kind]) then
     fail("CreateFrame: the parent is not a frame")
+  end
+  -- "$parent" at the start of the name is the name of the parent, or "Top" without a named
+  -- parent (wowless, Frame > support $parent in frame names).
+  if name and name:sub(1, 7):lower() == "$parent" then
+    name = ((parent and state(parent).name) or "Top") .. name:sub(8)
   end
   local frame = newObject(kind, parent, name)
   if id ~= nil then

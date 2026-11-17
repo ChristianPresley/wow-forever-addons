@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn wrong_arguments_are_failures() {
-        fails_with("local f = CreateFrame('Frame')\nf:SetPoint('TOPLEFFT')\n", "unknown point");
+        fails_with("local f = CreateFrame('Frame')\nf:SetPoint('TOPLEFFT')\n", "Invalid region point");
         fails_with("local f = CreateFrame('Frame')\nf:SetSize('wide', 10)\n", "number expected, got string");
         fails_with("local t = CreateFrame('Frame'):CreateFontString()\nt:SetText({})\n", "string expected, got table");
         fails_with("local t = CreateFrame('Frame'):CreateFontString()\nt:SetFormattedText('%d', 'x')\n", "Probe/Core.lua:2");
@@ -829,9 +829,13 @@ mod tests {
             assert(CreateFrame("ContainedAlertFrame"):IsObjectType("Button"), "an alert frame is a button")
             CreateFrame("QuestPOIFrame"):DrawNone()
             local group = CreateFrame("Frame"):CreateAnimationGroup()
-            for _, kind in ipairs({ "Alpha", "Scale", "LineScale", "Translation", "LineTranslation", "Rotation", "Path", "FlipBook", "VertexColor", "TextureCoordTranslation", "RadialProgress" }) do
+            for _, kind in ipairs({ "Alpha", "Scale", "LineScale", "Translation", "LineTranslation", "Rotation", "Path", "FlipBook", "VertexColor", "RadialProgress" }) do
               assert(group:CreateAnimation(kind):GetObjectType() == kind, kind)
             end
+            -- A type that the game does not make from Lua is a plain animation, without an error
+            -- (wowless, TextureCoordTranslation > objecttype).
+            assert(group:CreateAnimation("TextureCoordTranslation"):GetObjectType() == "Animation", "TextureCoordTranslation")
+            assert(group:CreateAnimation("NoSuchType"):GetObjectType() == "Animation", "an unknown type")
             -- Scripts of the game's XML files: Blizzard_RecruitAFriend, Blizzard_HelpFrame, DressUpFrames.xml
             CreateFrame("Model"):SetScript("OnAnimStarted", function() end)
             CreateFrame("Browser"):SetScript("OnExternalLink", function() end)
@@ -935,19 +939,87 @@ mod tests {
             local inner = CreateFrame("Frame", nil, outer)
             inner:SetPoint("CENTER", nil, "CENTER")
             outer:SetPoint("LEFT", inner, "RIGHT")
+            -- The facts below are from tests of the wowless project, which run in the game client
+            -- (https://github.com/wowless/wowless, addon/Wowless/uiobjects.lua and test.lua).
+            -- OnShow: the widgets under a frame first, in the order of their making, then the frame.
+            local order = ""
+            local p = CreateFrame("Frame", nil, UIParent)
+            local m = CreateFrame("Frame", nil, p)
+            local r1 = m:CreateTexture()
+            local k = CreateFrame("Frame", nil, m)
+            local r2 = m:CreateTexture()
+            for name, widget in pairs({ p = p, m = m, r1 = r1, k = k, r2 = r2 }) do
+              widget:SetScript("OnShow", function()
+                assert(p:IsVisible() and k:IsVisible(), "visible before any OnShow")
+                order = order .. name .. ","
+              end)
+            end
+            p:Hide()
+            p:Show()
+            assert(order == "r1,k,r2,m,p,", order)
+            -- GetPoint gives the anchors in one fixed order.
+            local placed = CreateFrame("Frame")
+            placed:SetPoint("BOTTOMRIGHT")
+            placed:SetPoint("TOPLEFT")
+            assert(placed:GetPoint(1) == "TOPLEFT" and placed:GetPoint(2) == "BOTTOMRIGHT", "the order of the anchors")
+            assert(placed:GetPointByName("BOTTOMRIGHT") == "BOTTOMRIGHT" and placed:GetPointByName("TOP") == nil, "GetPointByName")
+            -- A tooltip without an anchor, or with a text that is not one, has ANCHOR_LEFT.
+            GameTooltip:SetOwner(UIParent)
+            assert(GameTooltip:GetAnchorType() == "ANCHOR_LEFT" and GameTooltip:IsOwned(UIParent), "no anchor")
+            GameTooltip:SetOwner(UIParent, "invalid")
+            assert(GameTooltip:GetAnchorType() == "ANCHOR_LEFT", "a text that is not an anchor")
+            GameTooltip:SetOwner(UIParent, "ANCHOR_TOPRIGHT")
+            assert(GameTooltip:GetAnchorType() == "ANCHOR_TOPRIGHT", "an anchor")
+            GameTooltip:Hide()
+            -- A button has no font string until it has a text.
+            local plain = CreateFrame("Button")
+            assert(plain:GetFontString() == nil and plain:GetText() == nil, "no font string")
+            plain:SetText("Moo")
+            assert(plain:GetText() == "Moo" and plain:GetFontString():GetText() == "Moo", "the text of the button")
+            assert(plain:GetButtonState() == "NORMAL", "state")
+            plain:Disable()
+            assert(plain:GetButtonState() == "DISABLED" and not plain:IsEnabled(), "disabled")
+            -- A slider has no thumb texture until it gets one; a picture goes into the same texture.
+            local slider = CreateFrame("Slider")
+            assert(slider:GetThumbTexture() == nil, "no thumb")
+            local thumb = slider:CreateTexture()
+            slider:SetThumbTexture(thumb)
+            slider:SetThumbTexture(12345)
+            assert(slider:GetThumbTexture() == thumb and thumb:GetTexture() == "12345", "the thumb")
+            -- The alpha of a colour is the alpha of the region.
+            local dot = f:CreateTexture()
+            assert(dot:GetAlpha() == 1, "alpha at first")
+            dot:SetVertexColor(0.2, 0.4, 0.6, 0.8)
+            assert(dot:GetAlpha() == 0.8 and select(4, dot:GetVertexColor()) == 0.8, "alpha of the colour")
+            -- The colour of a status bar belongs to its bar texture.
+            local bar = CreateFrame("StatusBar")
+            bar:SetStatusBarColor(0.8, 0.6, 0.4, 0.2)
+            assert(bar:GetStatusBarColor() == 1, "no texture, no colour")
+            bar:SetStatusBarTexture("interface/icons/temp")
+            bar:SetStatusBarColor(0.8, 0.6, 0.4, 0.2)
+            assert(select(4, bar:GetStatusBarColor()) == 0.2, "the colour")
+            -- Names of frames: a number, and $parent.
+            local numbered = CreateFrame("Frame", 999)
+            assert(numbered:GetName() == "999" and _G["999"] == numbered, "a number as the name")
+            local named = CreateFrame("Frame", "ProbeParent")
+            assert(CreateFrame("Frame", "$parentChild", named):GetName() == "ProbeParentChild", "$parent")
+            assert(CreateFrame("Frame", "$parentAlone"):GetName() == "TopAlone", "$parent without a parent")
+            assert(WorldFrame:GetFrameStrata() == "WORLD" and WorldFrame:GetObjectType() == "Frame", "the world frame")
             "#,
         );
         assert!(failures.is_empty(), "{failures:?}");
         // Two regions that hang on each other: the text of the game's error.
         fails_with("local a, b = CreateFrame('Frame'), CreateFrame('Frame')\na:SetPoint('LEFT', b, 'RIGHT')\nb:SetPoint('LEFT', a, 'RIGHT')\n", "Cannot anchor to a region dependent on it");
-        fails_with("local f = CreateFrame('Frame')\nf:SetPoint('CENTER', f, 'CENTER')\n", "Cannot anchor to a region dependent on it");
+        fails_with("local f = CreateFrame('Frame')\nf:SetPoint('CENTER', f, 'CENTER')\n", "Cannot anchor to itself");
+        fails_with("CreateFrame('Frame'):SetPoint('TOPLEFT', nil, 'nonsense')\n", "Unknown region point nonsense");
         fails_with("local parent = CreateFrame('Frame')\nlocal child = CreateFrame('Frame', nil, parent)\nchild:SetPoint('CENTER')\nparent:SetAllPoints(child)\n", "Cannot anchor to a region dependent on it");
         fails_with("CreateFrame('Frame', nil, UIParent):CreateTexture():SetAllPoints(true)\n", "is not a region");
         // A name for the parent is not taken since patch 10.0.0.
         fails_with("CreateFrame('Frame'):SetParent('UIParent')\n", "is not a frame");
         // WORLD is the strata of the world frame alone.
         fails_with("CreateFrame('Frame'):SetFrameStrata('WORLD')\n", "unknown strata");
-        fails_with("GameTooltip:SetOwner(UIParent, 'ANCHOR_CURSOR_LEFT')\n", "unknown anchor");
+        fails_with("CreateFrame('Button'):SetButtonState('bad')\n", "unknown state");
+        fails_with("CreateFrame('Frame'):CreateFontString():SetFontObject(nil)\n", "a font is needed");
         fails_with("CreateFrame('Frame'):CreateTexture():SetDrawLayer('TOPMOST')\n", "unknown draw layer");
         fails_with("CreateFrame('Frame'):CreateTexture():SetBlendMode('ADDITIVE')\n", "unknown value");
         fails_with("CreateFrame('Frame'):CreateFontString():SetFontObject('NoSuchFont')\n", "there is no font with the name");

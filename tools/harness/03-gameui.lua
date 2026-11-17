@@ -11,6 +11,8 @@ H.gameFrameSet = {}
 UIParent = CreateFrame("Frame", "UIParent")
 UIParent:SetSize(1920, 1080)
 WorldFrame = CreateFrame("Frame", "WorldFrame")
+-- The world frame alone has the strata WORLD (wowless, WorldFrame > has strata WORLD).
+state(WorldFrame).strata = "WORLD"
 -- Blizzard_GameTooltip/Mainline/GameTooltip.xml
 GameTooltip = CreateFrame("GameTooltip", "GameTooltip", UIParent, "GameTooltipTemplate")
 -- Blizzard_UIPanels_Game/Mainline/ItemRef.xml
