@@ -69,6 +69,11 @@ expect(ns.RemoveSearch("COPPER ORE") == true and #ns.ShoppingList() == 1, "a sea
 expect(ns.AddSearch("|cnIQ1:|Hitem:2770::::::::20:::::|h[Copper Ore]|h|r") == true and ns.ShoppingList()[1] == "Copper Ore",
   "a link with a quality colour name becomes the name of the item, got " .. tostring(ns.ShoppingList()[1]))
 expect(ns.RemoveSearch("Copper Ore") == true and #ns.ShoppingList() == 1, "the search from the link is removed again")
+-- A link that is longer than a saved search can be: the name is what counts against the limit.
+local longLink = "|cffffffff|Hitem:6660::::::::20:::::|h[Julie's Dagger of the Whale]|h|r"
+expect(#longLink > 60 and ns.AddSearch(longLink) == true and ns.ShoppingList()[1] == "Julie's Dagger of the Whale",
+  "a link of more than 60 characters becomes the name of the item, got " .. tostring(ns.ShoppingList()[1]))
+expect(ns.RemoveSearch("Julie's Dagger of the Whale") == true and #ns.ShoppingList() == 1, "the search from the long link is removed again")
 
 -- The value of the bags: 32 Linen Cloth at 140 and 8 Chunk of Boar Meat at 35.
 local auction, vendor, items = ns.BagValue()

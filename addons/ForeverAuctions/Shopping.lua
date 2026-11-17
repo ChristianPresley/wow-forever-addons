@@ -5,6 +5,8 @@ local _, ns = ...
 
 local MAX_ENTRIES = 100
 local MAX_LENGTH = 60
+-- The box takes more than a saved search has: an item link is far longer than the name it becomes.
+local BOX_LETTERS = 255
 local ROWS = 11
 local ROW_HEIGHT = 20
 local WIDTH, HEIGHT = 214, 344
@@ -235,7 +237,7 @@ local function createPanel()
   panel.box:SetSize(134, 20)
   panel.box:SetPoint("TOPLEFT", 14, -30)
   panel.box:SetAutoFocus(false)
-  panel.box:SetMaxLetters(MAX_LENGTH)
+  panel.box:SetMaxLetters(BOX_LETTERS)
   panel.box:SetScript("OnEnterPressed", addFromBox)
   panel.box:SetScript("OnEscapePressed", function(self)
     self:ClearFocus()
