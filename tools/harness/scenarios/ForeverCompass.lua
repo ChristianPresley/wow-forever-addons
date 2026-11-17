@@ -104,3 +104,29 @@ expect(ns.TrackerQuest(2) == nil and flightMarker ~= nil and not flightMarker:Is
 H.run(flightMarker, "OnMouseUp", "LeftButton")
 expect(H.count("open quest") == 1, "a click on a marker that is not a quest opens nothing")
 ns.SetCompass(2, "kind", "vendor")
+
+-- For other addons: ForeverCompass.TrackQuest makes a tracker point to one quest of the log.
+-- Forever Quests calls it from the compass symbol of a quest.
+local kept = { ns.GetCompass(3, "kind"), ns.GetCompass(4, "kind") }
+ns.SetCompass(3, "enabled", false)
+ns.SetCompass(4, "enabled", false)
+expect(type(ForeverCompass) == "table" and ForeverCompass.QuestTracker(40) == nil, "no tracker points to quest 40 at first")
+expect(ForeverCompass.TrackQuest(40) == 3, "the first tracker that is off takes the quest")
+expect(ns.GetCompass(3, "enabled") == true and ns.GetCompass(3, "kind") == "quest" and ns.GetCompass(3, "questID") == 40, "that tracker is on, of the kind for one quest, with the quest")
+expect(ForeverCompass.QuestTracker(40) == 3 and ForeverCompass.TrackQuest(40) == 3, "a quest that is on the compass keeps its tracker")
+T.advance(2)
+expect(ns.TrackerQuest(3) == 40, "the marker of that tracker points to quest 40, got " .. tostring(ns.TrackerQuest(3)) .. " (" .. ns.TrackerStatus(3) .. ")")
+expect(ForeverCompass.TrackQuest(176) == 4, "a second quest takes the next tracker that is off")
+local none, why = ForeverCompass.TrackQuest(12345)
+expect(none == nil and type(why) == "string" and why:find("in use"), "with every tracker on, a third quest is refused with the reason, got " .. tostring(why))
+expect(ForeverCompass.TrackQuest("40") == nil and ForeverCompass.TrackQuest(0) == nil, "what is not a quest is refused")
+expect(ForeverCompass.UntrackQuest(40) == true and ForeverCompass.QuestTracker(40) == nil and ns.GetCompass(3, "enabled") == false, "taking the quest off turns its tracker off")
+expect(ForeverCompass.UntrackQuest(40) == false, "a quest that is not on the compass has nothing to take off")
+-- A tracker of the kind for one quest without a quest points to nothing.
+ns.SetCompass(3, "enabled", true)
+T.advance(2)
+expect(ns.TrackerQuest(3) == nil, "a tracker for one quest with no quest set shows nothing")
+ns.SetCompass(3, "enabled", false)
+ForeverCompass.UntrackQuest(176)
+ns.SetCompass(3, "kind", kept[1])
+ns.SetCompass(4, "kind", kept[2])

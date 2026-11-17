@@ -61,12 +61,14 @@ ns.COMPASS_DEFAULTS = {
   showName = true, -- the name of the target under the marker
   showDistance = true,
   maxYards = 0, -- ignore targets farther than this; 0 is no limit
+  questID = 0, -- for the kind "quest": the quest it points to; 0 is none
 }
 
 ns.COMPASS_LIMITS = {
   size = { 12, 40 },
   alpha = { 20, 100 },
   maxYards = { 0, 2000 },
+  questID = { 0, 2147483647 },
 }
 
 -- What the four compasses are at first. The first two are on.
@@ -151,6 +153,62 @@ function ns.SetCompass(index, key, value)
   end
   compass[key] = value
   changed()
+  return true
+end
+
+---------------------------------------------------------------------------------------------------
+-- For other addons: ForeverCompass.TrackQuest(questID) and its two companions. Forever Quests
+-- calls them from the compass button of a quest in the quest log.
+
+-- The tracker that points to this quest now, or nil.
+local function trackerOfQuest(questID)
+  for index = 1, ns.COUNT do
+    if ns.GetCompass(index, "enabled") and ns.GetCompass(index, "kind") == "quest" and ns.GetCompass(index, "questID") == questID then
+      return index
+    end
+  end
+  return nil
+end
+
+ForeverCompass = ForeverCompass or {}
+
+-- The number of the tracker that points to the quest, or nil.
+function ForeverCompass.QuestTracker(questID)
+  if type(questID) ~= "number" or not ForeverCompassDB then
+    return nil
+  end
+  return trackerOfQuest(questID)
+end
+
+-- Makes a tracker point to one quest: the tracker that has it already, else the first tracker
+-- that is off. Returns the number of the tracker, or nil and why not.
+function ForeverCompass.TrackQuest(questID)
+  if type(questID) ~= "number" or questID <= 0 or not ForeverCompassDB then
+    return nil, "not a quest"
+  end
+  local index = trackerOfQuest(questID)
+  if index then
+    return index
+  end
+  for free = 1, ns.COUNT do
+    if not ns.GetCompass(free, "enabled") then
+      ns.SetCompass(free, "kind", "quest")
+      ns.SetCompass(free, "questID", questID)
+      ns.SetCompass(free, "enabled", true)
+      return free
+    end
+  end
+  return nil, "all " .. ns.COUNT .. " trackers of the compass are in use"
+end
+
+-- Turns off the tracker that points to the quest. Returns true if there was one.
+function ForeverCompass.UntrackQuest(questID)
+  local index = ForeverCompass.QuestTracker(questID)
+  if not index then
+    return false
+  end
+  ns.SetCompass(index, "enabled", false)
+  ns.SetCompass(index, "questID", 0)
   return true
 end
 

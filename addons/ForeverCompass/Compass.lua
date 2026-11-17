@@ -254,7 +254,7 @@ local function updateMarker(marker, elapsed, heading, half, scale, continent, no
   marker.sinceSearch = marker.sinceSearch + elapsed
   if marker.sinceSearch >= TARGET_INTERVAL then
     marker.sinceSearch = 0
-    marker.targets = ns.FindTargets(ns.GetCompass(index, "kind"))
+    marker.targets = ns.FindTargets(ns.GetCompass(index, "kind"), ns.GetCompass(index, "questID"))
   end
 
   local target, yards, dNorth, dWest = nearest(marker, continent, north, west)

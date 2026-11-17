@@ -108,6 +108,23 @@ local function continentOf(mapID)
   return mapID
 end
 
+-- One quest of the log, chosen by the player (ForeverCompass.TrackQuest): its point on the
+-- map of the player, or on the map of the continent if the quest is in another zone.
+local function oneQuest(mapID, add, _, questID)
+  if not questID or questID == 0 then
+    return
+  end
+  local continent = continentOf(mapID)
+  for _, onMap in ipairs(continent ~= mapID and { mapID, continent } or { mapID }) do
+    for _, quest in ipairs(questsOnMap(onMap)) do
+      if quest.questID == questID and quest.x and quest.y then
+        add(quest.x, quest.y, questName(questID), onMap, questID)
+        return
+      end
+    end
+  end
+end
+
 local function flightMasters(mapID, add)
   if not (C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap) then
     return
@@ -192,6 +209,8 @@ ns.KINDS = {
     hint = "The quests that you can start in this zone." },
   { key = "trackedQuest", name = "Tracked quest", find = trackedQuest,
     hint = "The quest that you track on the map (the one with the arrow)." },
+  { key = "quest", name = "One quest (chosen in the quest log)", find = oneQuest,
+    hint = "One quest of your log. Forever Quests sets it with the compass button of a quest." },
   { key = "rares", name = "Rare enemies and treasures", find = rares,
     hint = "The rare enemies, treasures and events that the game marks near you." },
   { key = "vendor", name = "Vendors", find = learned("vendor"), learned = true, hint = LEARNED },
@@ -234,7 +253,8 @@ local function worldOf(mapID, x, y)
 end
 
 -- The things of a kind that are known now: { { continent, north, west, name, questID }, ... }.
-function ns.FindTargets(kindKey)
+-- questID: for the kind "quest", the quest to point to.
+function ns.FindTargets(kindKey, questID)
   local kind = ns.KindByKey[kindKey]
   local mapID = ns.PlayerMap()
   local targets = {}
@@ -252,7 +272,7 @@ function ns.FindTargets(kindKey)
   local function addWorld(continent, north, west, name)
     targets[#targets + 1] = { continent, north, west, name }
   end
-  local ok, err = pcall(kind.find, mapID, add, addWorld)
+  local ok, err = pcall(kind.find, mapID, add, addWorld, questID)
   if not ok then
     geterrorhandler()(err)
   end
