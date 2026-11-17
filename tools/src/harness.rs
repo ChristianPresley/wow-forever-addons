@@ -911,9 +911,30 @@ mod tests {
             GameTooltip:AddTexture(134400)
             GameTooltip_Hide()
             assert(not GameTooltip:IsShown(), "GameTooltip_Hide")
+            -- SetAllPoints: the parent without an argument, the screen for nil, a region by its name.
+            local filler = f:CreateTexture()
+            filler:SetAllPoints()
+            assert(select(2, filler:GetPoint(1)) == f and filler:GetNumPoints() == 2, "the parent")
+            filler:SetAllPoints(nil)
+            assert(select(2, filler:GetPoint(1)) == nil, "the screen")
+            filler:SetAllPoints("UIParent")
+            assert(select(2, filler:GetPoint(2)) == UIParent, "by name")
+            -- Alpha stays between 0 and 1 (patch 12.0.0).
+            f:SetAlpha(2)
+            assert(f:GetAlpha() == 1, "alpha above 1")
+            f:SetAlpha(-1)
+            assert(f:GetAlpha() == 0, "alpha below 0")
+            -- One offset: Blizzard_CharacterCustomize/Camelot/Blizzard_CharacterCustomize.lua.
+            f:SetPoint("LEFT", 40)
             "#,
         );
         assert!(failures.is_empty(), "{failures:?}");
+        fails_with("CreateFrame('Frame', nil, UIParent):CreateTexture():SetAllPoints(true)\n", "is not a region");
+        // A name for the parent is not taken since patch 10.0.0.
+        fails_with("CreateFrame('Frame'):SetParent('UIParent')\n", "is not a frame");
+        // WORLD is the strata of the world frame alone.
+        fails_with("CreateFrame('Frame'):SetFrameStrata('WORLD')\n", "unknown strata");
+        fails_with("GameTooltip:SetOwner(UIParent, 'ANCHOR_CURSOR_LEFT')\n", "unknown anchor");
         fails_with("CreateFrame('Frame'):CreateTexture():SetDrawLayer('TOPMOST')\n", "unknown draw layer");
         fails_with("CreateFrame('Frame'):CreateTexture():SetBlendMode('ADDITIVE')\n", "unknown value");
         fails_with("CreateFrame('Frame'):CreateFontString():SetFontObject('NoSuchFont')\n", "there is no font with the name");

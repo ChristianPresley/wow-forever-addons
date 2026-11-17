@@ -236,6 +236,17 @@ The stand-in is checked too, so that a mistake in it cannot make a wrong addon p
 
 After a patch of the game: put the new commit in `tools/api/source.txt`, build both files again (`--out` first for the snapshot), then run `cargo dev conformance` and `cargo dev test`. A name that the addons use and the new client lacks fails there.
 
+#### Where the sources say nothing
+
+The stand-in follows three sources, in this order: Blizzard's API documentation, the game's own UI code, and for a behaviour that neither shows, the page of the method on [warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/Widget_API) (alpha stays between 0 and 1; `SetParent` takes no name; `SetAllPoints` takes a name). The page is named beside the code.
+
+For these no source says what the game does. The stand-in takes the forms that the game's own code uses and nothing more. One run in the game settles each:
+
+- A name in another case: `CreateAnimation("alpha")`, `SetOwner(frame, "anchor_right")`. The stand-in takes the spelling of the game's code only.
+- `StatusBar:SetValue` with a value outside the range, and the value of a slider when `SetMinMaxValues` makes the range smaller. The stand-in keeps the value. The game's code brings the value into the range before the call.
+- An anchor of two regions to each other.
+- `GetObjectType()` of an intrinsic frame such as `ItemButton`. The stand-in gives the name of the intrinsic type.
+
 #### What it cannot find
 
 - How a window looks: positions, sizes, overlap.

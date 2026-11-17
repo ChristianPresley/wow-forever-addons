@@ -603,11 +603,27 @@ define("SimpleScriptRegionResizingAPI", "ClearPoint", function(self, point)
     end
   end
 end)
-define("SimpleScriptRegionResizingAPI", "SetAllPoints", function(self, relativeTo)
-  if relativeTo ~= nil and not isWidget(relativeTo) then
+-- The region to fill is a region or the name of one. Without the argument it is the parent;
+-- with an explicit nil it is the screen (the game's code has SetAllPoints(nil); the rule is on
+-- https://warcraft.wiki.gg/wiki/API_ScriptRegionResizing_SetAllPoints).
+define("SimpleScriptRegionResizingAPI", "SetAllPoints", function(self, ...)
+  local relativeTo = ...
+  if realType(relativeTo) == "string" then
+    local named = rawget(_G, relativeTo)
+    if not isWidget(named) then
+      fail("SetAllPoints: there is no region with the name " .. relativeTo)
+    end
+    relativeTo = named
+  elseif relativeTo ~= nil and not isWidget(relativeTo) then
     fail("SetAllPoints: the region to anchor to is not a region")
   end
-  local target = relativeTo or state(self).parent
+  if relativeTo == self then
+    fail("SetAllPoints: a region cannot be anchored to itself")
+  end
+  local target = relativeTo
+  if select("#", ...) == 0 then
+    target = state(self).parent
+  end
   state(self).points = { { "TOPLEFT", target, "TOPLEFT", 0, 0 }, { "BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0 } }
 end)
 define("SimpleScriptRegionResizingAPI", "GetPoint", function(self, index)
@@ -655,9 +671,12 @@ for _, layer in ipairs({ "SimpleFrameAPI", "SimpleRegionAPI" }) do
   define(layer, "GetAlpha", function(self)
     return state(self).alpha
   end)
+  -- A value outside 0 to 1 is brought into that range, without an error, since patch 12.0.0
+  -- (https://warcraft.wiki.gg/wiki/API_Region_SetAlpha). The game's own code still clamps
+  -- first: Blizzard_FrameXML/LossOfControlFrame.lua has SetAlpha(Saturate(...)).
   define(layer, "SetAlpha", function(self, alpha)
     if secrets[alpha] == nil then
-      number(alpha, "SetAlpha")
+      alpha = math.max(0, math.min(1, number(alpha, "SetAlpha")))
     end
     state(self).alpha = alpha
   end)
@@ -824,9 +843,11 @@ end)
 define("SimpleFrameAPI", "SetFrameLevel", function(self, level)
   state(self).level = number(level, "SetFrameLevel")
 end)
+-- The list FRAMESTRATA of UI.xsd. WORLD is the strata of the world frame and cannot be given
+-- to a frame (https://warcraft.wiki.gg/wiki/Frame_Strata); no file of the game gives PARENT.
 local STRATA = {
   BACKGROUND = true, LOW = true, MEDIUM = true, HIGH = true, DIALOG = true, FULLSCREEN = true,
-  FULLSCREEN_DIALOG = true, TOOLTIP = true, PARENT = true, WORLD = true, BLIZZARD = true,
+  FULLSCREEN_DIALOG = true, TOOLTIP = true, BLIZZARD = true,
 }
 define("SimpleFrameAPI", "SetFrameStrata", function(self, strata)
   if realType(strata) ~= "string" or not STRATA[strata:upper()] then
@@ -1081,7 +1102,12 @@ end)
 -- The value stays in the range of the slider.
 local function setSliderValue(self, value, userInput)
   local s = state(self)
-  number(value, "SetValue")
+  value = number(value, "SetValue")
+  -- A drag by the player goes in steps when the slider obeys its step on a drag
+  -- (SetObeyStepOnDrag); SetValue from code does not.
+  if userInput and s.obeyStep and s.step and s.step > 0 then
+    value = s.min + math.floor((value - s.min) / s.step + 0.5) * s.step
+  end
   value = math.max(s.min, math.min(s.max, value))
   if s.value ~= value then
     s.value = value
@@ -1117,10 +1143,12 @@ end)
 -- game's own UI code of this client, on a tooltip.
 
 local GAME_TOOLTIP = "Blizzard_GameTooltip/Mainline/GameTooltip.lua"
+-- The anchors on https://warcraft.wiki.gg/wiki/API_GameTooltip_SetOwner. Each one is also in
+-- the game's own Lua code.
 local ANCHORS = {
   ANCHOR_TOP = true, ANCHOR_RIGHT = true, ANCHOR_BOTTOM = true, ANCHOR_LEFT = true, ANCHOR_TOPRIGHT = true,
   ANCHOR_BOTTOMRIGHT = true, ANCHOR_TOPLEFT = true, ANCHOR_BOTTOMLEFT = true, ANCHOR_CURSOR = true,
-  ANCHOR_CURSOR_RIGHT = true, ANCHOR_CURSOR_LEFT = true, ANCHOR_PRESERVE = true, ANCHOR_NONE = true,
+  ANCHOR_CURSOR_RIGHT = true, ANCHOR_PRESERVE = true, ANCHOR_NONE = true,
 }
 -- And each anchor that the game's own Lua code names (ANCHOR_CENTER is one).
 for _, anchor in ipairs(UI_NAMES.tooltipAnchors or {}) do
