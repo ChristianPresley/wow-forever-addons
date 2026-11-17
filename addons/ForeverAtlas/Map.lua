@@ -44,8 +44,12 @@ local ARROW = "Interface\\Minimap\\MinimapArrow"
 local TERRAIN_YARDS = 1600 / 3 -- the side of the square of one terrain image
 local TERRAIN_IMAGE = 256 -- its pixels
 local TERRAIN_PIXELS = 1.5 -- at the closest zoom, screen units for one pixel of a terrain image
-local TERRAIN_START = 2 -- how many times closer than the whole map the terrain starts to show
-local TERRAIN_FADE = 0.5 -- it is in full at TERRAIN_START * (1 + TERRAIN_FADE)
+local TERRAIN_START = 2 -- how many times closer than the whole map the terrain can show in full
+local TERRAIN_GUARD = 1.5 -- and from where it can start to show
+local TERRAIN_SHOW, TERRAIN_FULL = 280, 360 -- screen units for the square of one image: it starts to show, it shows in full
+local UNEXPLORED_SHADE = 0.72 -- how bright the land is where the character has not been
+local NEIGHBOURS_MOST = 12 -- zones drawn around the zone shown
+local NEIGHBOURS_REACH = 1.25 -- as far as this part of the map past each edge
 local TERRAIN_MOST = 1500 -- no terrain for a map that needs more images than this
 local TERRAIN_PAST = 0.5 -- the terrain goes on this far past each edge of the map, as a part of the map
 local CROSS_SLACK = 0.05 -- the middle of the window goes this far past the edge before the next zone is looked for
@@ -58,6 +62,9 @@ local layerFrames = {} -- [index] = { frame = , tiles = {} }, one for each layer
 local exploredFrame
 local terrainFrame
 local terrainTiles = {}
+local neighbourFrame -- the zones beside the zone shown, drawn around it
+local neighbourTiles, neighbourOverlays = {}, {}
+local loadNeighbours
 local overlays = {}
 local pins, pinPool = {}, {}
 local hovered -- the pin whose tooltip shows
@@ -130,15 +137,10 @@ end
 
 local terrainAlpha
 
--- True while the player can move the map past the edge of the zone: the zone has neighbours
--- on a continent, and the player is moving the map with the mouse (at any zoom: the map
--- goes back to its place when the button is let go), or the map is close enough for the
--- terrain to show in full. The terrain goes on past the edge, so there is something to see.
+-- True where the player can move the map past the edge of the zone: the zone has a place on
+-- a continent. The zones beside it are drawn around it, so there is something to see there.
 local function canCross()
-  if not view.pan then
-    return false
-  end
-  return (drag ~= nil and drag.moved == true) or (view.terrain ~= nil and terrainAlpha() >= 1)
+  return view.pan ~= nil
 end
 
 -- Keeps the map in the viewport: a map smaller than the viewport is in the middle, a larger
@@ -185,8 +187,13 @@ function terrainAlpha()
   if not view.terrain then
     return 0
   end
+  -- By the size of the land on the screen, so that the terrain stays as it is from zone to
+  -- zone: from TERRAIN_SHOW to TERRAIN_FULL screen units for the square of one image. Not
+  -- before the map is TERRAIN_GUARD times closer than whole: a small map keeps its painting.
   local closer = view.scale / view.minScale
-  return math.min(1, math.max(0, (closer - TERRAIN_START) / (TERRAIN_START * TERRAIN_FADE)))
+  local guard = (closer - TERRAIN_GUARD) / (TERRAIN_START - TERRAIN_GUARD)
+  local byLand = (view.terrain.tileWidth * view.width * view.scale - TERRAIN_SHOW) / (TERRAIN_FULL - TERRAIN_SHOW)
+  return math.min(1, math.max(0, math.min(guard, byLand)))
 end
 
 -- The opacity of each layer for the zoom now. The first layer is always there; a finer one
@@ -382,6 +389,115 @@ local function loadTerrain(mapID)
   }
 end
 
+-- The pictures of all the land of a map, also where the character has not been (from
+-- RevealData.lua, by the art of the map): { ["width:height:x:y"] = part }, each part as the
+-- game gives an uncovered one, with `unexplored`. Nil for a map without them.
+local revealed = {}
+local function revealFor(mapID)
+  if not (ns.MAP_REVEAL and C_Map.GetMapArtID) then
+    return nil
+  end
+  local ok, art = pcall(C_Map.GetMapArtID, mapID)
+  local data = ok and ns.Usable(art) and ns.MAP_REVEAL[art]
+  if not data then
+    return nil
+  end
+  if not revealed[art] then
+    local parts = {}
+    for key, files in pairs(data) do
+      local width, height, x, y = string.match(key, "^(%d+):(%d+):(%d+):(%d+)$")
+      if width then
+        local ids = {}
+        for id in string.gmatch(files, "%d+") do
+          ids[#ids + 1] = tonumber(id)
+        end
+        parts[key] = {
+          textureWidth = tonumber(width), textureHeight = tonumber(height), offsetX = tonumber(x), offsetY = tonumber(y),
+          fileDataIDs = ids, unexplored = true,
+        }
+      end
+    end
+    revealed[art] = parts
+  end
+  return revealed[art]
+end
+
+-- The parts of a map that the character has uncovered: images over the base picture, on
+-- `frame`, from the texture after `used` of `list` on. The sizes are those of
+-- Blizzard_SharedMapDataProviders/MapExplorationDataProvider.lua. originX, originY: where the
+-- top left corner of that map is on the canvas; scaleX, scaleY: canvas units for one of its
+-- pixels (0, 0, 1, 1 for the map shown). Returns the last texture used.
+-- With `all`, the land where the character has not been is drawn too, a little darker, from
+-- the pictures of revealFor.
+local function drawExplored(mapID, frame, list, used, tileWidth, tileHeight, originX, originY, scaleX, scaleY, all)
+  local parts, seen = {}, {}
+  local okExplored, explored = pcall(C_MapExplorationInfo.GetExploredMapTextures, mapID)
+  if okExplored and type(explored) == "table" then
+    for _, part in ipairs(explored) do
+      if type(part) == "table" and type(part.fileDataIDs) == "table"
+        and ns.Usable(part.textureWidth) and ns.Usable(part.textureHeight) and ns.Usable(part.offsetX) and ns.Usable(part.offsetY) then
+        seen[part.textureWidth .. ":" .. part.textureHeight .. ":" .. part.offsetX .. ":" .. part.offsetY] = true
+        if not part.isShownByMouseOver then
+          parts[#parts + 1] = part
+        end
+      end
+    end
+  end
+  for key, part in pairs(all and revealFor(mapID) or {}) do
+    if not seen[key] then
+      parts[#parts + 1] = part
+    end
+  end
+  for _, part in ipairs(parts) do
+    do
+      local wide, tall = math.ceil(part.textureWidth / tileWidth), math.ceil(part.textureHeight / tileHeight)
+      for row = 1, tall do
+        local pixelHeight, fileHeight = tileHeight, tileHeight
+        if row == tall then
+          pixelHeight = part.textureHeight % tileHeight
+          if pixelHeight == 0 then
+            pixelHeight = tileHeight
+          end
+          fileHeight = 16
+          while fileHeight < pixelHeight do
+            fileHeight = fileHeight * 2
+          end
+        end
+        for column = 1, wide do
+          local pixelWidth, fileWidth = tileWidth, tileWidth
+          if column == wide then
+            pixelWidth = part.textureWidth % tileWidth
+            if pixelWidth == 0 then
+              pixelWidth = tileWidth
+            end
+            fileWidth = 16
+            while fileWidth < pixelWidth do
+              fileWidth = fileWidth * 2
+            end
+          end
+          local file = part.fileDataIDs[(row - 1) * wide + column]
+          if file then
+            used = used + 1
+            local texture = textureAt(frame, list, used, "BORDER", 0)
+            -- Land where the character has not been: under the land that is uncovered, and darker.
+            texture:SetDrawLayer("BORDER", part.unexplored and -1 or (part.isDrawOnTopLayer and 1 or 0))
+            local shade = part.unexplored and UNEXPLORED_SHADE or 1
+            texture:SetVertexColor(shade, shade, shade)
+            texture:ClearAllPoints()
+            texture:SetPoint("TOPLEFT", canvas, "TOPLEFT", originX + (part.offsetX + tileWidth * (column - 1)) * scaleX,
+              -(originY + (part.offsetY + tileHeight * (row - 1)) * scaleY))
+            texture:SetSize(pixelWidth * scaleX, pixelHeight * scaleY)
+            texture:SetTexCoord(0, pixelWidth / fileWidth, 0, pixelHeight / fileHeight)
+            texture:SetTexture(file, nil, nil, "TRILINEAR")
+            texture:Show()
+          end
+        end
+      end
+    end
+  end
+  return used
+end
+
 -- Puts every image of every layer of the map on the canvas. Returns the number of images, or
 -- nil if the game has no art for the map.
 local function loadArt(mapID)
@@ -439,53 +555,8 @@ local function loadArt(mapID)
   exploredFrame:SetFrameLevel(canvas:GetFrameLevel() + #layers + 1)
   -- The parts of the map that the character has uncovered are images over the base picture.
   -- The sizes are those of Blizzard_SharedMapDataProviders/MapExplorationDataProvider.lua.
-  local used = 0
-  local okExplored, explored = pcall(C_MapExplorationInfo.GetExploredMapTextures, mapID)
-  if okExplored and type(explored) == "table" then
-    for _, part in ipairs(explored) do
-      if type(part) == "table" and not part.isShownByMouseOver and type(part.fileDataIDs) == "table"
-        and ns.Usable(part.textureWidth) and ns.Usable(part.textureHeight) and ns.Usable(part.offsetX) and ns.Usable(part.offsetY) then
-        local wide, tall = math.ceil(part.textureWidth / tileWidth), math.ceil(part.textureHeight / tileHeight)
-        for row = 1, tall do
-          local pixelHeight, fileHeight = tileHeight, tileHeight
-          if row == tall then
-            pixelHeight = part.textureHeight % tileHeight
-            if pixelHeight == 0 then
-              pixelHeight = tileHeight
-            end
-            fileHeight = 16
-            while fileHeight < pixelHeight do
-              fileHeight = fileHeight * 2
-            end
-          end
-          for column = 1, wide do
-            local pixelWidth, fileWidth = tileWidth, tileWidth
-            if column == wide then
-              pixelWidth = part.textureWidth % tileWidth
-              if pixelWidth == 0 then
-                pixelWidth = tileWidth
-              end
-              fileWidth = 16
-              while fileWidth < pixelWidth do
-                fileWidth = fileWidth * 2
-              end
-            end
-            local file = part.fileDataIDs[(row - 1) * wide + column]
-            if file then
-              used = used + 1
-              local texture = textureAt(exploredFrame, overlays, used, "BORDER", part.isDrawOnTopLayer and 1 or 0)
-              texture:ClearAllPoints()
-              texture:SetPoint("TOPLEFT", canvas, "TOPLEFT", part.offsetX + tileWidth * (column - 1), -(part.offsetY + tileHeight * (row - 1)))
-              texture:SetSize(pixelWidth, pixelHeight)
-              texture:SetTexCoord(0, pixelWidth / fileWidth, 0, pixelHeight / fileHeight)
-              texture:SetTexture(file, nil, nil, "TRILINEAR")
-              texture:Show()
-            end
-          end
-        end
-      end
-    end
-  end
+  view.tileWidth, view.tileHeight = tileWidth, tileHeight
+  local used = drawExplored(mapID, exploredFrame, overlays, 0, tileWidth, tileHeight, 0, 0, 1, 1)
   for index = used + 1, #overlays do
     overlays[index]:Hide()
   end
@@ -711,7 +782,8 @@ local function place()
   canvas:ClearAllPoints()
   canvas:SetPoint("TOPLEFT", viewport, "TOPLEFT", view.x / view.scale, -view.y / view.scale)
   for index, layer in ipairs(view.layers) do
-    layer.frame:SetAlpha(layerAlpha(index))
+    -- Not the sheet of the zone where its land lies on the painting of the continent.
+    layer.frame:SetAlpha(view.stitched and 0 or layerAlpha(index))
   end
   if terrainFrame and view.terrain then
     terrainFrame:SetAlpha(terrainAlpha())
@@ -780,6 +852,155 @@ local function panFor(mapID)
   return nil
 end
 
+-- The world places of the corners of a map (north and west, in yards), or nil.
+local function cornersOf(mapID)
+  if not (C_Map.GetWorldPosFromMapPos and CreateVector2D) then
+    return nil
+  end
+  local okA, world, cornerA = pcall(C_Map.GetWorldPosFromMapPos, mapID, CreateVector2D(0, 0))
+  local okB, _, cornerB = pcall(C_Map.GetWorldPosFromMapPos, mapID, CreateVector2D(1, 1))
+  if not (okA and okB and type(cornerA) == "table" and type(cornerB) == "table") then
+    return nil
+  end
+  local northA, westA = cornerA:GetXY()
+  local northB, westB = cornerB:GetXY()
+  if not (ns.Usable(northA) and ns.Usable(westA) and ns.Usable(northB) and ns.Usable(westB)) or northA == northB or westA == westB then
+    return nil
+  end
+  return { world = world, northA = northA, westA = westA, northB = northB, westB = westB }
+end
+
+-- Where another zone of the same continent lies on a zone, with that zone from 0 to 1:
+-- { x0, x1, y0, y1, by }. `from` and `to` are the places of the two on the continent. By the
+-- world places of the two maps where they agree with the continent (the terrain is laid by
+-- them), else by the rectangles on the continent.
+local function rectIn(fromID, from, toID, to)
+  local wide, tall = from.right - from.left, from.bottom - from.top
+  local rect = {
+    x0 = (to.left - from.left) / wide, x1 = (to.right - from.left) / wide,
+    y0 = (to.top - from.top) / tall, y1 = (to.bottom - from.top) / tall, by = "the continent",
+  }
+  local a, b = cornersOf(fromID), cornersOf(toID)
+  if a and b and a.world == b.world then
+    local x0, x1 = (b.westA - a.westA) / (a.westB - a.westA), (b.westB - a.westA) / (a.westB - a.westA)
+    local y0, y1 = (b.northA - a.northA) / (a.northB - a.northA), (b.northB - a.northA) / (a.northB - a.northA)
+    if x1 > x0 and y1 > y0 and math.abs(x0 + x1 - rect.x0 - rect.x1) < 0.5 and math.abs(y0 + y1 - rect.y0 - rect.y1) < 0.5 then
+      rect = { x0 = x0, x1 = x1, y0 = y0, y1 = y1, by = "the world" }
+    end
+  end
+  return rect
+end
+
+-- Draws the land around the zone shown, under its own art: the painting of the continent,
+-- and what the character has uncovered of the zones beside it. With them the map goes from
+-- zone to zone without a break: the land of the next zone is there before the map changes.
+local function drawNeighbours()
+  view.neighbours, view.surround, view.stitched = {}, nil, false
+  local pan = view.pan
+  local usedTiles, usedOverlays = 0, 0
+  if pan then
+    if not neighbourFrame then
+      neighbourFrame = CreateFrame("Frame", nil, canvas)
+      neighbourFrame:SetAllPoints(canvas)
+    end
+    neighbourFrame:SetFrameLevel(canvas:GetFrameLevel())
+    local found = {}
+    local ok, children = pcall(C_Map.GetMapChildrenInfo, pan.parent, Enum.UIMapType.Zone)
+    if ok and type(children) == "table" then
+      for _, child in ipairs(children) do
+        local mapID = type(child) == "table" and child.mapID
+        local to = ns.Usable(mapID) and mapID ~= view.mapID and panFor(mapID)
+        if to and to.parent == pan.parent then
+          local rect = rectIn(view.mapID, pan, mapID, to)
+          if rect.x1 > -NEIGHBOURS_REACH and rect.x0 < 1 + NEIGHBOURS_REACH and rect.y1 > -NEIGHBOURS_REACH and rect.y0 < 1 + NEIGHBOURS_REACH then
+            rect.mapID = mapID
+            rect.far = math.max(math.abs((rect.x0 + rect.x1) / 2 - 0.5), math.abs((rect.y0 + rect.y1) / 2 - 0.5))
+            found[#found + 1] = rect
+          end
+        end
+      end
+    end
+    table.sort(found, function(a, b)
+      if a.far ~= b.far then
+        return a.far < b.far
+      end
+      return a.mapID < b.mapID
+    end)
+    -- Under everything, the painting of the continent: one picture for all the land around,
+    -- where the map of each zone would be a sheet of paper with its own frame.
+    local whole = artLayers(pan.parent)
+    if #whole > 0 then
+      local info, files = whole[1].info, whole[1].files
+      local wide, tall = pan.right - pan.left, pan.bottom - pan.top
+      local originX, originY = -pan.left / wide * view.width, -pan.top / tall * view.height
+      local scaleX, scaleY = view.width / wide / info.layerWidth, view.height / tall / info.layerHeight
+      local columns = math.ceil(info.layerWidth / info.tileWidth)
+      for tileIndex, file in ipairs(files) do
+        local column, row = (tileIndex - 1) % columns, math.floor((tileIndex - 1) / columns)
+        -- The last image of a row or a column goes on past the map: only its part on the map.
+        local pixelWidth = math.min(info.tileWidth, info.layerWidth - column * info.tileWidth)
+        local pixelHeight = math.min(info.tileHeight, info.layerHeight - row * info.tileHeight)
+        if pixelWidth > 0 and pixelHeight > 0 then
+          usedTiles = usedTiles + 1
+          local tile = textureAt(neighbourFrame, neighbourTiles, usedTiles, "BACKGROUND", -8)
+          tile:ClearAllPoints()
+          tile:SetPoint("TOPLEFT", canvas, "TOPLEFT", originX + column * info.tileWidth * scaleX, -(originY + row * info.tileHeight * scaleY))
+          tile:SetSize(pixelWidth * scaleX, pixelHeight * scaleY)
+          tile:SetTexCoord(0, pixelWidth / info.tileWidth, 0, pixelHeight / info.tileHeight)
+          tile:SetTexture(file, nil, nil, "TRILINEAR")
+          tile:Show()
+        end
+      end
+      view.surround = pan.parent
+    end
+    -- Over it, what the character has uncovered of the zones around: those pictures have the
+    -- shape of the land, not of a sheet.
+    for index = 1, math.min(#found, NEIGHBOURS_MOST) do
+      local rect = found[index]
+      local layers = artLayers(rect.mapID)
+      if #layers > 0 then
+        local info = layers[1].info
+        local originX, originY = rect.x0 * view.width, rect.y0 * view.height
+        local scaleX = (rect.x1 - rect.x0) * view.width / info.layerWidth
+        local scaleY = (rect.y1 - rect.y0) * view.height / info.layerHeight
+        usedOverlays = drawExplored(rect.mapID, neighbourFrame, neighbourOverlays, usedOverlays, info.tileWidth, info.tileHeight, originX, originY, scaleX, scaleY, true)
+        view.neighbours[#view.neighbours + 1] = rect
+      end
+    end
+    -- The zone shown is drawn the same way where the land of it is known: all its land over
+    -- the painting of the continent, without its own sheet of paper and the frame of that.
+    -- So nothing changes on the screen when the map goes to the next zone.
+    if view.surround and revealFor(view.mapID) then
+      view.stitched = true
+      local used = drawExplored(view.mapID, exploredFrame, overlays, 0, view.tileWidth, view.tileHeight, 0, 0, 1, 1, true)
+      for index = used + 1, #overlays do
+        overlays[index]:Hide()
+      end
+    end
+    neighbourFrame:Show()
+  elseif neighbourFrame then
+    neighbourFrame:Hide()
+  end
+  for index = usedTiles + 1, #neighbourTiles do
+    neighbourTiles[index]:Hide()
+  end
+  for index = usedOverlays + 1, #neighbourOverlays do
+    neighbourOverlays[index]:Hide()
+  end
+end
+
+-- If the zones around fail, the map still shows.
+function loadNeighbours()
+  local ok, err = pcall(drawNeighbours)
+  if not ok then
+    view.neighbours = {}
+    report("the zones around the map", err)
+    if neighbourFrame then
+      neighbourFrame:Hide()
+    end
+  end
+end
+
 -- Shows a map. Returns false if the game has no art for it: the map of before stays.
 local function setMap(mapID)
   if not mapID then
@@ -793,6 +1014,7 @@ local function setMap(mapID)
     view.mapID = mapID
     view.pan = panFor(mapID)
     fit()
+    loadNeighbours()
   end
   window.title:SetText(ns.MapName(mapID))
   window.up:SetEnabled(parentOf(mapID) ~= nil)
@@ -866,57 +1088,31 @@ local function crossZone()
     view.crossNote = string.format("the continent has no zone at %.3f, %.3f", onX, onY)
     return false
   end
-  -- Screen units for the whole width of the continent: the same before and after.
-  local perContinent = view.scale * view.width / (from.right - from.left)
-  local before, old, oldScale, oldWidth = view.mapID, view.terrain, view.scale, view.width
-  local wasClose = old ~= nil and terrainAlpha() >= 1
+  -- Where the next zone lies on the map shown: the same rectangle it was drawn in beside this
+  -- map, so the new map comes exactly where its picture was.
+  local rect = rectIn(view.mapID, from, nextID, to)
+  local before, oldScale, oldWidth = view.mapID, view.scale, view.width
   if not loadArt(nextID) then
     view.crossNote = "the game has no art for map " .. tostring(nextID)
     return false
   end
   view.mapID, view.pan = nextID, to
   limits()
-  -- Where the middle is on the new map, and the size of the land there. From the world places
-  -- of the two maps where they agree with the continent: the terrain is laid by them, so it
-  -- does not move under the window. Else from the rectangles on the continent.
-  local newX, newY = (onX - to.left) / (to.right - to.left), (onY - to.top) / (to.bottom - to.top)
-  local newScale, by = perContinent * (to.right - to.left) / view.width, "the continent"
-  local new = view.terrain
-  if old and new and old.world == new.world and old.westA and new.westA then
-    local west, north = old.westA + mapX * (old.westB - old.westA), old.northA + mapY * (old.northB - old.northA)
-    local worldX, worldY = (west - new.westA) / (new.westB - new.westA), (north - new.northA) / (new.northB - new.northA)
-    if worldX >= -CROSS_SLACK and worldX <= 1 + CROSS_SLACK and worldY >= -CROSS_SLACK and worldY <= 1 + CROSS_SLACK then
-      -- Inside the new map, so that the next look does not send the map back.
-      newX, newY = math.min(1, math.max(0, worldX)), math.min(1, math.max(0, worldY))
-      newScale, by = oldScale * oldWidth * math.abs(new.westB - new.westA) / (math.abs(old.westB - old.westA) * view.width), "the world"
-    end
-  end
-  -- The same size of the land, as far as the new map can zoom: at the closest zoom the two
-  -- maps have the same limit but for the last digits of the number.
-  local scale = math.min(view.maxScale, math.max(view.minScale, newScale))
-  -- A zone that is smaller on the continent is less far in at the same size of the land: it
-  -- comes closer, just far enough for its terrain in full, so that the map can go on from it.
-  -- Not from a map that was farther out itself: that one goes on while the mouse moves it.
-  if view.terrain and wasClose then
-    scale = math.min(view.maxScale, math.max(scale, view.minScale * TERRAIN_START * (1 + TERRAIN_FADE) * 1.001))
-  end
+  -- The place of the middle on the new map; inside it, so that the next look does not send
+  -- the map back.
+  local newX = math.min(1, math.max(0, (mapX - rect.x0) / (rect.x1 - rect.x0)))
+  local newY = math.min(1, math.max(0, (mapY - rect.y0) / (rect.y1 - rect.y0)))
+  -- The same size of the land. That can be farther out than the whole of a small zone: the
+  -- zones around it fill the window. Not closer than the new map can zoom: at the closest
+  -- zoom the two maps have the same limit but for the last digits of the number.
+  local scale = math.min(view.maxScale, oldScale * oldWidth * (rect.x1 - rect.x0) / view.width)
   view.scale, view.target, anchor = scale, scale, nil
-  if not canCross() then
-    -- The next zone cannot show this place this close (a small map, or one without terrain):
-    -- the map of before stays.
-    view.crossNote = string.format("map %s (%s) cannot show this place this close", tostring(nextID), ns.MapName(nextID))
-    loadArt(before)
-    view.mapID, view.pan = before, from
-    limits()
-    scale = perContinent * (from.right - from.left) / view.width
-    view.scale, view.target = scale, scale
-    return false
-  end
   view.x = width / 2 - newX * view.width * scale
   view.y = height / 2 - newY * view.height * scale
-  view.crossNote = string.format("went from map %s to map %s (%s), placed by %s", tostring(before), tostring(nextID), ns.MapName(nextID), by)
+  view.crossNote = string.format("went from map %s to map %s (%s), placed by %s", tostring(before), tostring(nextID), ns.MapName(nextID), rect.by)
   window.title:SetText(ns.MapName(view.mapID))
   window.up:SetEnabled(parentOf(view.mapID) ~= nil)
+  loadNeighbours()
   rebuildPins()
   dirty = true
   return true
@@ -1299,7 +1495,8 @@ function ns.PrintMapStatus()
     or (ns.GetOption("terrainDetail") and "on, but none for this map" or "off")))
   local pan = view.pan
   print("  from zone to zone: " .. (pan and string.format("on map %s at %.3f to %.3f, %.3f to %.3f; %s", tostring(pan.parent), pan.left, pan.right, pan.top, pan.bottom,
-    canCross() and "the map can go past its edge now" or "a move with the mouse goes past its edge; so does the wheel once the terrain shows in full") or "this map is not a zone of a continent"))
+    string.format("%s, %d zones drawn around it, %s", view.surround and "the continent under it" or "no painting of the continent", #(view.neighbours or {}),
+      view.stitched and "all its land drawn without its sheet" or "its own sheet shown")) or "this map is not a zone of a continent"))
   if view.crossNote then
     print("    the last try: " .. view.crossNote)
   end
@@ -1453,6 +1650,13 @@ end
 
 -- The terrain of the map now: { images, columns, rows, world, first (the number of the first
 -- image), alpha (how much of it shows) }, or nil without terrain.
+-- The zones drawn around the zone shown: a list of { mapID, x0, x1, y0, y1, by }, the places
+-- on the map shown (0 to 1 is the map itself).
+-- The second result: the map whose painting lies under them all (the continent), or nil.
+function ns.MapNeighbours()
+  return view.neighbours or {}, view.surround, view.stitched == true
+end
+
 function ns.MapTerrain()
   if not view.terrain then
     return nil

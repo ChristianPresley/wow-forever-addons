@@ -300,15 +300,53 @@ expect(ns.MapTerrain() ~= nil and ns.MapTerrain().images == allImages, "the cont
 -- From zone to zone. Close enough for the terrain in full, the map moves past the edge of the
 -- zone, and the zone that is there shows, with the same place in the middle.
 ns.ShowMap(37)
-expect(ns.PanMapTo(1.03, 0.5) == false and ns.MapView().mapID == 37, "with the whole zone in the window the map does not go past its edge")
--- A move with the mouse goes past the edge at any zoom, also with the whole zone in the window.
+-- The zones beside the zone are drawn around it, where they lie on the continent: Westfall
+-- is the east half, so it starts at the east edge of Elwynn Forest and is as wide.
+do
+  local around, under = ns.MapNeighbours()
+  expect(under == 13, "the painting of the continent lies under the zone, for the land around it")
+  expect(#around == 1 and around[1].mapID == 52, "the zone beside Elwynn Forest is drawn around it, got " .. #around)
+  expect(math.abs(around[1].x0 - 1) < 0.0001 and math.abs(around[1].x1 - 2) < 0.0001 and math.abs(around[1].y0) < 0.0001 and math.abs(around[1].y1 - 1) < 0.0001,
+    "Westfall lies east of Elwynn Forest, as wide and as high")
+  T.slash("/fatlas", "status")
+  expect(T.printed("the continent under it, 1 zones drawn around it"),"/fatlas status says how many zones are drawn around the map")
+end
+-- Where the pictures of all the land of a zone are known (RevealData.lua, by the art of the
+-- map), the zone is drawn as its land on the painting of the continent, without its sheet.
+do
+  local _, _, stitched = ns.MapNeighbours()
+  expect(stitched == false, "a zone whose land is not known keeps its own sheet")
+  local artID, revealBefore = C_Map.GetMapArtID, ns.MAP_REVEAL
+  expect(type(revealBefore) == "table" and next(revealBefore) ~= nil, "the pictures of the land of the zones are loaded")
+  C_Map.GetMapArtID = function(mapID) return mapID == 37 and 9101 or mapID == 52 and 9102 or 0 end
+  ns.MAP_REVEAL = { [9101] = { ["300:200:10:20"] = "771, 772" }, [9102] = { ["256:256:0:0"] = "773" } }
+  ns.ShowMap(13)
+  ns.ShowMap(37)
+  _, _, stitched = ns.MapNeighbours()
+  expect(stitched == true, "a zone whose land is known is drawn as its land, without its sheet")
+  T.slash("/fatlas", "status")
+  expect(T.printed("all its land drawn without its sheet"), "/fatlas status says that the zone is drawn without its sheet")
+  expect(ns.PanMapTo(1.03, 0.5) == true and ns.MapView().mapID == 52 and select(3, ns.MapNeighbours()) == true, "and so is the next zone after the map went to it")
+  expect(ns.PanMapTo(-0.03, 0.5) == true and ns.MapView().mapID == 37, "and back")
+  C_Map.GetMapArtID, ns.MAP_REVEAL = artID, revealBefore
+  ns.ShowMap(13)
+  ns.ShowMap(37)
+end
+-- The map goes past the edge at any zoom, also with the whole zone in the window: the map
+-- changes to the zone that was drawn there, at the same place and the same size.
 do
   local view = ns.MapView()
-  local placeBefore = view.x
-  expect(ns.PanMapTo(0.8, 0.5, true) == false and view.mapID == 37 and view.x == placeBefore, "a move with the mouse inside the whole zone keeps the map, and the map goes back to its place after it")
-  expect(ns.PanMapTo(1.03, 0.5, true) == true and view.mapID == 52, "a move with the mouse past the edge of the whole zone shows the next zone, got map " .. tostring(view.mapID))
-  expect(view.scale == view.minScale and ns.MapTerrain().alpha == 0, "and the next zone is whole in the window too")
-  expect(ns.PanMapTo(-0.03, 0.5, true) == true and view.mapID == 37 and view.x == placeBefore, "and back with the mouse, to the place of before")
+  local scaleBefore = view.scale
+  expect(ns.PanMapTo(0.8, 0.5) == false and view.mapID == 37, "a move inside the whole zone keeps its map")
+  local middle = view.x + 0.8 * view.width * view.scale -- the middle of the window
+  expect(ns.PanMapTo(1.03, 0.5) == true and view.mapID == 52, "a move past the edge of the whole zone shows the next zone, got map " .. tostring(view.mapID))
+  expect(view.scale == scaleBefore and ns.MapTerrain().alpha == 0, "and the next zone has the same size")
+  expect(math.abs((middle - view.x) / (view.width * view.scale) - 0.03) < 0.0001, "and the place that was in the middle is still there")
+  expect(#ns.MapNeighbours() == 1 and ns.MapNeighbours()[1].mapID == 37 and math.abs(ns.MapNeighbours()[1].x1) < 0.0001, "now Elwynn Forest is drawn beside Westfall, to the west")
+  expect(ns.PanMapTo(-0.03, 0.5) == true and view.mapID == 37, "and back")
+  ns.ShowMap(13)
+  expect(#ns.MapNeighbours() == 0, "a continent has no zones drawn around it")
+  ns.ShowMap(37)
 end
 while ns.MapView().scale / ns.MapView().minScale < 3.2 do
   ns.ZoomMap(1)
@@ -329,8 +367,8 @@ expect(T.printed("from zone to zone: on map 13") and T.printed("the last try: ")
 ns.ZoomMap(100)
 expect(ns.PanMapTo(1.03, 0.5) == true and ns.MapView().mapID == 52, "at the closest zoom the map goes to the next zone too")
 expect(ns.PanMapTo(-0.03, 0.5) == true and ns.MapView().mapID == 37, "and back")
--- A next zone that is smaller on the continent: at the same size of the land it would be too
--- far out for its terrain, so it comes just close enough, and the map can go back from it.
+-- A next zone that is smaller on the continent keeps the size of the land: its map is half
+-- as far in.
 do
   local rectOnMap = C_Map.GetMapRectOnMap
   C_Map.GetMapRectOnMap = function(mapID, onMapID)
@@ -343,8 +381,9 @@ do
   while ns.MapView().scale / ns.MapView().minScale < 3.2 do
     ns.ZoomMap(1)
   end
+  local scaleBefore = ns.MapView().scale
   expect(ns.PanMapTo(1.03, 0.5) == true and ns.MapView().mapID == 52, "the map goes to a smaller next zone too, got map " .. tostring(ns.MapView().mapID))
-  expect(ns.MapTerrain().alpha == 1, "and the smaller zone is close enough for its terrain in full")
+  expect(math.abs(ns.MapView().scale - scaleBefore / 2) < 0.0001, "and the land keeps its size there, got " .. ns.MapView().scale .. " after " .. scaleBefore)
   expect(ns.PanMapTo(-0.03, 0.5) == true and ns.MapView().mapID == 37, "and back from the smaller zone")
   C_Map.GetMapRectOnMap = rectOnMap
 end
@@ -381,9 +420,8 @@ end
 ns.SetOption("terrainDetail", false)
 ns.ShowMap(37)
 ns.ZoomMap(100)
-expect(ns.PanMapTo(1.03, 0.5) == false and ns.MapView().mapID == 37, "without the terrain the map does not go past the edge of the zone")
-expect(ns.PanMapTo(1.03, 0.5, true) == true and ns.MapView().mapID == 52, "but a move with the mouse does, without the terrain too")
-expect(ns.PanMapTo(-0.03, 0.5, true) == true and ns.MapView().mapID == 37, "and back")
+expect(ns.PanMapTo(1.03, 0.5) == true and ns.MapView().mapID == 52, "without the terrain the map goes past the edge of the zone too")
+expect(ns.PanMapTo(-0.03, 0.5, true) == true and ns.MapView().mapID == 37, "and back, with the mouse button held")
 ns.SetOption("terrainDetail", true)
 ns.ZoomMap(-100)
 ns.ShowMap(13)
