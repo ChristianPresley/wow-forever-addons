@@ -238,21 +238,22 @@ After a patch of the game: put the new commit in `tools/api/source.txt`, build b
 
 #### Where the sources say nothing
 
-The stand-in follows these sources, in this order:
+The stand-in follows these sources. Where two disagree, the game client wins, then the earlier one in this list:
 
 1. Blizzard's API documentation.
 2. The game's own UI code.
 3. The tests of the [wowless](https://github.com/wowless/wowless) project (`addon/Wowless/uiobjects.lua` and `test.lua`). They run in the game client, so each one is a fact about the game: `OnShow` runs for the widgets under a frame before the frame; a tooltip with a text that is not an anchor takes `ANCHOR_LEFT` without an error; a button has no font string until it has a text; an anchor to itself and two regions anchored to each other fail with the game's error texts; an animation type that the game does not make from Lua gives a plain animation.
-4. The page of the method on [warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/Widget_API): alpha stays between 0 and 1; `SetParent` takes no name; `SetAllPoints` takes a name; an intrinsic frame such as `ItemButton` says that it is of the type it is made from (`"Button"`).
+4. The page of the method on [warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/Widget_API): alpha stays between 0 and 1; `SetParent` takes no name; `SetAllPoints` takes a name; an intrinsic frame such as `ItemButton` says that it is of the type it is made from (`"Button"`). The game client confirmed each of these.
 
 The source is named beside the code.
 
-Two questions looked open and are settled by the game's own code:
+Where these sources say nothing, the game client itself was asked. `tools/ingame-probe/ForeverProbe` is a small addon with one case for each such question: copy the folder to `Interface/AddOns`, log in and type `/foreverprobe`, then `/reload`. It prints one line for each case and saves the lines in `ForeverProbeDB`. `tools/ingame-probe/answers.txt` has what client 1.60.1.70938 answered, and the test `the_stand_in_answers_the_probe_as_the_game_client_did` fails when the stand-in answers otherwise. From the answers:
 
-- **Letter case.** A point is taken in any case: `Blizzard_GlueXML/Mainline/CharacterServices.lua` has `SetPoint("Left", ...)`. The game does the same for every list of names that a source shows in another case: frame types (`CreateFrame("FRAME")`), object types (`IsObjectType("frame")`). The stand-in takes draw layers, strata and justify values by the same rule.
-- **A value outside the range.** A status bar keeps the value and tells `OnValueChanged` that value: the game's own handler tests for it (`HealthBar_OnValueChanged` in `Blizzard_GameTooltip/HealthBar.lua`). A slider brings the value into its range in `SetValue`: the game's scroll code steps past the ends and leaves the rest to the slider (`Blizzard_SharedXML/SecureScrollTemplates.lua`). A new range does not move the value: the game's code sets it again itself (`Blizzard_SharedXML/HybridScrollFrame.lua`).
+- A point, a draw layer, a strata, a justify value and an animation type are taken in any letter case.
+- A status bar and a slider bring a value into the range, also when `SetMinMaxValues` makes the range smaller than the value; a slider then calls `OnValueChanged`. A slider that obeys its step goes to a step in `SetValue`.
+- `SetAllPoints(true)` and the strata `WORLD` give no error.
 
-`tools/ingame-probe/ForeverProbe` is a small addon that asks the game client the same questions, and each case above that comes from a page outside the game's files. Copy the folder to `Interface/AddOns`, log in and type `/foreverprobe`: it prints one line for each case and saves the lines in `ForeverProbeDB`. Use it after a patch of the game, or when a source is in doubt: where the game answers otherwise than the stand-in, change the stand-in and name the probe as the proof.
+Run the probe again after a patch of the game, and put the new answers in `answers.txt`. Add a case to the probe for each new question that no source settles.
 #### What it cannot find
 
 - How a window looks: positions, sizes, overlap.

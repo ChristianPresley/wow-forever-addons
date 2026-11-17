@@ -1016,30 +1016,36 @@ mod tests {
             local label = cased:CreateFontString(nil, "overlay", "GameFontNormal")
             label:SetJustifyH("Right")
             assert(label:GetJustifyH() == "RIGHT" and label:GetDrawLayer() == "OVERLAY", "layer and justify in any case")
-            -- A status bar keeps a value outside its range, and OnValueChanged gets that value:
-            -- Blizzard_GameTooltip/HealthBar.lua tests for it in its handler.
+            -- The game client's own answers (tools/ingame-probe/answers.txt): a status bar and a
+            -- slider bring a value into the range, also when the range becomes smaller, and a
+            -- slider that obeys its step goes to a step.
             local health = CreateFrame("StatusBar")
-            local told
-            health:SetScript("OnValueChanged", function(_, value) told = value end)
             health:SetMinMaxValues(0, 10)
             health:SetValue(50)
-            assert(health:GetValue() == 50 and told == 50, "a value above the range")
-            health:SetValue(5)
-            health:SetMinMaxValues(0, 2)
-            assert(health:GetValue() == 5, "a range below the value")
-            -- A slider brings the value into its range (Blizzard_SharedXML/SecureScrollTemplates.lua);
-            -- a new range does not move the value (Blizzard_SharedXML/HybridScrollFrame.lua).
+            assert(health:GetValue() == 10, "a value above the range")
+            health:SetMinMaxValues(0, 100)
+            health:SetValue(80)
+            health:SetMinMaxValues(0, 10)
+            assert(health:GetValue() == 10, "a range below the value")
             local scroll = CreateFrame("Slider")
             scroll:SetMinMaxValues(0, 100)
             scroll:SetValue(scroll:GetValue() - 20)
             assert(scroll:GetValue() == 0, "below the range")
-            scroll:SetValue(250)
-            assert(scroll:GetValue() == 100, "above the range")
-            scroll:SetMinMaxValues(0, 40)
-            assert(scroll:GetValue() == 100, "a new range")
-            scroll:SetValue(40)
-            assert(scroll:GetValue() == 40, "set again, as the game's code does")
-            "#,
+            scroll:SetValue(80)
+            local calls = 0
+            scroll:SetScript("OnValueChanged", function() calls = calls + 1 end)
+            scroll:SetMinMaxValues(0, 10)
+            assert(scroll:GetValue() == 10 and calls == 1, "a new range")
+            local stepped = CreateFrame("Slider")
+            stepped:SetMinMaxValues(0, 100)
+            stepped:SetValueStep(5)
+            stepped:SetObeyStepOnDrag(true)
+            stepped:SetValue(7)
+            assert(stepped:GetValue() == 5, "a step")
+            -- SetAllPoints(true) and the strata WORLD give no error; an animation type in lower case.
+            cased:CreateTexture():SetAllPoints(true)
+            cased:SetFrameStrata("WORLD")
+            assert(cased:CreateAnimationGroup():CreateAnimation("alpha"):GetObjectType() == "Alpha", "an animation type in lower case")            "#,
         );
         assert!(failures.is_empty(), "{failures:?}");
         // Two regions that hang on each other: the text of the game's error.
@@ -1047,11 +1053,10 @@ mod tests {
         fails_with("local f = CreateFrame('Frame')\nf:SetPoint('CENTER', f, 'CENTER')\n", "Cannot anchor to itself");
         fails_with("CreateFrame('Frame'):SetPoint('TOPLEFT', nil, 'nonsense')\n", "Unknown region point nonsense");
         fails_with("local parent = CreateFrame('Frame')\nlocal child = CreateFrame('Frame', nil, parent)\nchild:SetPoint('CENTER')\nparent:SetAllPoints(child)\n", "Cannot anchor to a region dependent on it");
-        fails_with("CreateFrame('Frame', nil, UIParent):CreateTexture():SetAllPoints(true)\n", "is not a region");
+        fails_with("CreateFrame('Frame', nil, UIParent):CreateTexture():SetAllPoints(42)\n", "is not a region");
         // A name for the parent is not taken since patch 10.0.0.
         fails_with("CreateFrame('Frame'):SetParent('UIParent')\n", "is not a frame");
-        // WORLD is the strata of the world frame alone.
-        fails_with("CreateFrame('Frame'):SetFrameStrata('WORLD')\n", "unknown strata");
+        fails_with("CreateFrame('Frame'):SetFrameStrata('TOPMOST')\n", "unknown strata");
         fails_with("CreateFrame('Button'):SetButtonState('bad')\n", "unknown state");
         fails_with("CreateFrame('Frame'):CreateFontString():SetFontObject(nil)\n", "a font is needed");
         fails_with("CreateFrame('Frame'):CreateTexture():SetDrawLayer('TOPMOST')\n", "unknown draw layer");
@@ -1068,6 +1073,40 @@ mod tests {
         assert!(failures.is_empty(), "{failures:?}");
     }
 
+    /// The stand-in answers the probe as the game client did. `tools/ingame-probe/answers.txt`
+    /// has what client 1.60.1.70938 printed for `/foreverprobe`. For a case that fails in the
+    /// game, the stand-in must fail too; the text of the error is the game's own and is not
+    /// compared.
+    #[test]
+    fn the_stand_in_answers_the_probe_as_the_game_client_did() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("ForeverProbe");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("ForeverProbe.toc"), include_str!("../ingame-probe/ForeverProbe/ForeverProbe.toc")).unwrap();
+        fs::write(dir.join("Core.lua"), include_str!("../ingame-probe/ForeverProbe/Core.lua")).unwrap();
+        let addons = read_addons(tmp.path()).unwrap();
+        let mut snapshot: serde_json::Value = serde_json::from_str(SNAPSHOT).unwrap();
+        with_ui_names(&mut snapshot).unwrap();
+        let outcome = run_addon(&addons[0], &snapshot, None).unwrap();
+        assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+        let mut differences = Vec::new();
+        let mut cases = 0;
+        for line in include_str!("../ingame-probe/answers.txt").lines().filter(|line| !line.starts_with('#') && !line.trim().is_empty()) {
+            cases += 1;
+            // "<name> = error: <text of the game>" or "<name> = ok: <values>"
+            let wanted = match line.find(" = error") {
+                Some(at) => &line[..at + " = error".len()],
+                None => line,
+            };
+            // The saved variables have each line as a quoted text.
+            let found = if wanted == line { outcome.saved.contains(&format!("\"{wanted}\"")) } else { outcome.saved.contains(&format!("\"{wanted}")) };
+            if !found {
+                differences.push(wanted.to_string());
+            }
+        }
+        assert!(cases >= 28, "{cases} cases in answers.txt");
+        assert!(differences.is_empty(), "the game client answered these, and the stand-in did not:\n{}\n\nthe stand-in's answers:\n{}", differences.join("\n"), outcome.saved);
+    }
     /// The stand-in against the game's own UI files (`tools/api/forever-ui.json`): every frame
     /// type and animation type of the game is a widget kind, every script that an XML file of
     /// the game puts on a kind is a script of that kind, every hand-written template is a

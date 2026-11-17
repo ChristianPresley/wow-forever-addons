@@ -4,7 +4,8 @@
 -- Use: copy this folder to Interface/AddOns, log in, type /foreverprobe. Each line is one
 -- case with what the game answered. The same lines are saved in ForeverProbeDB.lines
 -- (WTF/Account/<account>/SavedVariables/ForeverProbe.lua after /reload or logout).
--- docs/addon-development.md, "Where the sources say nothing", lists the cases.
+-- docs/addon-development.md, "Where the sources say nothing", says how the answers are used:
+-- tools/ingame-probe/answers.txt has them, and a test compares the stand-in with them.
 
 local lines = {}
 

@@ -1,0 +1,31 @@
+# What the game client answered to tools/ingame-probe/ForeverProbe (/foreverprobe).
+# Client 1.60.1, build 70938, interface 16001, 2026-11-16. One line for each case.
+# The text after "error" is the game's own; only "<name> = error" is compared.
+SetPoint with a lower-case point = ok: TOPLEFT, <Frame>, TOPLEFT, 0, 0
+CreateAnimation with a lower-case type = ok: Alpha
+SetOwner with a lower-case anchor = ok
+SetFrameStrata with a lower-case strata = ok: DIALOG
+CreateTexture with a lower-case draw layer = ok: ARTWORK, 0
+SetJustifyH with a lower-case value = ok: RIGHT
+StatusBar:SetValue above the range, then GetValue = ok: 10
+StatusBar: the range made smaller than the value, then GetValue = ok: 10
+Slider: the range made smaller than the value: GetValue, calls of OnValueChanged = ok: 10, 1
+Slider:SetValue above the range, then GetValue = ok: 10
+Slider:SetValue between two steps, then GetValue = ok: 5
+GetObjectType of an ItemButton, an EventFrame, a DropdownButton = ok: Button, Frame, Button
+IsObjectType('ItemButton') and ('Button') of an ItemButton = ok: false, true
+SetAlpha(2), then GetAlpha = ok: 1
+SetAllPoints with the name of a frame = ok: 2, <Frame>, TOPLEFT, 0, 0
+SetAllPoints(true) = ok
+SetParent with the name of a frame = error: Interface/AddOns/ForeverProbe/Core.lua:122: bad argument #1 to 'SetParent' (Attempt to find 'this' in non-table object (used '.' instead of ':' ?) - Usage: self:SetParent([parent]))
+Two frames anchored to each other = error: Interface/AddOns/ForeverProbe/Core.lua:127: Action[SetPoint] failed because[Cannot anchor to a region dependent on it]: attempted from: Frame:SetPoint.
+A frame anchored to itself = error: Interface/AddOns/ForeverProbe/Core.lua:131: Action[SetPoint] failed because[Cannot anchor to itself]: attempted from: Frame:SetPoint.
+SetFrameStrata('WORLD') = ok
+SetOwner with ANCHOR_CURSOR_LEFT = ok
+SetScript with a script that the frame does not have = error: Frame:SetScript(): Cannot assign script handler for 'onclick' (script type not supported by this object)
+HookScript of OnTooltipSetItem on a tooltip = error: bad argument #2 to '?' (Usage: local success = self:HookScript(scriptTypeName, script [, bindingType]))
+A hidden parent and its child: the scripts in order = ok: child hides, parent hides, child shows, parent shows, 
+The same point set twice: GetNumPoints = ok: 1
+GetText of a font string and of a button without a text = ok
+A tooltip after SetOwner and AddLine: IsShown = ok: false
+Click of a disabled button: calls of OnClick = ok: 0

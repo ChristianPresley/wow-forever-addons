@@ -576,8 +576,8 @@ local POINTS = {
 -- (Blizzard_GlueXML/Mainline/CharacterServices.lua). The game does the same for every list of
 -- names that a source shows in another case: frame types (CreateFrame("FRAME") in
 -- Blizzard_ActionBar/Mainline/AssistedCombatManager.lua), object types (IsObjectType("frame") in
--- Blizzard_Dispatcher/Blizzard_Dispatcher.lua). The stand-in takes draw layers, strata and
--- justify values by the same rule.
+-- Blizzard_Dispatcher/Blizzard_Dispatcher.lua). The game client takes a lower-case point,
+-- draw layer, strata, justify value and animation type too (tools/ingame-probe/answers.txt).
 -- The texts of the game's errors: "Invalid region point nonsense" for the point and "Unknown
 -- region point nonsense" for the relative point (wowless, Region > SetPoint > badpoint).
 local function pointName(value, what)
@@ -701,11 +701,14 @@ define("SimpleScriptRegionResizingAPI", "SetAllPoints", function(self, ...)
       fail("SetAllPoints: there is no region with the name " .. relativeTo)
     end
     relativeTo = named
+  elseif realType(relativeTo) == "boolean" then
+    -- SetAllPoints(true) gives no error in the game client (tools/ingame-probe/answers.txt): the parent, as without a value.
+    relativeTo = nil
   elseif relativeTo ~= nil and not isWidget(relativeTo) then
     fail("SetAllPoints: the region to anchor to is not a region")
   end
   local target = relativeTo
-  if select("#", ...) == 0 then
+  if select("#", ...) == 0 or realType((...)) == "boolean" then
     target = state(self).parent
   end
   checkAnchor(self, target, "SetAllPoints")
@@ -835,13 +838,18 @@ define("SimpleAnimGroupAPI", "CreateAnimation", function(self, animationType, na
   -- A type that the game does not make from Lua gives a plain animation, without an error:
   -- CreateAnimation("TextureCoordTranslation") is of the type "Animation" in the game client
   -- (wowless, TextureCoordTranslation > objecttype: "The XML name doesn't work from Lua").
-  local isAnimation = false
+  -- The type is taken in any letter case: CreateAnimation("alpha") is an Alpha in the game
+  -- client (tools/ingame-probe/answers.txt).
+  local found
   for _, known in ipairs(UI_NAMES.animationTypes or { "Animation", "Alpha", "Rotation", "Scale", "Translation", "Path" }) do
-    isAnimation = isAnimation or known == kindName
+    if known:lower() == kindName:lower() then
+      found = known
+    end
   end
-  if not isAnimation or not LAYERS[kindName] or kindName == "TextureCoordTranslation" then
-    kindName = "Animation"
+  if not found or not LAYERS[found] or found == "TextureCoordTranslation" then
+    found = "Animation"
   end
+  kindName = found
   return newObject(kindName, self, realType(name) == "string" and name or nil)
 end)
 -- An animation group that plays: Play starts it and runs OnPlay. The stand-in has no clock
@@ -941,11 +949,11 @@ end)
 define("SimpleFrameAPI", "SetFrameLevel", function(self, level)
   state(self).level = number(level, "SetFrameLevel")
 end)
--- The list FRAMESTRATA of UI.xsd. WORLD is the strata of the world frame and cannot be given
--- to a frame (https://warcraft.wiki.gg/wiki/Frame_Strata); no file of the game gives PARENT.
+-- The list FRAMESTRATA of UI.xsd, and WORLD: SetFrameStrata("WORLD") gives no error in the
+-- game client (tools/ingame-probe/answers.txt). No file of the game gives PARENT.
 local STRATA = {
   BACKGROUND = true, LOW = true, MEDIUM = true, HIGH = true, DIALOG = true, FULLSCREEN = true,
-  FULLSCREEN_DIALOG = true, TOOLTIP = true, BLIZZARD = true,
+  FULLSCREEN_DIALOG = true, TOOLTIP = true, BLIZZARD = true, WORLD = true,
 }
 define("SimpleFrameAPI", "SetFrameStrata", function(self, strata)
   if realType(strata) ~= "string" or not STRATA[strata:upper()] then
@@ -1197,6 +1205,20 @@ local function setMinMax(self, low, high)
   end
   s.min, s.max = low, high
   run(self, "OnMinMaxChanged", low, high)
+  -- The value comes into the new range, and the widget tells OnValueChanged: in the game
+  -- client a slider at 80 in 0 to 100 has the value 10 after SetMinMaxValues(0, 10), with one
+  -- call of OnValueChanged, and a status bar has the value 10 too (tools/ingame-probe/answers.txt).
+  if secrets[low] == nil and secrets[high] == nil and secrets[s.value] == nil then
+    local value = math.max(low, math.min(high, s.value))
+    if value ~= s.value then
+      s.value = value
+      if s.class.methods.SetValueStep then
+        run(self, "OnValueChanged", value, false)
+      else
+        run(self, "OnValueChanged", value)
+      end
+    end
+  end
 end
 define("SimpleSliderAPI", "SetMinMaxValues", setMinMax)
 define("SimpleStatusBarAPI", "SetMinMaxValues", setMinMax)
@@ -1216,16 +1238,13 @@ define("SimpleSliderAPI", "SetObeyStepOnDrag", function(self, obey)
   state(self).obeyStep = obey and true or false
 end)
 -- SetValue brings the value into the range of the slider: the game's own code steps past the
--- ends and leaves the rest to the slider (Blizzard_SharedXML/SecureScrollTemplates.lua,
--- ScrollFrameTemplate_OnMouseWheel). A new range does not move the value: the game's code sets
--- the value itself after SetMinMaxValues (Blizzard_SharedXML/HybridScrollFrame.lua,
--- HybridScrollFrame_Update).
+-- ends and leaves the rest to the slider (Blizzard_SharedXML/SecureScrollTemplates.lua). With
+-- a step and SetObeyStepOnDrag(true), the value goes to a step, from code as from a drag: in
+-- the game client SetValue(7) with the step 5 gives 5 (tools/ingame-probe/answers.txt).
 local function setSliderValue(self, value, userInput)
   local s = state(self)
   value = number(value, "SetValue")
-  -- A drag by the player goes in steps when the slider obeys its step on a drag
-  -- (SetObeyStepOnDrag); SetValue from code does not.
-  if userInput and s.obeyStep and s.step and s.step > 0 then
+  if s.obeyStep and s.step and s.step > 0 then
     value = s.min + math.floor((value - s.min) / s.step + 0.5) * s.step
   end
   value = math.max(s.min, math.min(s.max, value))
@@ -1241,15 +1260,15 @@ H.setSliderValue = setSliderValue
 define("SimpleSliderAPI", "GetValue", function(self)
   return state(self).value
 end)
--- A status bar keeps a value outside its range and tells OnValueChanged that value: the game's
--- own handler tests for it (Blizzard_GameTooltip/HealthBar.lua, HealthBar_OnValueChanged:
--- "if ( (value < min) or (value > max) ) then return"). The same holds when the range becomes
--- smaller than the value. The game's code brings a value into the range before the call where
--- it wants that (Blizzard_SharedXML/SmoothStatusBar.lua).
+-- A status bar brings a value into its range: after SetMinMaxValues(0, 10) and SetValue(50),
+-- GetValue gives 10 in the game client (tools/ingame-probe/answers.txt). A secret value stays as it is.
 define("SimpleStatusBarAPI", "SetValue", function(self, value)
   local s = state(self)
   if secrets[value] == nil then
-    number(value, "SetValue")
+    value = number(value, "SetValue")
+    if secrets[s.min] == nil and secrets[s.max] == nil then
+      value = math.max(s.min, math.min(s.max, value))
+    end
   end
   local changed = secrets[value] ~= nil or secrets[s.value] ~= nil or s.value ~= value
   s.value = value
@@ -1417,23 +1436,6 @@ define("SimpleTextureBaseAPI", "GetAtlas", function(self)
   return state(self).atlas or ""
 end)
 
--- The picture of a texture. SetTexture takes a file name or the number of a file, and more
--- values for how the picture repeats and how it is smoothed. GetTexture gives the picture
--- alone, as a text, and nothing for a texture without one.
-define("SimpleTextureBaseAPI", "SetTexture", function(self, asset)
-  state(self).texture = asset
-  state(self).atlas = nil
-  return true
-end)
-define("SimpleTextureBaseAPI", "GetTexture", function(self)
-  local asset = state(self).texture
-  if asset ~= nil then
-    return realTostring(asset)
-  end
-end)
-H.allowNil("Texture:GetTexture", "A texture without a picture has none to give: Blizzard_SharedTalentUI/Blizzard_TalentDisplay.lua has `self.Icon:GetTexture() or self.Icon:GetAtlas()`.")
-H.allowNil("MaskTexture:GetTexture", "A texture without a picture has none to give, the same as for Texture:GetTexture above.")
-H.allowNil("Line:GetTexture", "A texture without a picture has none to give, the same as for Texture:GetTexture above.")
 -- A font string without a text gives nil, although the documentation has a text.
 H.allowNil("FontString:GetText", "The game gives nil for a font string without a text: Blizzard_EncounterJournal/Mainline/Blizzard_EncounterJournal.lua reads self.description:GetText() or \"\".")
 
