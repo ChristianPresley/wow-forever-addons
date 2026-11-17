@@ -33,7 +33,7 @@ Everything outside the addons is Rust, in one Cargo workspace.
 | `tools/harness/` | Lua | The stand-in for the game client that the addon tests run in, and one scenario with checks for each addon |
 | `tools/api/` | JSON | The API of the game client: functions, widget methods, events and their arguments, from Blizzard's API documentation |
 | `.cargo/config.toml` | | Short names for the commands below |
-| `.github/workflows/` | | Tests on each push, and the marketplace publish |
+| `.github/workflows/` | | Tests on each push, the marketplace publish, and the release of the addon manager |
 
 ## Requirements
 
@@ -95,6 +95,18 @@ cargo wfam market
 
 ```bash
 cargo wfam install forever-quests
+```
+
+## Release the addon manager
+
+A tag with the form `manager-v<version>` starts the release workflow. It builds the Windows installer and puts it in a GitHub release with that tag. The version in the tag must be the version of the app, which is in two places: `version` under `[workspace.package]` in `Cargo.toml`, and `version` in `client/src-tauri/tauri.conf.json`. The installer is not signed.
+
+```bash
+git tag manager-v0.2.0
+```
+
+```bash
+git push origin manager-v0.2.0
 ```
 
 ## The marketplace

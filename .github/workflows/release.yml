@@ -1,0 +1,62 @@
+name: Release the addon manager
+
+# Builds the Windows installer of the Forever Addon Manager and puts it in a GitHub
+# release. It runs for a tag such as "manager-v0.2.0". The version in the tag must be
+# the version of the app.
+
+on:
+  push:
+    tags:
+      - 'manager-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-manager-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the tag with the version of the app
+        id: version
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:TAG -replace '^manager-v', ''
+          $app = (Get-Content client/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $workspace = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          if ($version -ne $app -or $version -ne $workspace) {
+            Write-Error "The tag $env:TAG names version $version, but tauri.conf.json has $app and Cargo.toml has $workspace."
+            exit 1
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p wfam-core
+      - run: cargo install tauri-cli --version "^2" --locked
+      - run: cargo tauri build
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $installers = @(Get-ChildItem target/release/bundle/nsis -Filter "*_$($env:VERSION)_*-setup.exe")
+          if ($installers.Count -ne 1) {
+            Write-Error "Expected one installer of version $env:VERSION in target/release/bundle/nsis, found $($installers.Count)."
+            exit 1
+          }
+          # A file name without spaces, so the download link is easy to read and to copy.
+          $asset = "ForeverAddonManager-$env:VERSION-setup.exe"
+          Copy-Item $installers[0].FullName $asset
+          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower()
+          $notes = "Windows installer of the Forever Addon Manager $env:VERSION.`n`nSHA-256 of ${asset}: ``$hash```n`nThe installer is not signed, so Windows can show a SmartScreen warning."
+          gh release create $env:TAG $asset --title "Forever Addon Manager $env:VERSION" --notes $notes --verify-tag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
