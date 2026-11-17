@@ -39,7 +39,7 @@ fn ui_names() -> Result<&'static serde_json::Value, String> {
 /// The small lists of the game's UI files, which the stand-in reads when it loads. The
 /// templates, the mixins and the calls are large: the stand-in asks for one of them when it
 /// needs it (see `stand_in`).
-const UI_LISTS: [&str; 7] = ["animationTypes", "enumerations", "fonts", "frameTypes", "scripts", "tooltipAnchors", "undocumentedEvents"];
+const UI_LISTS: [&str; 8] = ["animationTypes", "enumerations", "fonts", "frameTypes", "intrinsics", "scripts", "tooltipAnchors", "undocumentedEvents"];
 
 /// Puts the names of the game's UI files into the snapshot, under the key `ui`.
 pub fn with_ui_names(snapshot: &mut serde_json::Value) -> Result<(), String> {
@@ -926,9 +926,22 @@ mod tests {
             assert(f:GetAlpha() == 0, "alpha below 0")
             -- One offset: Blizzard_CharacterCustomize/Camelot/Blizzard_CharacterCustomize.lua.
             f:SetPoint("LEFT", 40)
+            -- An intrinsic frame is of the type that it is made from.
+            local item = CreateFrame("ItemButton")
+            assert(item:GetObjectType() == "Button" and CreateFrame("EventFrame"):GetObjectType() == "Frame", "the type of an intrinsic frame")
+            assert(item:IsObjectType("Button") and item:IsObjectType("Frame") and not item:IsObjectType("ItemButton"), "IsObjectType of an intrinsic frame")
+            -- An anchor to the screen does not hang on the parent: the parent can hang on the child.
+            local outer = CreateFrame("Frame", nil, UIParent)
+            local inner = CreateFrame("Frame", nil, outer)
+            inner:SetPoint("CENTER", nil, "CENTER")
+            outer:SetPoint("LEFT", inner, "RIGHT")
             "#,
         );
         assert!(failures.is_empty(), "{failures:?}");
+        // Two regions that hang on each other: the text of the game's error.
+        fails_with("local a, b = CreateFrame('Frame'), CreateFrame('Frame')\na:SetPoint('LEFT', b, 'RIGHT')\nb:SetPoint('LEFT', a, 'RIGHT')\n", "Cannot anchor to a region dependent on it");
+        fails_with("local f = CreateFrame('Frame')\nf:SetPoint('CENTER', f, 'CENTER')\n", "Cannot anchor to a region dependent on it");
+        fails_with("local parent = CreateFrame('Frame')\nlocal child = CreateFrame('Frame', nil, parent)\nchild:SetPoint('CENTER')\nparent:SetAllPoints(child)\n", "Cannot anchor to a region dependent on it");
         fails_with("CreateFrame('Frame', nil, UIParent):CreateTexture():SetAllPoints(true)\n", "is not a region");
         // A name for the parent is not taken since patch 10.0.0.
         fails_with("CreateFrame('Frame'):SetParent('UIParent')\n", "is not a frame");
@@ -939,6 +952,14 @@ mod tests {
         fails_with("CreateFrame('Frame'):CreateTexture():SetBlendMode('ADDITIVE')\n", "unknown value");
         fails_with("CreateFrame('Frame'):CreateFontString():SetFontObject('NoSuchFont')\n", "there is no font with the name");
         fails_with("CreateFrame('Frame'):CreateTexture():SetTexCoord(0, 1)\n", "a number is needed");
+    }
+
+    /// `tools/ingame-probe/ForeverProbe` asks the game client what it does where no source says
+    /// it. It must stay a correct addon: it loads and runs in the stand-in without a failure.
+    #[test]
+    fn the_probe_for_the_game_is_a_correct_addon() {
+        let (failures, _) = check(include_str!("../ingame-probe/ForeverProbe/Core.lua"));
+        assert!(failures.is_empty(), "{failures:?}");
     }
 
     /// The stand-in against the game's own UI files (`tools/api/forever-ui.json`): every frame

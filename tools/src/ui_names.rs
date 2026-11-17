@@ -694,6 +694,8 @@ pub fn collect(addons_dir: &Path, snapshot: &Value, widget_methods: &[String]) -
         frame_types.entry(name.clone()).or_insert_with(|| base.clone());
     }
     let frame_types: BTreeMap<String, Value> = frame_types.into_iter().map(|(name, base)| (name, json!(base))).collect();
+    // An intrinsic frame is made from another frame type, and says that it is of that type.
+    let intrinsics: BTreeMap<String, Value> = out.found.intrinsics.iter().map(|(name, base)| (name.clone(), json!(base))).collect();
     let scripts: BTreeMap<String, Value> = out.found.scripts.iter().map(|(element, names)| (element.clone(), json!(names))).collect();
     let enumerations: BTreeMap<String, Value> = schema.enumerations.iter().map(|(name, values)| (name.clone(), json!(values))).collect();
 
@@ -731,12 +733,13 @@ pub fn collect(addons_dir: &Path, snapshot: &Value, widget_methods: &[String]) -
     // The file is written by hand, one entry on each line, so that a change of the game shows
     // as a short difference. The keys are in the order of the alphabet.
     let text = format!(
-        "{{\n  \"animationTypes\": {},\n  \"calls\": {},\n  \"enumerations\": {},\n  \"fonts\": {},\n  \"frameTypes\": {},\n  \"mixins\": {},\n  \"scripts\": {},\n  \"source\": {},\n  \"templates\": {},\n  \"tooltipAnchors\": {},\n  \"undocumentedEvents\": {}\n}}\n",
+        "{{\n  \"animationTypes\": {},\n  \"calls\": {},\n  \"enumerations\": {},\n  \"fonts\": {},\n  \"frameTypes\": {},\n  \"intrinsics\": {},\n  \"mixins\": {},\n  \"scripts\": {},\n  \"source\": {},\n  \"templates\": {},\n  \"tooltipAnchors\": {},\n  \"undocumentedEvents\": {}\n}}\n",
         list_of(schema.animation_types.iter().cloned()),
         list_of(out.calls),
         lines_of(&enumerations),
         list_of(out.fonts),
         lines_of(&frame_types),
+        lines_of(&intrinsics),
         lines_of(&mixins),
         lines_of(&scripts),
         source,

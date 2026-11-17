@@ -4468,6 +4468,20 @@
     "UnitPositionFrame": "Frame",
     "WorldFrame": "Frame"
   },
+  "intrinsics": {
+    "AuraButton": "Button",
+    "AuraContainer": "Frame",
+    "ContainedAlertFrame": "Button",
+    "DropDownToggleButton": "Button",
+    "DropdownButton": "Button",
+    "EventButton": "Button",
+    "EventEditBox": "EditBox",
+    "EventFrame": "Frame",
+    "EventScrollFrame": "ScrollFrame",
+    "ItemButton": "Button",
+    "ScrollingMessageFrame": "Frame",
+    "UIThemeContainerFrame": "Frame"
+  },
   "mixins": {
     "AchievementButtonCheckMixin": {"methods":["ApplyChecked","OnEnter","OnLeave"]},
     "AchievementCategoryTemplateButtonMixin": {"methods":["OnEnter","OnLeave"]},

@@ -346,12 +346,33 @@ end)
 define("SimpleObjectAPI", "GetDebugName", function(self)
   return state(self).name or state(self).kind
 end)
+-- An intrinsic frame of the game (ItemButton, EventFrame, DropdownButton) says that it is of
+-- the frame type that it is made from: "GetObjectType returns the intrinsic's type, not the
+-- intrinsic's name" (https://warcraft.wiki.gg/wiki/Intrinsic_frame). The game's code agrees:
+-- Blizzard_Menu/Menu.lua compares the type of a dropdown button with "Button".
+local function objectType(kindName)
+  local intrinsics = UI_NAMES.intrinsics or {}
+  for _ = 1, 8 do
+    local base = intrinsics[kindName]
+    if not base then
+      break
+    end
+    kindName = base
+  end
+  return kindName
+end
 define("SimpleFrameScriptObjectAPI", "GetObjectType", function(self)
-  return state(self).kind
+  return objectType(state(self).kind)
 end)
 -- A button is also a "Frame"; the name is not case sensitive (Blizzard_Dispatcher.lua).
 define("SimpleFrameScriptObjectAPI", "IsObjectType", function(self, name)
-  return state(self).class.isA[realTostring(name):lower()] == true
+  local s = state(self)
+  name = realTostring(name):lower()
+  -- The name of an intrinsic frame type is not a widget type.
+  if name == s.kind:lower() and objectType(s.kind) ~= s.kind then
+    return false
+  end
+  return s.class.isA[name] == true
 end)
 
 ---------------------------------------------------------------------------------------------------
@@ -549,14 +570,41 @@ end
 -- (point, relativeTo, relativePoint), (point, relativeTo, relativePoint, x, y).
 -- relativeTo is a region or the name of one. The second form of four is in the game's own
 -- code: Blizzard_AdventureMap/AM_QuestDialog.lua.
+-- True if the place of `region` hangs on `target`: through its anchors, one after another.
+local function dependsOn(region, target, depth)
+  if region == target then
+    return true
+  end
+  if not isWidget(region) or depth > 50 then
+    return false
+  end
+  for _, anchor in ipairs(state(region).points) do
+    if anchor[2] ~= nil and dependsOn(anchor[2], target, depth + 1) then
+      return true
+    end
+  end
+  return false
+end
+-- The game refuses an anchor to a region whose own place hangs on this one, with this text
+-- (a report of it: https://www.wowace.com/projects/skada/issues/605).
+local function checkAnchor(self, relativeTo, what)
+  if relativeTo ~= nil and dependsOn(relativeTo, self, 0) then
+    fail("Action[" .. what .. "] failed because[Cannot anchor to a region dependent on it]: attempted from: " .. (state(self).name or "<unnamed>") .. ":" .. what .. ".")
+  end
+end
+
 define("SimpleScriptRegionResizingAPI", "SetPoint", function(self, point, a, b, c, d)
   point = pointName(point, "point")
   local relativeTo, relativePoint, x, y
+  -- Without a region the anchor is to the parent; with nil in the place of the region it is
+  -- to the screen, as for SetAllPoints.
+  local toParent = true
   if realType(a) == "number" then
     x, y = a, b
   elseif a == nil and b == nil then
     x, y = 0, 0
   else
+    toParent = false
     relativeTo = a
     if realType(b) == "number" then
       x, y = b, c
@@ -573,16 +621,17 @@ define("SimpleScriptRegionResizingAPI", "SetPoint", function(self, point, a, b, 
   elseif relativeTo ~= nil and not isWidget(relativeTo) then
     fail("SetPoint: the region to anchor to is not a region")
   end
-  if relativeTo == self then
-    fail("SetPoint: a region cannot be anchored to itself")
+  if toParent then
+    relativeTo = state(self).parent
   end
+  checkAnchor(self, relativeTo, "SetPoint")
   relativePoint = relativePoint ~= nil and pointName(relativePoint, "relative point") or point
   x, y = x or 0, y or 0
   if realType(x) ~= "number" or realType(y) ~= "number" then
     fail("SetPoint: an offset is not a number")
   end
   local points = state(self).points
-  local entry = { point, relativeTo or state(self).parent, relativePoint, x, y }
+  local entry = { point, relativeTo, relativePoint, x, y }
   for index, existing in ipairs(points) do
     if existing[1] == point then
       points[index] = entry -- the same point again replaces the first
@@ -617,13 +666,11 @@ define("SimpleScriptRegionResizingAPI", "SetAllPoints", function(self, ...)
   elseif relativeTo ~= nil and not isWidget(relativeTo) then
     fail("SetAllPoints: the region to anchor to is not a region")
   end
-  if relativeTo == self then
-    fail("SetAllPoints: a region cannot be anchored to itself")
-  end
   local target = relativeTo
   if select("#", ...) == 0 then
     target = state(self).parent
   end
+  checkAnchor(self, target, "SetAllPoints")
   state(self).points = { { "TOPLEFT", target, "TOPLEFT", 0, 0 }, { "BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0 } }
 end)
 define("SimpleScriptRegionResizingAPI", "GetPoint", function(self, index)
