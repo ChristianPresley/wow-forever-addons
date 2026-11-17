@@ -62,7 +62,11 @@ local function showMenu(owner)
     local sessions = ns.Sessions()
     for i = #sessions, math.max(1, #sessions - 9), -1 do
       local session = sessions[i]
-      local label = type(session.name) == "string" and not ns.IsSecret(session.name) and session.name or ("Fight " .. i)
+      -- A fight can have no name (the game's own meter numbers such a fight too:
+      -- Blizzard_DamageMeter/DamageMeterSessionWindow.lua).
+      local named = not ns.IsSecret(session.name) and type(session.name) == "string" and session.name ~= ""
+      local number = ns.Usable(session.sessionID) and session.sessionID or i
+      local label = named and session.name or ("Fight " .. number)
       if ns.Usable(session.durationSeconds) then
         label = label .. " (" .. ns.Clock(session.durationSeconds) .. ")"
       end

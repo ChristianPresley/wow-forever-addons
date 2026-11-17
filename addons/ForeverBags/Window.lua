@@ -390,8 +390,9 @@ local function create()
   local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", 2, 2)
   close:SetScript("OnClick", function()
-    window:Hide()
+    ns.HideWindow()
   end)
+  window.close = close
 
   local ok, box = pcall(CreateFrame, "EditBox", nil, window, "SearchBoxTemplate")
   if not ok then
@@ -463,8 +464,14 @@ function ns.ShowWindow()
   return true
 end
 
+-- Set further down: closes the bag windows of the game that are open out of sight.
+local closeGameBags
+
 function ns.HideWindow()
   local shown = window ~= nil and window:IsShown()
+  if closeGameBags then
+    closeGameBags()
+  end
   if shown then
     window:Hide()
   end
@@ -473,7 +480,7 @@ end
 
 function ns.ToggleWindow()
   if window and window:IsShown() then
-    window:Hide()
+    ns.HideWindow()
     return true
   end
   return ns.ShowWindow()
@@ -554,25 +561,69 @@ local function hideGameWindows(hide)
   end
 end
 
-local pressAt, shownBefore
+-- True if a bag window of the game with bags of the character is open (out of sight).
+local function gameBagsOpen()
+  local combined = _G["ContainerFrameCombinedBags"]
+  for _, frame in ipairs(gameWindows()) do
+    if type(frame.IsShown) == "function" and frame:IsShown() then
+      local id
+      if frame ~= combined then
+        if type(frame.GetBagID) == "function" then
+          id = frame:GetBagID()
+        elseif type(frame.GetID) == "function" then
+          id = frame:GetID()
+        end
+      end
+      if isBagOfCharacter(id) then
+        return true
+      end
+    end
+  end
+  return false
+end
 
--- `want`: true to show the window, false to hide it, nil for the other of how it was.
-local function follow(want)
-  if not ns.GetOption("replaceBags") then
+-- The window follows the bag windows of the game: after each function of the game, it is open
+-- if they are. The game decides, so the window does what the game did: nothing when the game
+-- refused to open the bags, and nothing when a vendor closes that did not open them.
+--
+-- The window can also be open on its own (/fbags). Then a press of the bag key opens the bags
+-- of the game, out of sight, and the player sees no change: so that press closes both.
+local pressAt, shownBefore, gameBefore
+local gameWas = false -- the bags of the game were open after the last function
+local closing = false
+
+closeGameBags = function()
+  if closing or not ns.GetOption("replaceBags") or not gameBagsOpen() or type(CloseAllBags) ~= "function" then
+    return
+  end
+  closing = true
+  pcall(CloseAllBags)
+  closing = false
+  gameWas = gameBagsOpen()
+end
+
+-- `key`: the function is one that a key or a bag button runs to open or close (a toggle).
+local function follow(key)
+  if closing or not ns.GetOption("replaceBags") then
     return
   end
   local now = GetTime()
   if pressAt ~= now then
     pressAt = now
     shownBefore = window ~= nil and window:IsShown()
+    gameBefore = gameWas
   end
-  if want == nil then
-    want = not shownBefore
+  local open = gameBagsOpen()
+  gameWas = open
+  if open == gameBefore then
+    return -- the game did nothing
   end
-  if want then
-    ns.ShowWindow()
-  else
+  if open and key and shownBefore then
     ns.HideWindow()
+  elseif open then
+    ns.ShowWindow()
+  elseif window and window:IsShown() then
+    window:Hide()
   end
 end
 
@@ -581,38 +632,34 @@ local function install()
     return
   end
   installed = true
-  local function hook(name, fn)
+  local function hook(name, key)
     if type(_G[name]) == "function" then
-      hooksecurefunc(name, function(...)
-        pcall(fn, ...)
+      hooksecurefunc(name, function()
+        pcall(follow, key)
       end)
     end
   end
-  hook("ToggleAllBags", function() follow(nil) end)
-  hook("ToggleBackpack", function() follow(nil) end)
-  hook("OpenAllBags", function() follow(true) end)
-  hook("OpenBackpack", function() follow(true) end)
-  hook("CloseAllBags", function() follow(false) end)
-  hook("CloseBackpack", function() follow(false) end)
-  -- A bag of the bank has a higher number: that one stays with the game.
-  hook("ToggleBag", function(id)
-    if isBagOfCharacter(id) then
-      follow(nil)
-    end
-  end)
-  hook("OpenBag", function(id)
-    if isBagOfCharacter(id) then
-      follow(true)
-    end
-  end)
+  hook("ToggleAllBags", true)
+  hook("ToggleBackpack", true)
+  hook("ToggleBag", true)
+  hook("OpenAllBags", false)
+  hook("OpenBackpack", false)
+  hook("OpenBag", false)
+  hook("CloseAllBags", false)
+  hook("CloseBackpack", false)
+  hook("CloseBag", false)
 end
-
 ns.OnChange(function(key)
   if key == "replaceBags" then
     if ns.GetOption("replaceBags") then
       install()
       hideGameWindows(true)
     else
+      -- The bags of the game that are open out of sight would come on the screen: they close.
+      if gameBagsOpen() and type(CloseAllBags) == "function" then
+        pcall(CloseAllBags)
+      end
+      gameWas = false
       ns.HideWindow()
       hideGameWindows(false)
     end

@@ -54,6 +54,12 @@ function ns.ShowTurnIn(questID)
     pcall(C_SuperTrack.SetSuperTrackedQuestID, questID)
   end
   if type(QuestMapFrame_OpenToQuestDetails) == "function" then
+    -- The game does not let an addon open a window in a fight: it would show an error and
+    -- still change the chosen quest of the log. The arrow of the game is set all the same.
+    if InCombatLockdown and InCombatLockdown() then
+      ns.Print("the quest log cannot open in a fight. The arrow of the game points to the quest; click again after the fight.")
+      return false
+    end
     return (pcall(QuestMapFrame_OpenToQuestDetails, questID))
   end
   return false

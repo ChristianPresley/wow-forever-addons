@@ -212,6 +212,7 @@ expect(colour(other.Text) ~= "1 1 1", "the title of the other quest has the colo
 H.run(ready, "OnEnter")
 H.run(ready, "OnLeave")
 expect(colour(ready.Text) == "1 1 1" and colour(H.questLogFrames.line3.Text) == "1 1 1", "after the pointer leaves the quest its texts are white again")
+expect(colour(ready.TagText) == "1 1 1", "the tag at the right of the name is white too, got " .. colour(ready.TagText))
 H.run(other, "OnLeave")
 expect(colour(other.Text) ~= "1 1 1", "and the other quest is not made white")
 -- A second pass over the same build does not put COMPLETED there twice.
@@ -237,6 +238,10 @@ local openedByMark = H.count("open quest")
 H.click(tracker, "RightButton", false)
 expect(H.count("open quest") == openedByMark + 1 and H.did[#H.did][2] == 40, "a right-click on the symbol shows where to turn the quest in")
 expect(H.watched[40] == nil, "the right-click does not change the tracking")
+-- In a fight the game refuses an addon that opens a window: nothing is asked of the game.
+T.world.secret = true
+expect(ns.ShowTurnIn(40) == false and H.count("open quest") == openedByMark + 1 and T.printed("cannot open in a fight"), "in a fight the quest log is not opened, and the addon says why")
+T.world.secret = false
 expect(ns.FanfareQuest() == nil, "no banner before a quest becomes ready")
 T.world.completed = { [176] = true }
 T.fire("QUEST_LOG_UPDATE")

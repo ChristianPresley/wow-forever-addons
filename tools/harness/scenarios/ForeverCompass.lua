@@ -95,6 +95,11 @@ expect(ns.TrackerQuest(1) == 176, "the marker of the quest objectives points to 
 expect(questMarker ~= nil and questMarker:IsMouseEnabled(), "the marker of a quest takes the mouse")
 H.run(questMarker, "OnMouseUp", "LeftButton")
 expect(H.count("open quest") == 1 and H.did[#H.did][2] == 176, "a click on the marker opens quest 176 in the quest log")
+-- In a fight the game refuses an addon that opens a window: the click says so and asks nothing of the game.
+T.world.secret = true
+H.run(questMarker, "OnMouseUp", "LeftButton")
+T.world.secret = false
+expect(H.count("open quest") == 1 and T.printed("cannot open in a fight"), "in a fight a click on the marker opens nothing and says why")
 expect(ns.TrackerQuest(2) == nil and flightMarker ~= nil and not flightMarker:IsMouseEnabled(), "the marker of a flight master is not a quest and lets a click through")
 H.run(flightMarker, "OnMouseUp", "LeftButton")
 expect(H.count("open quest") == 1, "a click on a marker that is not a quest opens nothing")

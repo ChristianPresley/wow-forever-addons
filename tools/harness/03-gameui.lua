@@ -73,6 +73,15 @@ function QuestMapFrame_OpenToQuestDetails(questID)
   if realType(questID) ~= "number" then
     fail("QuestMapFrame_OpenToQuestDetails: a quest ID is needed, got " .. realType(questID))
   end
+  -- It opens the quest log with ShowUIPanel. In a fight the game refuses that to an addon and
+  -- shows "interface action failed because of an addon"
+  -- (Blizzard_UIParentPanelManager/Shared/UIParentPanelManager.lua, CheckProtectedFunctionsAllowed),
+  -- and still marks the quest as the chosen one. An addon that asks in a fight has a fault.
+  if InCombatLockdown() then
+    H.problem("QuestMapFrame_OpenToQuestDetails in a fight: the game blocks an addon that opens a window in a fight, and says so on the screen")
+    QuestMapFrame.DetailsFrame.questID = questID
+    return
+  end
   H.did[#H.did + 1] = { "open quest", questID }
   QuestMapFrame_ShowQuestDetails(questID)
 end

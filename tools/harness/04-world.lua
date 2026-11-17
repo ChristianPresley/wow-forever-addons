@@ -497,48 +497,128 @@ set("C_Item", "GetStackCount", function(location) return slotOf(location) and sl
 H.gameBags = 0
 H.gameBagsOpen = false
 local CONTAINER_FRAME = "Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua"
+-- The bag windows of the game (ContainerFrame.xml): the one for all bags of the character, and
+-- one for a single bag, which here is a bag of the bank.
+local combinedBags = CreateFrame("Frame", "ContainerFrameCombinedBags", UIParent)
+combinedBags:Hide()
+local singleBag = CreateFrame("Frame", "ContainerFrame1", UIParent)
+singleBag:Hide()
+function singleBag:GetBagID()
+  return self.bagID
+end
+-- The window that opened the bags (a vendor, the bank): only that one closes them again.
+local bagOpener
+-- ContainerFrame_AllowedToOpenBags: false while the game does not allow the bags (H.world.bagsRefused).
+local function bagsAllowed()
+  return not H.world.bagsRefused
+end
 local function bagFunction(name, fn)
   setGlobal(name, function(...)
     H.gameBags = H.gameBags + 1
-    return fn(...)
+    local result = fn(...)
+    H.gameBagsOpen = combinedBags:IsShown()
+    return result
   end, CONTAINER_FRAME)
 end
-bagFunction("OpenBackpack", function() H.gameBagsOpen = true end)
-bagFunction("CloseBackpack", function() H.gameBagsOpen = false end)
-bagFunction("OpenBag", function() H.gameBagsOpen = true end)
-bagFunction("CloseBag", function() end)
-bagFunction("OpenAllBags", function()
-  if not H.gameBagsOpen then
-    OpenBackpack()
+local function isBankBag(bag)
+  return realType(bag) == "number" and bag > 5
+end
+bagFunction("OpenBackpack", function()
+  if bagsAllowed() then
+    combinedBags:Show()
   end
 end)
-bagFunction("CloseAllBags", function()
-  if H.gameBagsOpen then
-    CloseBackpack()
+bagFunction("CloseBackpack", function()
+  local was = combinedBags:IsShown()
+  combinedBags:Hide()
+  return was
+end)
+bagFunction("OpenBag", function(bag)
+  if not bagsAllowed() then
+    return
   end
+  if isBankBag(bag) then
+    singleBag.bagID = bag
+    singleBag:Show()
+  else
+    combinedBags:Show()
+  end
+end)
+bagFunction("CloseBag", function(bag)
+  if isBankBag(bag) and singleBag:IsShown() and singleBag.bagID == bag then
+    singleBag:Hide()
+    return true
+  end
+  return false
+end)
+bagFunction("OpenAllBags", function(frame)
+  if not bagsAllowed() or combinedBags:IsShown() then
+    return
+  end
+  if frame and not bagOpener then
+    bagOpener = frame:GetName()
+  end
+  OpenBackpack()
+end)
+bagFunction("CloseAllBags", function(frame)
+  if frame and frame:GetName() ~= bagOpener then
+    return false -- "This frame wasn't the one that opened the bags, nothing closed."
+  end
+  bagOpener = nil
+  local closed = CloseBackpack()
+  if singleBag:IsShown() then
+    closed = CloseBag(singleBag.bagID) or closed
+  end
+  return closed
 end)
 bagFunction("ToggleBackpack", function()
-  if H.gameBagsOpen then
+  if not bagsAllowed() then
+    return
+  end
+  if combinedBags:IsShown() then
     CloseBackpack()
   else
     OpenBackpack()
   end
 end)
 bagFunction("ToggleAllBags", function()
-  if H.gameBagsOpen then
+  if not bagsAllowed() then
+    return
+  end
+  if combinedBags:IsShown() then
     CloseBackpack()
   else
     OpenAllBags()
   end
 end)
 bagFunction("ToggleBag", function(bag)
-  if H.gameBagsOpen then
-    CloseBag(bag)
-    H.gameBagsOpen = false
+  if isBankBag(bag) then
+    if not CloseBag(bag) then
+      OpenBag(bag)
+    end
+  elseif combinedBags:IsShown() then
+    CloseBackpack()
   else
     OpenBag(bag)
   end
 end)
+-- The Escape key (Blizzard_UIParentPanelManager, CloseAllWindows): closes the bags and the
+-- windows named in UISpecialFrames. Only if nothing was open does the game menu open.
+-- Returns true if the game menu opened.
+function H.pressEscape()
+  local closed = CloseAllBags()
+  for _, name in ipairs(UISpecialFrames) do
+    local frame = _G[name]
+    if frame and frame:IsShown() then
+      frame:Hide()
+      closed = true
+    end
+  end
+  if not closed then
+    H.did[#H.did + 1] = { "game menu" }
+  end
+  return not closed
+end
 H.bagFunctions = { "OpenAllBags", "CloseAllBags", "ToggleAllBags", "ToggleBackpack", "OpenBackpack", "CloseBackpack" }
 
 ---------------------------------------------------------------------------------------------------
@@ -648,10 +728,14 @@ function QuestLogQuests_Update()
       -- the quest, each time it builds the log.
       if not button.Text then
         button.Text = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        -- The tag at the right of the name. The game gives it the colour of the name
+        -- (QuestMapFrame.lua: button.TagText:SetTextColor in the same function as button.Text).
+        button.TagText = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         -- QuestMapLogTitleButton_OnEnter and _OnLeave: the game gives the title and the lines
         -- of the quest their own colours again.
         local function gameColours(self)
           self.Text:SetTextColor(1, 0.82, 0)
+          self.TagText:SetTextColor(1, 0.82, 0)
           for _, line in ipairs(QuestScrollFrame.objectiveFramePool.active or {}) do
             if line.questID == self.questID then
               line.Text:SetTextColor(0.8, 0.8, 0.8)
@@ -663,6 +747,8 @@ function QuestLogQuests_Update()
       end
       button.Text:SetText(entry.title)
       button.Text:SetTextColor(1, 0.82, 0)
+      button.TagText:SetText("Elite")
+      button.TagText:SetTextColor(1, 0.82, 0)
       -- QuestMapFrame.lua, QuestLogQuests_AddQuestButton: the box that tracks the quest.
       if not button.Checkbox then
         button.Checkbox = CreateFrame("Button", nil, button)

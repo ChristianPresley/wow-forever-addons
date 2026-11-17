@@ -57,6 +57,12 @@ end
 local function openQuest(questID)
   return function()
     if type(QuestMapFrame_OpenToQuestDetails) == "function" then
+      -- The game does not let an addon open a window in a fight: it would show an error and
+      -- still change the chosen quest of the log.
+      if InCombatLockdown and InCombatLockdown() then
+        ns.Print("the quest log cannot open in a fight. Click again after it.")
+        return
+      end
       ns.HideMap()
       pcall(QuestMapFrame_OpenToQuestDetails, questID)
     end

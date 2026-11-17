@@ -117,6 +117,17 @@ for _, pin in ipairs(ns.MapPins()) do
   end
 end
 expect(H.count("open quest") == 1 and not ForeverAtlasMap:IsShown(), "a click on a quest pin opens the quest in the quest log of the game")
+-- In a fight the game refuses an addon that opens a window: the map stays and says why.
+H.pressKey("M")
+T.world.secret = true
+for _, pin in ipairs(ns.MapPins()) do
+  if pin.data.quest == 176 then
+    H.run(pin.frame, "OnMouseUp", "LeftButton")
+  end
+end
+T.world.secret = false
+expect(H.count("open quest") == 1 and ForeverAtlasMap:IsShown() and T.printed("cannot open in a fight"), "in a fight a click on a quest pin opens nothing and says why")
+H.pressKey("M")
 -- A right-click goes out to the map above; a click on a zone opens it.
 H.pressKey("M")
 expect(ns.ClickMap("RightButton", 0.5, 0.5) and view.mapID == 13, "a right-click goes out to the continent, got " .. tostring(view.mapID))

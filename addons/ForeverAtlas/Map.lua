@@ -64,6 +64,8 @@ local hovered -- the pin whose tooltip shows
 local labels, labelPool = {}, {} -- the names of the zones of a continent
 local highlight, highlightKey -- the zone under the pointer, lit up
 local sinceRefresh = 0
+local stale = false -- the game said that something on the map changed: the pins are read again soon
+local STALE_SECONDS = 0.25 -- many events in a row make one new reading
 
 -- The map on the screen. width and height are of the canvas, in the pixels of the art.
 -- scale: screen units for one pixel of the art. x, y: where the top left corner of the canvas
@@ -721,6 +723,10 @@ local function setMap(mapID)
   window.title:SetText(ns.MapName(mapID))
   window.up:SetEnabled(parentOf(mapID) ~= nil)
   rebuildPins()
+  -- At once: a pin from the store still has the place of the pin it was before.
+  if window:IsShown() then
+    place()
+  end
   return true
 end
 
@@ -808,11 +814,18 @@ local function onUpdate(_, elapsed)
     sinceInfo = 0
     updateInfo()
   end
-  -- Not while the player moves or zooms the map: that must stay smooth.
+  -- The pins are read again every few seconds (group members move), and soon after the game
+  -- said that something changed. Not while the player moves or zooms the map: that must stay
+  -- smooth. Not while a tooltip of a pin shows: the new pins would take it away under the pointer.
   sinceRefresh = sinceRefresh + elapsed
-  if sinceRefresh >= REFRESH_SECONDS and not drag and view.scale == view.target then
+  local due = sinceRefresh >= REFRESH_SECONDS or (stale and sinceRefresh >= STALE_SECONDS)
+  if due and not drag and view.scale == view.target and not hovered then
     sinceRefresh = 0
+    stale = false
     rebuildPins()
+    -- At once: a pin from the store still has the place of the pin it was before.
+    place()
+    placeArrow()
   end
 end
 
@@ -1244,6 +1257,7 @@ end
 function ns.RefreshMapPins()
   if window and window:IsShown() then
     rebuildPins()
+    place()
   end
 end
 
@@ -1315,7 +1329,9 @@ ns.OnLogin(function()
     if event == "UPDATE_BINDINGS" or (event == "PLAYER_REGEN_ENABLED" and wanted) then
       bindKeys()
     elseif event ~= "UPDATE_BINDINGS" and event ~= "PLAYER_REGEN_ENABLED" then
-      ns.RefreshMapPins()
+      -- The game sends these in bursts (the quest log most of all): the map reads its pins
+      -- again once, at its next update.
+      stale = true
     end
   end)
 end)

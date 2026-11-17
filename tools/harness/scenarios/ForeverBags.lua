@@ -44,15 +44,49 @@ T.advance(0.1)
 CloseAllBags()
 expect(not ForeverBagsWindow:IsShown(), "CloseAllBags closes the window")
 T.advance(0.1)
--- Escape closes this window and not the hidden one of the game: the bag key still opens it.
+-- The close button closes the bags of the game too: they are open out of sight, and Escape
+-- would close them and do nothing that the player sees.
 ToggleAllBags()
 T.advance(0.1)
-ForeverBagsWindow:Hide()
-expect(H.gameBagsOpen == true, "the bag window of the game is still open, out of sight")
+H.click(ForeverBagsWindow.close)
+expect(not ForeverBagsWindow:IsShown() and H.gameBagsOpen == false, "the close button closes the window and the bags of the game")
+expect(H.pressEscape() == true, "after the close button, Escape opens the game menu")
+T.advance(0.1)
+-- Escape closes the window, and the bag key opens it again.
+ToggleAllBags()
+T.advance(0.1)
+expect(H.pressEscape() == false and not ForeverBagsWindow:IsShown(), "Escape closes the window")
+T.advance(0.1)
 ToggleAllBags()
 expect(ForeverBagsWindow:IsShown(), "after Escape the bag key opens the window again")
 T.advance(0.1)
+-- A vendor that closes does not close bags that the player opened: the game does nothing then.
+local vendor = CreateFrame("Frame", "ScenarioVendor", UIParent)
+CloseAllBags(vendor)
+expect(ForeverBagsWindow:IsShown(), "a vendor that did not open the bags does not close the window")
+T.advance(0.1)
 ToggleAllBags()
+expect(not ForeverBagsWindow:IsShown(), "the bag key closes the window after that")
+T.advance(0.1)
+-- A vendor that opened the bags closes them.
+OpenAllBags(vendor)
+expect(ForeverBagsWindow:IsShown(), "a vendor opens the window")
+T.advance(0.1)
+CloseAllBags(vendor)
+expect(not ForeverBagsWindow:IsShown(), "the vendor that opened the bags closes the window")
+T.advance(0.1)
+-- Where the game does not allow the bags, the key does nothing, and the window stays closed.
+T.world.bagsRefused = true
+ToggleAllBags()
+expect(not ForeverBagsWindow:IsShown(), "the game refuses the bags: the window stays closed")
+T.world.bagsRefused = false
+T.advance(0.1)
+-- The window opened by /fbags closes with the bag key.
+T.slash("/fbags", "")
+expect(ForeverBagsWindow:IsShown(), "/fbags opens the window")
+T.advance(0.1)
+ToggleAllBags()
+expect(not ForeverBagsWindow:IsShown() and H.gameBagsOpen == false, "the bag key closes a window that /fbags opened")
 T.advance(0.1)
 -- A bag of the bank stays with the game.
 ToggleBag(7)

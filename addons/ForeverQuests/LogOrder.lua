@@ -177,6 +177,12 @@ local function whiten(button)
   if title then
     title:SetTextColor(1, 1, 1)
   end
+  -- The tag at the right of the name (the level or the kind of the quest): the game gives it
+  -- the colour of the name (QuestMapFrame.lua, QuestMapLogTitleButton_OnLeave).
+  local tag = fontString(button.TagText)
+  if tag then
+    tag:SetTextColor(1, 1, 1)
+  end
   local pool = QuestScrollFrame and QuestScrollFrame.objectiveFramePool
   if pool and pool.EnumerateActive then
     for line in pool:EnumerateActive() do
