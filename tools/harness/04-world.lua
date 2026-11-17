@@ -692,7 +692,21 @@ end)
 set("C_QuestLog", "GetQuestWatchType", function(questID)
   return H.watched[questID] and Enum.QuestWatchType.Manual or nil
 end)
+-- The game tracks a limited number of quests (H.world.watchLimit; none at first): past it,
+-- AddQuestWatch does nothing and returns false.
+local function watchCount()
+  local count = 0
+  for _ in pairs(H.watched) do
+    count = count + 1
+  end
+  return count
+end
+H.watchCount = watchCount
+set("C_QuestLog", "GetNumQuestWatches", watchCount)
 set("C_QuestLog", "AddQuestWatch", function(questID)
+  if H.world.watchLimit and not H.watched[questID] and watchCount() >= H.world.watchLimit then
+    return false
+  end
   H.watched[questID] = true
   did("watch", questID)
   return true
@@ -706,7 +720,7 @@ end)
 -- Builds the quest log, as the function of the same name in QuestMapFrame.lua: a header button
 -- and a title button for each entry, each with its place in the layout.
 function QuestLogQuests_Update()
-  local titles, headers, objectives = {}, {}, {}
+  local titles, headers, objectives, pois = {}, {}, {}, {}
   for index, entry in ipairs(QUEST_LOG) do
     local button = H.questLogFrames[index]
     if not button then
@@ -757,6 +771,23 @@ function QuestLogQuests_Update()
         H.gameFrameSet[button.Checkbox] = true
       end
       titles[#titles + 1] = button
+      -- The icon of the quest at the left of its name. It is not a child of the title button:
+      -- it comes from a pool of the list (Blizzard_POIButton/POIButtonOwner.lua), is shown on
+      -- its own and only hangs on the title (QuestMapFrame.lua: poiButton:SetPoint, .parent).
+      local poi = H.questLogFrames["poi" .. index]
+      if not poi then
+        poi = CreateFrame("Button", nil, QuestScrollFrame.Contents)
+        H.questLogFrames["poi" .. index] = poi
+        H.gameFrameSet[poi] = true
+        function poi:GetQuestID()
+          return self.questID
+        end
+      end
+      poi.questID = entry.questID
+      poi.parent = button
+      poi:SetPoint("TOPLEFT", button, "TOPLEFT", 6, -4)
+      poi:Show()
+      pois[#pois + 1] = poi
       local line = H.questLogFrames["line" .. index]
       if not line then
         line = CreateFrame("Frame", nil, QuestScrollFrame.Contents)
@@ -776,6 +807,7 @@ function QuestLogQuests_Update()
   QuestScrollFrame.titleFramePool.active = titles
   QuestScrollFrame.headerFramePool.active = headers
   QuestScrollFrame.objectiveFramePool.active = objectives
+  QuestScrollFrame.Contents.buttonPool.active = pois
 end
 
 -- Quest givers. C_GossipInfo is in the documentation; the functions of the quest window are not.

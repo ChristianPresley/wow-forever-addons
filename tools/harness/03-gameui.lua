@@ -85,6 +85,20 @@ function QuestMapFrame_OpenToQuestDetails(questID)
   H.did[#H.did + 1] = { "open quest", questID }
   QuestMapFrame_ShowQuestDetails(questID)
 end
+-- QuestMapFrame.lua: what the tracking box of a quest does. It refuses a new quest when the
+-- game tracks as many as it can, and says so on the screen (UIErrorsFrame).
+function QuestMapQuestOptions_TrackQuest(questID)
+  if realType(questID) ~= "number" then
+    fail("QuestMapQuestOptions_TrackQuest: a quest ID is needed, got " .. realType(questID))
+  end
+  if C_QuestLog.GetQuestWatchType(questID) ~= nil then
+    C_QuestLog.RemoveQuestWatch(questID)
+  elseif H.world.watchLimit and C_QuestLog.GetNumQuestWatches() >= H.world.watchLimit then
+    H.did[#H.did + 1] = { "too many watches", questID }
+  else
+    C_QuestLog.AddQuestWatch(questID)
+  end
+end
 -- QuestMapFrame.xml: the search box of the quest log, an edit box with SearchBoxTemplate.
 QuestScrollFrame.SearchBox = CreateFrame("EditBox", nil, QuestScrollFrame, "SearchBoxTemplate")
 H.questLogLayouts = 0
@@ -108,6 +122,8 @@ end
 QuestScrollFrame.titleFramePool = newPool()
 QuestScrollFrame.objectiveFramePool = newPool()
 QuestScrollFrame.headerFramePool = newPool()
+-- Blizzard_POIButton/POIButtonOwner.lua: the icons of the quests, a pool of the list itself.
+QuestScrollFrame.Contents.buttonPool = newPool()
 H.questLogFrames = {} -- the buttons are made once and used again, as the pools of the game do
 
 -- The auction house (Blizzard_AuctionHouseUI). The game loads it when the auction house opens:

@@ -139,6 +139,15 @@ T.fire("ZONE_CHANGED_NEW_AREA")
 T.advance(2)
 QuestLogQuests_Update()
 expect(shownInLog() == 1, "in another zone the quest that is not of it is hidden, shown: " .. shownInLog())
+-- The icon of a quest is not a child of its title: the icon of a hidden quest is hidden too.
+local iconsShown, iconOfHidden = 0, false
+for icon in QuestScrollFrame.Contents.buttonPool:EnumerateActive() do
+  if icon:IsShown() then
+    iconsShown = iconsShown + 1
+    iconOfHidden = iconOfHidden or not icon.parent:IsShown()
+  end
+end
+expect(iconsShown == 1 and not iconOfHidden, "the icon of the hidden quest is hidden with it, icons shown: " .. iconsShown)
 -- With a text in the search box of the quest log the filter is off: the game's search decides.
 QuestScrollFrame.SearchBox:SetText("hogger")
 QuestLogQuests_Update()
@@ -233,6 +242,12 @@ H.click(tracker, "LeftButton", false)
 expect(H.watched[40] == true and tracker.tracked == true and symbolLook() == "bright", "a click on the symbol tracks the quest, and the symbol is bright, got " .. symbolLook())
 H.click(tracker, "LeftButton", false)
 expect(H.watched[40] == nil and tracker.tracked == false and symbolLook() == "grey", "a second click stops tracking, and the symbol is grey again, got " .. symbolLook())
+-- The game tracks a limited number of quests. At the limit a click tracks nothing, the game
+-- says so (its own function was asked), and the symbol stays grey.
+T.world.watchLimit = H.watchCount()
+H.click(tracker, "LeftButton", false)
+expect(H.watched[40] == nil and tracker.tracked == false and symbolLook() == "grey" and H.count("too many watches") == 1, "at the limit of tracked quests a click tracks nothing and the game says why")
+T.world.watchLimit = nil
 -- A right-click shows where to turn the quest in.
 local openedByMark = H.count("open quest")
 H.click(tracker, "RightButton", false)

@@ -542,15 +542,40 @@ local function gameWindows()
   return list
 end
 
+-- The bag that a bag window of the game shows; nil for the window of all bags of the character.
+local function bagOf(frame)
+  if frame == _G["ContainerFrameCombinedBags"] then
+    return nil
+  end
+  if type(frame.GetBagID) == "function" then
+    return frame:GetBagID()
+  end
+  if type(frame.GetID) == "function" then
+    return frame:GetID()
+  end
+  return nil
+end
+
 -- Takes the bag windows of the game off the screen, or gives them back.
+--
+-- The game uses the same windows for other bags: a bag of the bank, the keyring. This addon
+-- does not show those, so a window that is open with such a bag goes back on the screen.
 local function hideGameWindows(hide)
   if hide then
     hiddenParent = hiddenParent or CreateFrame("Frame")
     hiddenParent:Hide()
     for _, frame in ipairs(gameWindows()) do
-      if gameParents[frame] == nil and type(frame.SetParent) == "function" then
-        gameParents[frame] = frame:GetParent() or UIParent
-        pcall(frame.SetParent, frame, hiddenParent)
+      if type(frame.SetParent) == "function" then
+        local other = type(frame.IsShown) == "function" and frame:IsShown() and not isBagOfCharacter(bagOf(frame))
+        if other then
+          if gameParents[frame] ~= nil then
+            pcall(frame.SetParent, frame, gameParents[frame])
+            gameParents[frame] = nil
+          end
+        elseif gameParents[frame] == nil then
+          gameParents[frame] = frame:GetParent() or UIParent
+          pcall(frame.SetParent, frame, hiddenParent)
+        end
       end
     end
   else
@@ -563,20 +588,9 @@ end
 
 -- True if a bag window of the game with bags of the character is open (out of sight).
 local function gameBagsOpen()
-  local combined = _G["ContainerFrameCombinedBags"]
   for _, frame in ipairs(gameWindows()) do
-    if type(frame.IsShown) == "function" and frame:IsShown() then
-      local id
-      if frame ~= combined then
-        if type(frame.GetBagID) == "function" then
-          id = frame:GetBagID()
-        elseif type(frame.GetID) == "function" then
-          id = frame:GetID()
-        end
-      end
-      if isBagOfCharacter(id) then
-        return true
-      end
+    if type(frame.IsShown) == "function" and frame:IsShown() and isBagOfCharacter(bagOf(frame)) then
+      return true
     end
   end
   return false
@@ -607,6 +621,7 @@ local function follow(key)
   if closing or not ns.GetOption("replaceBags") then
     return
   end
+  hideGameWindows(true) -- a window with a bag of the bank or the keyring is on the screen
   local now = GetTime()
   if pressAt ~= now then
     pressAt = now

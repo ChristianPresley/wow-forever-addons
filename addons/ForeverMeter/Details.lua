@@ -152,7 +152,7 @@ local function create()
     row.name:SetWordWrap(false)
     row:EnableMouse(true)
     row:SetScript("OnEnter", function(self)
-      if self.spellID and not ns.IsSecret(self.spellID) then
+      if not ns.IsSecret(self.spellID) and self.spellID then
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if pcall(GameTooltip.SetSpellByID, GameTooltip, self.spellID) then
           GameTooltip:Show()

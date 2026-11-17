@@ -10,12 +10,10 @@ local CHANNELS = { SELF = true, SAY = true, PARTY = true, RAID = true, GUILD = t
 local function send(text, channel)
   if channel == "SELF" then
     print(text)
-    return
+    return true
   end
   local sendMessage = C_ChatInfo.SendChatMessage
-  if sendMessage then
-    pcall(sendMessage, text, channel)
-  end
+  return sendMessage ~= nil and (pcall(sendMessage, text, channel))
 end
 
 -- Returns the lines of the report, or nil and the reason.
@@ -80,6 +78,10 @@ function ns.Report(channel)
     return
   end
   for _, line in ipairs(lines) do
-    send(line, channel)
+    -- The game can refuse a chat message of an addon (in a fight, or in some places).
+    if not send(line, channel) then
+      ns.Print("the game refused the chat message. Try again after the fight, or report to self.")
+      return
+    end
   end
 end

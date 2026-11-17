@@ -63,6 +63,10 @@ local samples = {
   QuestScrollFrame.titleFramePool,
   WorldMapFrame:GetPinFrameLevelsManager(),
 }
+-- The icons of the quests in the quest log (Blizzard_POIButton): the frames of their pool.
+for icon in QuestScrollFrame.Contents.buttonPool:EnumerateActive() do
+  samples[#samples + 1] = icon
+end
 MenuUtil.CreateContextMenu(UIParent, function(_, root)
   samples[#samples + 1] = root
 end)

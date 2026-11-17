@@ -142,18 +142,24 @@ end
 -- (QuestMapQuestOptions_TrackQuest in QuestMapFrame.lua). Returns true if the quest is tracked after.
 function ns.ToggleTracking(questID)
   local tracked = isTracked(questID)
-  if tracked then
+  if type(QuestMapQuestOptions_TrackQuest) == "function" then
+    -- The game's own function has the rules of the game: no more tracked quests than the
+    -- game allows, with the game's message on the screen.
+    pcall(QuestMapQuestOptions_TrackQuest, questID)
+  elseif tracked then
     pcall(C_QuestLog.RemoveQuestWatch, questID)
   else
     pcall(C_QuestLog.AddQuestWatch, questID)
   end
-  if PlaySound and SOUNDKIT then
+  local after = isTracked(questID)
+  -- The sound of a box, only if the click changed something.
+  if after ~= tracked and PlaySound and SOUNDKIT then
     local sound = tracked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON
     if sound then
       PlaySound(sound)
     end
   end
-  return isTracked(questID)
+  return after
 end
 
 -- The tracking symbol: grey and dim while the quest is not tracked, bright while it is.

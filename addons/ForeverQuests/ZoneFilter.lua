@@ -139,6 +139,18 @@ local function filterLog()
       end
     end
   end
+  -- The icon of a quest at the left of its name is not a child of the title: it comes from a
+  -- pool of the list and only hangs on the title (Blizzard_POIButton/POIButtonOwner.lua). So
+  -- it would stay on the screen, over the list that closed up.
+  local icons = scroll.Contents and scroll.Contents.buttonPool
+  if type(icons) == "table" and type(icons.EnumerateActive) == "function" then
+    for icon in icons:EnumerateActive() do
+      local questID = type(icon.GetQuestID) == "function" and icon:GetQuestID()
+      if questID and hidden[questID] then
+        icon:Hide()
+      end
+    end
+  end
   local headersHidden = false
   if scroll.headerFramePool and scroll.headerFramePool.EnumerateActive then
     for header in scroll.headerFramePool:EnumerateActive() do
@@ -197,6 +209,8 @@ local function isWatched(questID)
   return C_QuestLog.GetQuestWatchType(questID) ~= nil
 end
 
+local lastMissed = 0
+
 -- Sets which quests are tracked. Untracks first, because the game limits the number of tracked quests.
 local function setWatches(quests, shouldWatch)
   for _, questID in ipairs(quests) do
@@ -204,9 +218,21 @@ local function setWatches(quests, shouldWatch)
       pcall(C_QuestLog.RemoveQuestWatch, questID)
     end
   end
+  -- The game tracks a limited number of quests: past it, it tracks no more. The player hears
+  -- of it once for each number of quests left out.
+  local missed = 0
   for _, questID in ipairs(quests) do
     if shouldWatch(questID) == true and not isWatched(questID) then
       pcall(C_QuestLog.AddQuestWatch, questID)
+      if not isWatched(questID) then
+        missed = missed + 1
+      end
+    end
+  end
+  if missed ~= lastMissed then
+    lastMissed = missed
+    if missed > 0 then
+      ns.Print(string.format("the game tracks no more quests than it does now: %d %s of this zone %s not tracked.", missed, missed == 1 and "quest" or "quests", missed == 1 and "is" or "are"))
     end
   end
 end

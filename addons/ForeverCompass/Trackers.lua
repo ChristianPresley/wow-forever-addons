@@ -138,8 +138,13 @@ local function partyMembers(_, _, addWorld)
     if UnitExists(unit) then
       local continent, north, west = ns.UnitWorld(unit)
       if continent then
+        -- The game can hide the name of a unit (a secret value): no test of it then, not
+        -- even for nil. The marker gets a plain name.
         local name = UnitName(unit)
-        addWorld(continent, north, west, type(name) == "string" and name or "Party member")
+        if (issecretvalue and issecretvalue(name)) or type(name) ~= "string" then
+          name = "Party member"
+        end
+        addWorld(continent, north, west, name)
       end
     end
   end

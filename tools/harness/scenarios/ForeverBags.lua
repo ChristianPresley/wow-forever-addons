@@ -91,6 +91,9 @@ T.advance(0.1)
 -- A bag of the bank stays with the game.
 ToggleBag(7)
 expect(not ForeverBagsWindow:IsShown(), "a bank bag does not open the window")
+expect(ContainerFrame1:IsVisible(), "the game's window of a bank bag is on the screen, not hidden with the bags of the character")
+ToggleBag(7)
+expect(not ContainerFrameCombinedBags:IsVisible(), "the game's window of the bags of the character stays out of sight")
 T.advance(0.1)
 -- With the option off, the bag key leaves the window alone.
 ns.SetOption("replaceBags", false)
