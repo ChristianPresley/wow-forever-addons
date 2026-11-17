@@ -121,7 +121,8 @@ end
 --   tracks the quest or stops tracking it, as the box does. The symbol is grey while the quest
 --   is not tracked and bright while it is. It has some room around it, which takes the click too.
 --   under it is the compass symbol, if Forever Compass is loaded: a click makes a tracker of
---   the compass point to this quest, a second click takes it off the compass again.
+--   the compass point to this quest, a second click takes it off the compass again. On a quest
+--   without lines under its title the compass symbol is beside the tracking symbol, to its left.
 -- A quest that is ready to turn in, with the option completeFanfare:
 --   the whole quest (its title and the lines under it) is on a green background, in white text
 --   "COMPLETED" is in front of the name of the quest
@@ -133,6 +134,11 @@ local SYMBOL_SIZE = 13
 local SYMBOL_ROOM = 4 -- around the tracking symbol, on each side
 local SYMBOL_LEFT = 3 -- the symbol is this far to the left of the middle of the game's box
 local COMPASS_GAP = 2 -- between the tracking symbol and the compass symbol under it
+-- The game makes the button of a quest as high as its title and the lines under it
+-- (QuestMapFrame.lua, QuestLogQuests_AddQuestButton). A quest can have no lines: the option of
+-- the log that shows the objectives is off, or nothing is left to count. A button lower than
+-- this has no room for the compass symbol under the tracking symbol: it goes beside it.
+local ROW_FOR_BOTH = 38
 
 -- The functions of Forever Compass for other addons, or nil if it is not loaded.
 local function compassApi()
@@ -320,11 +326,10 @@ local function createMark(button)
   -- tracking symbol.
   local compass = CreateFrame("Button", nil, button)
   compass:SetSize(SYMBOL_SIZE + 2 * SYMBOL_ROOM, SYMBOL_SIZE + COMPASS_GAP)
-  compass:SetPoint("TOP", tracker, "BOTTOM", 0, SYMBOL_ROOM - COMPASS_GAP)
   compass.symbol = compass:CreateTexture(nil, "OVERLAY")
   compass.symbol:SetTexture("Interface\\AddOns\\ForeverQuests\\Media\\Compass")
   compass.symbol:SetSize(SYMBOL_SIZE, SYMBOL_SIZE)
-  compass.symbol:SetPoint("BOTTOM")
+  compass.symbol:SetPoint("CENTER")
   compass:RegisterForClicks("LeftButtonUp")
   compass:SetScript("OnClick", function(self)
     if self.questID then
@@ -395,6 +400,15 @@ local function updateBadge(button, enabled)
   tracker:Show()
   compass.questID = button.questID
   compass:SetFrameLevel(tracker:GetFrameLevel())
+  compass:ClearAllPoints()
+  local height = button.GetHeight and button:GetHeight()
+  if type(height) == "number" and height < ROW_FOR_BOTH then
+    compass.beside = true
+    compass:SetPoint("RIGHT", tracker, "LEFT", SYMBOL_ROOM, 0)
+  else
+    compass.beside = false
+    compass:SetPoint("TOP", tracker, "BOTTOM", 0, SYMBOL_ROOM - COMPASS_GAP)
+  end
   if compassApi() then
     showOnCompass(compass)
     compass:Show()

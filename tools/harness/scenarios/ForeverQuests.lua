@@ -274,6 +274,11 @@ ForeverCompass = {
   end,
 }
 QuestLogQuests_Update()
+-- The game makes the button of a quest as high as its title and the lines under it. The
+-- stand-in does not do that yet, so the heights of a quest with lines are set here.
+ready:SetHeight(60)
+other:SetHeight(60)
+ns.ArrangeLog()
 local compass = mark.compass
 local function compassLook()
   local red, green, blue, alpha = compass.symbol:GetVertexColor()
@@ -293,6 +298,17 @@ compassFull = true
 H.click(compass, "LeftButton", false)
 expect(onCompass[40] == nil and compassLook() == "grey" and T.printed("all 4 trackers of the compass are in use"), "with every tracker in use the quest is not added, and the addon says why")
 compassFull = false
+-- A quest without lines under its title has a low button: the compass symbol is beside the
+-- tracking symbol there, not under it, where it would be over the next quest.
+local tall = ready:GetHeight()
+ready:SetHeight(26)
+ns.ArrangeLog()
+expect(compass.beside == true and select(1, compass:GetPoint(1)) == "RIGHT" and select(2, compass:GetPoint(1)) == tracker and select(3, compass:GetPoint(1)) == "LEFT", "on a low button the compass symbol is to the left of the tracking symbol")
+ready:SetHeight(60)
+ns.ArrangeLog()
+expect(compass.beside == false and select(3, compass:GetPoint(1)) == "BOTTOM", "on a button with lines under the title it is under the tracking symbol")
+ready:SetHeight(tall)
+ns.ArrangeLog()
 local function symbolLook()
   local red, green, blue, alpha = tracker.symbol:GetVertexColor()
   return red == 1 and green == 0.9 and blue == 0.3 and alpha == 1 and "bright" or (red == 0.8 and alpha == 0.6 and "grey" or "other")
