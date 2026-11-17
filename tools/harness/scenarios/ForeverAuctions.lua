@@ -65,6 +65,10 @@ expect(ns.RunSearch("Linen Cloth") == true and H.auctionSearches[#H.auctionSearc
 local modeSets = H.count("auction display mode")
 expect(ns.RunSearch("Linen Cloth") == true and H.count("auction display mode") == modeSets, "a search on the buy tab leaves the tab of the game's window alone")
 expect(ns.RemoveSearch("COPPER ORE") == true and #ns.ShoppingList() == 1, "a search is removed by its text")
+-- A link whose colour is the name of a quality colour, as newer clients write it.
+expect(ns.AddSearch("|cnIQ1:|Hitem:2770::::::::20:::::|h[Copper Ore]|h|r") == true and ns.ShoppingList()[1] == "Copper Ore",
+  "a link with a quality colour name becomes the name of the item, got " .. tostring(ns.ShoppingList()[1]))
+expect(ns.RemoveSearch("Copper Ore") == true and #ns.ShoppingList() == 1, "the search from the link is removed again")
 
 -- The value of the bags: 32 Linen Cloth at 140 and 8 Chunk of Boar Meat at 35.
 local auction, vendor, items = ns.BagValue()

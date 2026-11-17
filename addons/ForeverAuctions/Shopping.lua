@@ -25,8 +25,9 @@ end
 -- Adds a search text. Returns true, or false and the reason.
 function ns.AddSearch(text)
   text = ((text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
-  -- An item link put into the text becomes the name of the item.
-  text = text:gsub("|c%x+|Hitem:.-|h%[(.-)%]|h|r", "%1")
+  -- An item link put into the text becomes the name of the item. The colour of a link is a hex
+  -- number (|cffffffff) or the name of a quality colour (|cnIQ1:).
+  text = text:gsub("|c[^|]+|Hitem:.-|h%[(.-)%]|h|r", "%1")
   if text == "" then
     return false, "type the text to search for."
   end

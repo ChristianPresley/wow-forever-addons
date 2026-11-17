@@ -2,7 +2,7 @@
 ## Title: Forever Auctions
 ## Notes: Remembers auction house prices, scans all listings, finds deals, keeps a shopping list, price alerts and a ledger of your sales and purchases, helps you price your auctions and shows prices in item tooltips.
 ## Author: Christian Presley
-## Version: 0.4.3
+## Version: 0.4.4
 ## Category: Auctions
 ## SavedVariables: ForeverAuctionsDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons
