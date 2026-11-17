@@ -361,6 +361,16 @@ function use(frame)
   script(frame, "OnDragStop")
   script(frame, "OnReceiveDrag")
   script(frame, "OnSizeChanged", s.width, s.height)
+  -- Keys, for a frame that takes them.
+  script(frame, "OnKeyDown", "ESCAPE")
+  script(frame, "OnKeyUp", "ESCAPE")
+  script(frame, "OnChar", "a")
+  script(frame, "OnHyperlinkEnter", "item:2589", "|cffffffff|Hitem:2589|h[Linen Cloth]|h|r")
+  script(frame, "OnHyperlinkClick", "item:2589", "|cffffffff|Hitem:2589|h[Linen Cloth]|h|r", "LeftButton")
+  script(frame, "OnHyperlinkLeave")
+  script(frame, "OnVerticalScroll", 0)
+  script(frame, "OnCooldownDone")
+  script(frame, "OnTooltipCleared")
   if s.kind == "Slider" and scripts.OnValueChanged then
     local before = s.value
     for _, value in ipairs({ s.min, (s.min + s.max) / 2, s.max, before }) do
@@ -375,10 +385,16 @@ function use(frame)
       frame:SetText("linen")
     end)
     script(frame, "OnTextChanged", true)
+    script(frame, "OnTabPressed")
+    script(frame, "OnSpacePressed")
     script(frame, "OnEnterPressed")
     script(frame, "OnEscapePressed")
     call("typing", function()
       frame:SetText(before)
+    end)
+    -- Enter in the box as it was before, which for most boxes is empty.
+    script(frame, "OnEnterPressed")
+    call("typing", function()
       frame:ClearFocus()
     end)
   end
@@ -386,6 +402,17 @@ function use(frame)
   for _, region in ipairs(s.regions) do
     script(region, "OnEnter", true)
     script(region, "OnLeave", true)
+    for _, button in ipairs({ "LeftButton", "RightButton" }) do
+      script(region, "OnMouseDown", button)
+      script(region, "OnMouseUp", button, true)
+    end
+  end
+  -- An animation that the use of the frame started comes to its end.
+  local playing = H.playing or {}
+  H.playing = {}
+  for _, group in ipairs(playing) do
+    counts.scripts = counts.scripts + 1
+    call("the end of an animation", H.finishAnimation, group)
   end
 end
 

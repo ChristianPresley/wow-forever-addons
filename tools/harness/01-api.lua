@@ -17,7 +17,10 @@
 --   - A secret value fails on arithmetic and on comparison of order, and as an argument of a
 --     function that the documentation does not open to addon code.
 
-local snapshot = ...
+-- `uiFiles` has functions for the large parts of tools/api/forever-ui.json, which are read
+-- when they are needed: uiFiles.template(name), uiFiles.mixin(name) and uiFiles.calls().
+local snapshot, uiFiles = ...
+uiFiles = uiFiles or {}
 
 local H = {
   frames = {}, -- every frame made with CreateFrame, in order

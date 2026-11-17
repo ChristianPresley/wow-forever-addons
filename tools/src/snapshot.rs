@@ -255,6 +255,13 @@ local WIDER_ARGUMENTS = {
   -- The wrap modes are documented as texts.
   ["SimpleTextureBaseAPI:SetTexture"] = { [2] = "a?", [3] = "a?" },
 }
+-- The same for what a function returns.
+local WIDER_RESULTS = {
+  -- An attribute has the value that SetAttribute got, of any kind, or nil:
+  -- `if not frame:GetAttribute("UIPanelLayout-defined") then` in
+  -- Blizzard_UIParentPanelManager/Shared/UIParentPanelManager.lua. Documented as a text.
+  ["SimpleFrameAPI:GetAttribute"] = { [1] = "a?" },
+}
 local widerUsed = {}
 
 -- The letter of a documented value, without the marks for nil and lists.
@@ -334,7 +341,8 @@ end
 
 local function spec(fn, key)
   local wider = key and WIDER_ARGUMENTS[key]
-  if wider then
+  local widerResults = key and WIDER_RESULTS[key]
+  if wider or widerResults then
     widerUsed[key] = true
   end
   local flags = SECRET_ARGUMENTS[fn.SecretArguments] or ""
@@ -359,7 +367,7 @@ local function spec(fn, key)
   if fn.HasRestrictions then
     flags = flags .. "H"
   end
-  return codes(fn.Returns, false) .. "|" .. codes(fn.Arguments, true, wider) .. "|" .. flags
+  return codes(fn.Returns, false, widerResults) .. "|" .. codes(fn.Arguments, true, wider) .. "|" .. flags
 end
 
 local function eventFlags(event)
@@ -430,11 +438,13 @@ end
 table.sort(unknownList)
 
 local widerList = {}
-for key in pairs(WIDER_ARGUMENTS) do
-  if not widerUsed[key] then
-    error("WIDER_ARGUMENTS names " .. key .. ", which the documentation does not have")
+for _, list in ipairs({ WIDER_ARGUMENTS, WIDER_RESULTS }) do
+  for key in pairs(list) do
+    if not widerUsed[key] then
+      error("WIDER_ARGUMENTS or WIDER_RESULTS names " .. key .. ", which the documentation does not have")
+    end
+    widerList[#widerList + 1] = key
   end
-  widerList[#widerList + 1] = key
 end
 table.sort(widerList)
 

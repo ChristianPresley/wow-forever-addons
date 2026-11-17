@@ -152,7 +152,7 @@ What it does with an addon:
 
 What makes an error show:
 
-- **Names.** A function, an event, a frame type, a template or a script name that the game does not have fails, the same as in the game. A widget has the methods of its own kind only: `texture:SetText()` fails.
+- **Names.** A function, an event, a frame type, a template, a font or a script name that the game does not have fails, the same as in the game. A widget has the methods of its own kind only: `texture:SetText()` fails. A template is for one kind of frame: a button template on a plain frame fails.
 - **Arguments.** A documented function checks its arguments against the documentation: a missing required argument and a value of the wrong kind fail.
 - **Secret values.** Arithmetic with a secret value and a comparison of order fail. `type` gives the real type, so a test of the type does not protect code that calculates. A secret value fails as an argument of a function that the documentation does not open to addon code, and as a table key.
 - **Saved variables.** A function, a frame, a secret value or a table that contains itself in a saved variable fails: the game cannot save it.
@@ -200,7 +200,12 @@ A check must be able to fail. Do not expect a value that an earlier step stored 
 #### Where the stand-in comes from
 
 - **`tools/api/forever-api.json`** is the API of the game, from Blizzard's API documentation: each documented function with its arguments, its results and its flags for secret values, each widget method by widget kind, each event with its arguments, each enumeration, constant and structure. `cargo dev api-snapshot <folder> [note] [--out <file>]` builds it from the `Blizzard_APIDocumentationGenerated` folder of the [UI source](https://github.com/Gethe/wow-ui-source/tree/forever). Build it again after a patch of the game, with `--out` first: compare the new file with the old one before it takes its place. The command runs Blizzard's files with no file or OS access. Where the game takes more than its documentation says, `WIDER_ARGUMENTS` and the table of kinds in `tools/src/snapshot.rs` say so, each line with a call of the game's own code as the proof (`RegisterUnitEvent` takes unit names; `SetAttribute` takes any value).
-- **`tools/api/forever-ui.json`** has names that the documentation does not list: the fonts of the game's XML files, and the events that the game's own code registers. `cargo dev ui-names <Interface/AddOns folder>` builds it from the UI source.
+- **`tools/api/forever-ui.json`** has what the documentation does not list, read from the game's own XML and Lua files. `cargo dev ui-names <Interface/AddOns folder>` builds it from the UI source. It has:
+  - the fonts, and the events that the game's own code registers;
+  - the frame types and animation types, and the lists of allowed texts (draw layers, strata, blend modes) of `Blizzard_SharedXML/UI.xsd`;
+  - the scripts that the XML files put on each kind of widget;
+  - each template of the XML files: its kind, what it inherits, its mixins, its child keys and its key values. `CreateFrame` with a template makes the frame from this record, so every template of the game works and has the right keys. A method of a mixin has its name on the frame; a call fails with "the stand-in does not have the method ... yet" until someone writes it in `TEMPLATES` of `02-widgets.lua`;
+  - each call of a widget method in the game's Lua code whose arguments are written out, such as `frame:SetAttribute("shown", true)`. The stand-in must accept every one of them.
 - **`tools/api/source.txt`** names the repository, the branch and the commit of the UI source that both files come from.
 - **`tools/harness/01-api.lua` to `04-world.lua`** are the stand-in. `01` makes a function for each name of the snapshot. `02` has the widgets. `03` has the game's own windows and Lua code, which the documentation does not have. `04` has a small world: one character, a few items, two quests, an auction house, mail, a fight and a party.
 - **`tools/harness/driver.lua`** does the steps above.
@@ -211,6 +216,7 @@ Rules for a change to the stand-in:
 - A hand-written function for a documented name goes in with `set`, `setGlobal` or `define`. These fail for a name that the snapshot does not have, and they keep the documented check of the arguments.
 - Do not add a name to make a test pass. A missing name is what the test is for.
 - Where the game returns nil and the documentation does not say so, `H.allowNil(name, reason)` says so, with the file of the game's code that shows it.
+- A template needs no entry: it comes from `forever-ui.json`. Write an entry in `TEMPLATES` only for what the Lua code of the template does (a close button hides its parent). An entry cannot give the frame a field that the game's template does not have: the check fails. A field that the game's Lua code sets, and no XML file shows, goes in `fields` of the entry with the file.
 - A function of `math`, `table` or `string` that the documentation lists and nobody wrote fails when an addon calls it. Write it in `01-api.lua`; a stub would give a wrong value without an error.
 
 #### Conformance with Blizzard's files
@@ -223,6 +229,7 @@ The stand-in is checked too, so that a mistake in it cannot make a wrong addon p
 | Widget kinds | Each `cargo dev test` | A script object of the documentation that no widget kind uses and that is not on the list of those left out; a hand-written method for a name that its kind does not document |
 | Form of the snapshot | `cargo test -p wfam-dev` | A letter, a flag or a structure name that the stand-in does not know |
 | Calls of the game's own code | `cargo test -p wfam-dev` | A call that Blizzard's UI code makes and the stand-in refuses. Add each such case to the test `calls_of_the_games_own_code_pass` with its file |
+| The stand-in against the game's UI files | `cargo dev conformance`, `cargo test -p wfam-dev` | A frame type or animation type of the game that the stand-in cannot make; a script that an XML file of the game puts on a kind and the stand-in refuses for that kind; a hand-written template that the game does not have, or that gives a field that the game's template lacks; a value of a list of `UI.xsd` that the stand-in refuses; and each of the about 3,800 calls with written-out arguments in the game's Lua code that the stand-in refuses. A call on a Lua object of the game that is not a widget goes on the list `NOT_A_WIDGET_CALL` in `02-widgets.lua`, with its file |
 | `cargo dev api-snapshot <folder> --check` | CI, each push | Builds the snapshot again from the commit in `source.txt`. It must come out the same, byte for byte: the snapshot was not edited by hand, and the tool was not changed without it |
 | `cargo dev ui-names <folder> --check` | CI, each push | The same for `forever-ui.json` |
 | The workflow "API drift" | Each day | Both checks against the newest commit of the branch. It fails when a patch of the game changed the API, and lists each name that was added, removed or changed |

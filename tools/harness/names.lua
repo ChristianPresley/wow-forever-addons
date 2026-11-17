@@ -28,6 +28,12 @@ local function collect(value, depth)
     for name in pairs(H.state(value).class.methods) do
       methods[name] = true
     end
+    -- The methods that the templates of the frame give it (the mixins of the game).
+    for _, extra in ipairs(H.state(value).extras or {}) do
+      for name in pairs(extra) do
+        methods[name] = true
+      end
+    end
   end
   for key, field in pairs(value) do
     if realType(key) == "string" and key ~= "__state" then
@@ -61,8 +67,8 @@ MenuUtil.CreateContextMenu(UIParent, function(_, root)
   samples[#samples + 1] = root
 end)
 -- One frame of each template, for the methods and keys that the template gives.
-for name, template in pairs(H.templates) do
-  local ok, frame = pcall(CreateFrame, template.kind or "Frame", nil, UIParent, name)
+for name in pairs(H.templates) do
+  local ok, frame = pcall(CreateFrame, H.templateKind(name) or "Frame", nil, UIParent, name)
   if ok then
     samples[#samples + 1] = frame
   end

@@ -337,6 +337,27 @@ function TooltipDataProcessor.AddTooltipPostCall(kind, fn)
   H.postCalls[#H.postCalls + 1] = { kind = kind, fn = fn }
 end
 
+-- Helpers for a tooltip. Blizzard_GameTooltip/Mainline/GameTooltip.lua:
+function GameTooltip_Hide()
+  GameTooltip:Hide()
+end
+-- Blizzard_SharedXML/SharedTooltipTemplates.lua: the place of a tooltip that has no place of
+-- its own, then a title, a line, an empty line.
+function GameTooltip_SetDefaultAnchor(tooltip, parent)
+  tooltip:SetOwner(parent, "ANCHOR_NONE")
+end
+function GameTooltip_SetTitle(tooltip, text)
+  tooltip:SetText(text)
+end
+for _, name in ipairs({ "GameTooltip_AddNormalLine", "GameTooltip_AddHighlightLine", "GameTooltip_AddInstructionLine", "GameTooltip_AddErrorLine", "GameTooltip_AddColoredLine" }) do
+  _G[name] = function(tooltip, text)
+    tooltip:AddLine(text)
+  end
+end
+function GameTooltip_AddBlankLineToTooltip(tooltip)
+  tooltip:AddLine(" ")
+end
+
 -- The scroll box (Blizzard_SharedXML/Shared/Scroll): a list that shows the rows in view.
 -- The stand-in makes a frame for each of the first rows and fills it with the addon's function.
 local SCROLL_ROWS = 15
@@ -376,7 +397,7 @@ TEMPLATES.WowScrollBoxList = { kind = "Frame", setup = function(box)
       end
     end
   end
-  box.scroll = s
+  state(box).scroll = s
 end }
 TEMPLATES.MinimalScrollBar = { kind = "Frame", setup = function() end }
 function CreateScrollBoxListLinearView()
@@ -402,10 +423,10 @@ function CreateDataProvider(items)
 end
 ScrollUtil = {}
 function ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
-  if not (isWidget(box) and box.scroll and isWidget(bar) and realType(view) == "table") then
+  if not (isWidget(box) and state(box).scroll and isWidget(bar) and realType(view) == "table") then
     fail("ScrollUtil.InitScrollBoxListWithScrollBar: (scroll box, scroll bar, view) is needed")
   end
-  box.scroll.view = view
+  state(box).scroll.view = view
 end
 ScrollBoxConstants = { RetainScrollPosition = true, DiscardScrollPosition = false }
 

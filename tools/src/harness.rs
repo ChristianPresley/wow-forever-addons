@@ -9,6 +9,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use mlua::{Lua, LuaOptions, LuaSerdeExt, StdLib, Table};
 
@@ -26,13 +27,58 @@ const NAMES: &str = include_str!("../harness/names.lua");
 /// Names of the game that the documentation does not list (`cargo dev ui-names`).
 const UI_NAMES: &str = include_str!("../api/forever-ui.json");
 
+/// `tools/api/forever-ui.json`, read once.
+fn ui_names() -> Result<&'static serde_json::Value, String> {
+    static NAMES: OnceLock<Result<serde_json::Value, String>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| serde_json::from_str(UI_NAMES).map_err(|error| format!("tools/api/forever-ui.json is not valid JSON: {error}")))
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+/// The small lists of the game's UI files, which the stand-in reads when it loads. The
+/// templates, the mixins and the calls are large: the stand-in asks for one of them when it
+/// needs it (see `stand_in`).
+const UI_LISTS: [&str; 7] = ["animationTypes", "enumerations", "fonts", "frameTypes", "scripts", "tooltipAnchors", "undocumentedEvents"];
+
 /// Puts the names of the game's UI files into the snapshot, under the key `ui`.
 pub fn with_ui_names(snapshot: &mut serde_json::Value) -> Result<(), String> {
-    let names: serde_json::Value = serde_json::from_str(UI_NAMES).map_err(|error| format!("tools/api/forever-ui.json is not valid JSON: {error}"))?;
+    let names = ui_names()?;
+    let mut lists = serde_json::Map::new();
+    for key in UI_LISTS {
+        if let Some(value) = names.get(key) {
+            lists.insert(key.to_string(), value.clone());
+        }
+    }
     if let Some(map) = snapshot.as_object_mut() {
-        map.insert("ui".to_string(), names);
+        map.insert("ui".to_string(), serde_json::Value::Object(lists));
     }
     Ok(())
+}
+
+/// Loads the stand-in alone, without an addon, and returns its table `H`.
+///
+/// The stand-in gets the snapshot, and a table of functions that give one entry of the large
+/// parts of `forever-ui.json`: `template(name)`, `mixin(name)` and `calls()`.
+fn stand_in(lua: &Lua, snapshot: &serde_json::Value) -> mlua::Result<Table> {
+    let names = ui_names().map_err(mlua::Error::external)?;
+    let lookup = lua.create_table()?;
+    // Without the names of the UI files (a snapshot that `with_ui_names` did not fill) the
+    // stand-in has its own hand-written templates only.
+    if snapshot.get("ui").is_some() {
+        for (function, key) in [("template", "templates"), ("mixin", "mixins")] {
+            lookup.set(
+                function,
+                lua.create_function(move |lua, name: String| match names.get(key).and_then(|entries| entries.get(&name)) {
+                    Some(entry) => lua.to_value(entry),
+                    None => Ok(mlua::Value::Nil),
+                })?,
+            )?;
+        }
+        lookup.set("calls", lua.create_function(move |lua, ()| lua.to_value(names.get("calls").unwrap_or(&serde_json::Value::Null)))?)?;
+    }
+    let stand_in = STAND_IN.join("\n");
+    lua.load(stand_in.as_str()).set_name("=harness/stand-in").call((lua.to_value(snapshot)?, lookup))
 }
 
 /// The global names and the method names that the stand-in for the game has, for the
@@ -40,12 +86,36 @@ pub fn with_ui_names(snapshot: &mut serde_json::Value) -> Result<(), String> {
 pub fn known_names(snapshot: &serde_json::Value) -> Result<(Vec<String>, Vec<String>), String> {
     let run = || -> mlua::Result<(Vec<String>, Vec<String>)> {
         let lua = unsafe { Lua::unsafe_new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::DEBUG, LuaOptions::default()) };
-        let stand_in = STAND_IN.join("\n");
-        let harness: Table = lua.load(stand_in.as_str()).set_name("=harness/stand-in").call(lua.to_value(snapshot)?)?;
+        let harness = stand_in(&lua, snapshot)?;
         let names: Table = lua.load(NAMES).set_name("=harness/names.lua").call(harness)?;
         Ok((strings(&names, "globals")?, strings(&names, "methods")?))
     };
     run().map_err(|error| format!("The names of the stand-in could not be read: {error}"))
+}
+
+/// The names of the methods that a widget of the stand-in can have: the documented ones of every
+/// kind, and the undocumented ones that the stand-in adds with a file of the game as the proof.
+pub fn widget_methods(snapshot: &serde_json::Value) -> Result<Vec<String>, String> {
+    let run = || -> mlua::Result<Vec<String>> {
+        let lua = unsafe { Lua::unsafe_new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::DEBUG, LuaOptions::default()) };
+        let harness = stand_in(&lua, snapshot)?;
+        let names: Table = harness.get::<mlua::Function>("widgetMethodNames")?.call(())?;
+        names.sequence_values::<String>().collect()
+    };
+    run().map_err(|error| format!("The method names of the widgets could not be read: {error}"))
+}
+
+/// Compares the stand-in with what `tools/api/forever-ui.json` has from the game's UI files:
+/// frame types, scripts, templates, and the calls of the game's own code. Returns the
+/// differences, one text for each.
+pub fn ui_check(snapshot: &serde_json::Value) -> Result<Vec<String>, String> {
+    let run = || -> mlua::Result<Vec<String>> {
+        let lua = unsafe { Lua::unsafe_new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::DEBUG, LuaOptions::default()) };
+        let harness = stand_in(&lua, snapshot)?;
+        let problems: Table = harness.get::<mlua::Function>("uiCheck")?.call(())?;
+        problems.sequence_values::<String>().collect()
+    };
+    run().map_err(|error| format!("The check of the stand-in against the UI files could not run: {error}"))
 }
 
 /// What one run of one addon found.
@@ -157,8 +227,7 @@ pub fn run_addon(addon: &Addon, snapshot: &serde_json::Value, saved: Option<&str
             description.set("scenario", scenario)?;
         }
 
-        let stand_in = STAND_IN.join("\n");
-        let harness: Table = lua.load(stand_in.as_str()).set_name("=harness/stand-in").call(lua.to_value(snapshot)?)?;
+        let harness = stand_in(&lua, snapshot)?;
         let result: Table = lua.load(DRIVER).set_name("=harness/driver.lua").call((harness, description))?;
         let counts: Table = result.get("counts")?;
         let count = |key: &str| counts.get::<i64>(key).unwrap_or(0);
@@ -689,6 +758,179 @@ mod tests {
             "#,
         );
         assert!(failures.iter().any(|failure| failure.contains("does not come to an end")), "{failures:?}");
+    }
+
+    /// A template gives a frame what the game's XML file of the template has: child keys, names,
+    /// key values and the names of the mixin methods. Behaviour is written by hand on top.
+    #[test]
+    fn a_template_has_what_the_games_xml_file_gives_it() {
+        let (failures, _) = check(
+            r#"
+            -- Blizzard_UIPanelTemplates/Mainline/UIPanelTemplates.xml
+            local window = CreateFrame("Frame", "ProbeWindow", UIParent, "BasicFrameTemplateWithInset")
+            assert(window.TitleText and window.CloseButton and window.Bg and window.InsetBg and window.InsetBorderTop, "child keys")
+            assert(window.Inset == nil, "the template has no Inset")
+            window.CloseButton:Click()
+            assert(not window:IsShown(), "the close button hides the window")
+            -- Blizzard_SharedXML/SecureUIPanelTemplates.xml: the button text, and a key value
+            local button = CreateFrame("Button", "ProbeButton", UIParent, "UIPanelButtonTemplate")
+            assert(button.Text == button:GetFontString() and ProbeButtonText == button.Text, "the text of the button")
+            assert(button.Left and button.Middle and button.Right and button.fitTextWidthPadding == 40, "parts and key value")
+            button:SetText("Scan")
+            assert(button.Text:GetText() == "Scan", "one text")
+            -- Blizzard_SharedXML/Shared/Button/CheckButtonTemplates.xml
+            local check = CreateFrame("CheckButton", "ProbeCheck", UIParent, "UICheckButtonTemplate")
+            assert(check.Text and check.text == check.Text and ProbeCheckText == check.Text, "check button text")
+            -- Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml: the thumb is the thumb texture
+            local slider = CreateFrame("Slider", nil, UIParent, "UISliderTemplate")
+            assert(slider.Thumb == slider:GetThumbTexture() and slider.NineSlice and slider.Low == nil, "slider")
+            -- Blizzard_SharedXML/Shared/InputBox/InputBoxTemplates.xml
+            local box = CreateFrame("EditBox", nil, UIParent, "SearchBoxTemplate")
+            assert(box.Instructions and box.searchIcon and box.clearButton and box.clearButton.Icon and box.Left, "search box")
+            box:SetFocus()
+            box:GetScript("OnEscapePressed")(box)
+            assert(not box:HasFocus(), "Escape takes the focus away")
+            -- An intrinsic frame type has the parts of its own XML definition (ItemButton).
+            local item = CreateFrame("ItemButton", nil, UIParent)
+            assert(item.icon and item.Count and item.IconBorder and item.searchOverlay, "item button")
+            local slot = CreateFrame("ItemButton", nil, CreateFrame("Frame", nil, UIParent), "ContainerFrameItemButtonTemplate")
+            slot:GetParent():SetID(3)
+            assert(slot:GetBagID() == 3 and slot.Cooldown and slot.JunkIcon, "bag slot")
+            slot:SetBagID(1)
+            assert(slot:GetBagID() == 1, "SetBagID")
+            -- A template that the stand-in has nothing written for is made from the XML file alone.
+            local cooldown = CreateFrame("Cooldown", nil, window, "CooldownFrameTemplate")
+            cooldown:SetCooldown(0, 0)
+            local panel = CreateFrame("Frame", nil, UIParent, "ButtonFrameTemplate")
+            assert(panel.Inset and panel.CloseButton and type(panel.SetTitle) == "function", "ButtonFrameTemplate")
+            local backdrop = CreateFrame("Button", nil, UIParent, "BackdropTemplate, UIPanelButtonTemplate")
+            backdrop:SetBackdrop({ edgeSize = 1 })
+            backdrop:SetBackdropColor(0, 0, 0, 0.5)
+            assert(select(4, backdrop:GetBackdropColor()) == 0.5, "backdrop colour")
+            "#,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+        fails_with("CreateFrame('Frame', nil, UIParent, 'NoSuchTemplate')\n", "Couldn't find inherited node");
+        fails_with("CreateFrame('Frame', nil, UIParent, 'UIPanelButtonTemplate')\n", "is for a Button, not for a Frame");
+        // A method of a mixin of the game that nobody wrote: the name is there, the call fails.
+        fails_with("local panel = CreateFrame('Frame', nil, UIParent, 'ButtonFrameTemplate')\npanel:SetTitle('Prices')\n", "does not have the method SetTitle");
+        fails_with("CreateFrame('Frame'):CreateTexture(nil, 'ARTWORK', 'NoSuchTextureTemplate')\n", "Couldn't find inherited node");
+    }
+
+    /// Every frame type and animation type of the game can be made, and behaves as its kind.
+    #[test]
+    fn every_frame_type_of_the_game_can_be_made() {
+        let (failures, _) = check(
+            r#"
+            for _, kind in ipairs({ "ModelFFX", "DropDownToggleButton", "ContainedAlertFrame", "FogOfWarFrame", "UnitPositionFrame",
+              "QuestPOIFrame", "ScenarioPOIFrame", "ArchaeologyDigSiteFrame", "Checkout", "MapScene", "TaxiRouteFrame", "AuraButton" }) do
+              CreateFrame(kind)
+            end
+            assert(CreateFrame("ContainedAlertFrame"):IsObjectType("Button"), "an alert frame is a button")
+            CreateFrame("QuestPOIFrame"):DrawNone()
+            local group = CreateFrame("Frame"):CreateAnimationGroup()
+            for _, kind in ipairs({ "Alpha", "Scale", "LineScale", "Translation", "LineTranslation", "Rotation", "Path", "FlipBook", "VertexColor", "TextureCoordTranslation", "RadialProgress" }) do
+              assert(group:CreateAnimation(kind):GetObjectType() == kind, kind)
+            end
+            -- Scripts of the game's XML files: Blizzard_RecruitAFriend, Blizzard_HelpFrame, DressUpFrames.xml
+            CreateFrame("Model"):SetScript("OnAnimStarted", function() end)
+            CreateFrame("Browser"):SetScript("OnExternalLink", function() end)
+            CreateFrame("ModelScene"):SetScript("OnDressModel", function() end)
+            "#,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+        fails_with("CreateFrame('QuestPOIFrame'):SetText('x')\n", "SetText");
+        fails_with("CreateFrame('Frame'):SetScript('OnAnimStarted', function() end)\n", "doesn't have a \"OnAnimStarted\" script");
+    }
+
+    /// What a widget does when its state changes, as far as the game's own code shows it.
+    #[test]
+    fn a_change_of_state_does_what_the_game_does() {
+        let (failures, _) = check(
+            r#"
+            local f = CreateFrame("Frame", nil, UIParent)
+            -- A widget under a hidden parent is not on the screen: OnHide, and OnShow on the way back.
+            local hidden = CreateFrame("Frame", nil, UIParent)
+            hidden:Hide()
+            local seen = ""
+            f:SetScript("OnHide", function() seen = seen .. "h" end)
+            f:SetScript("OnShow", function() seen = seen .. "s" end)
+            f:SetParent(hidden)
+            f:SetParent(UIParent)
+            assert(seen == "hs", seen)
+            -- ClearPoint takes one anchor away.
+            f:SetPoint("LEFT")
+            f:SetPoint("RIGHT")
+            f:ClearPoint("LEFT")
+            assert(f:GetNumPoints() == 1 and f:GetPoint(1) == "RIGHT", "ClearPoint")
+            -- The corners of a texture: Blizzard_SharedXMLBase/TextureUtil.lua reads eight values.
+            local texture = f:CreateTexture()
+            local ulX, ulY, llX, llY, urX, urY, lrX, lrY = texture:GetTexCoord()
+            assert(ulX == 0 and ulY == 0 and llY == 1 and urX == 1 and lrX == 1 and lrY == 1 and llX == 0 and urY == 0, "the whole picture")
+            texture:SetTexCoord(0.1, 0.9, 0.2, 0.8)
+            ulX, ulY, llX, llY, urX, urY, lrX, lrY = texture:GetTexCoord()
+            assert(ulX == 0.1 and ulY == 0.2 and llX == 0.1 and llY == 0.8 and urX == 0.9 and urY == 0.2 and lrX == 0.9 and lrY == 0.8, "left, right, top, bottom")
+            texture:SetDrawLayer("overlay", 2)
+            assert(select(2, texture:GetDrawLayer()) == 2 and texture:GetDrawLayer() == "OVERLAY", "draw layer")
+            texture:SetBlendMode("ADD")
+            assert(texture:GetBlendMode() == "ADD", "blend mode")
+            -- The number of an edit box is its text (NumericInputBoxMixin).
+            local box = CreateFrame("EditBox", nil, f)
+            local changes = 0
+            box:SetScript("OnTextChanged", function(_, userInput) changes = changes + (userInput and 100 or 1) end)
+            box:SetNumber(42)
+            assert(box:GetText() == "42" and box:GetNumber() == 42 and changes == 1, "SetNumber")
+            box:Insert("0")
+            assert(box:GetNumber() == 420 and changes == 2, "Insert")
+            -- A font by its name: Blizzard_GuildControlUI/Localization.lua.
+            local text = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+            text:SetFontObject("GameFontHighlight")
+            assert(text:GetFontObject() == GameFontHighlight, "font object")
+            text:SetJustifyH("right")
+            assert(text:GetJustifyH() == "RIGHT", "justify")
+            -- An animation group that plays.
+            local group = f:CreateAnimationGroup()
+            local played = 0
+            group:SetScript("OnPlay", function() played = played + 1 end)
+            group:Play()
+            assert(group:IsPlaying() and played == 1, "Play")
+            group:Stop()
+            assert(not group:IsPlaying(), "Stop")
+            -- An attribute keeps a value of any kind.
+            f:SetAttribute("shown", true)
+            assert(f:GetAttribute("shown") == true, "attribute")
+            -- A widget without a name, a parent or a script gives nil.
+            local top = CreateFrame("Frame")
+            assert(top:GetName() == nil and top:GetParent() == nil and top:GetScript("OnUpdate") == nil, "nil")
+            top:SetPoint("CENTER")
+            assert(select(2, top:GetPoint(1)) == nil, "an anchor to the screen")
+            assert(CreateFrame("Button"):GetText() == nil, "a button without a text")
+            -- More of the older tooltip methods.
+            GameTooltip:SetOwner(UIParent, "ANCHOR_CENTER")
+            assert(GameTooltip:SetUnit("player") and GameTooltip:IsShown(), "SetUnit")
+            GameTooltip:AddTexture(134400)
+            GameTooltip_Hide()
+            assert(not GameTooltip:IsShown(), "GameTooltip_Hide")
+            "#,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+        fails_with("CreateFrame('Frame'):CreateTexture():SetDrawLayer('TOPMOST')\n", "unknown draw layer");
+        fails_with("CreateFrame('Frame'):CreateTexture():SetBlendMode('ADDITIVE')\n", "unknown value");
+        fails_with("CreateFrame('Frame'):CreateFontString():SetFontObject('NoSuchFont')\n", "there is no font with the name");
+        fails_with("CreateFrame('Frame'):CreateTexture():SetTexCoord(0, 1)\n", "a number is needed");
+    }
+
+    /// The stand-in against the game's own UI files (`tools/api/forever-ui.json`): every frame
+    /// type and animation type of the game is a widget kind, every script that an XML file of
+    /// the game puts on a kind is a script of that kind, every hand-written template is a
+    /// template of the game without a field of its own, and every call of a widget method with
+    /// written-out arguments in the game's Lua code is accepted.
+    #[test]
+    fn the_stand_in_agrees_with_the_games_ui_files() {
+        let mut snapshot: serde_json::Value = serde_json::from_str(SNAPSHOT).unwrap();
+        with_ui_names(&mut snapshot).unwrap();
+        let problems = ui_check(&snapshot).unwrap();
+        assert!(problems.is_empty(), "{} differences:\n{}", problems.len(), problems.join("\n"));
     }
 
     /// The snapshot is well formed: what the stand-in reads from it has only the letters and

@@ -28131,6 +28131,7 @@
     "TalentConsts.NumTalentColumns"
   ],
   "widerArguments": [
+    "SimpleFrameAPI:GetAttribute",
     "SimpleFrameAPI:SetAttribute",
     "SimpleFrameAPI:SetAttributeNoHandler",
     "SimpleTextureBaseAPI:SetTexture"
@@ -29376,7 +29377,7 @@
         "EnableKeyboard": "|b?|NP",
         "ExecuteAttribute": "bs*|ss*|UA",
         "GetAlpha": "n||A",
-        "GetAttribute": "s|s|UA",
+        "GetAttribute": "a?|s|UA",
         "GetBoundsRect": "nnnn||",
         "GetChildren": "o*||A",
         "GetClampRectInsets": "nnnn||",

@@ -66,32 +66,77 @@ local LAYERS = {
   DressUpModel = join(MODEL, "FrameAPICharacterModelBase", "FrameAPIDressUpModel"),
   TabardModel = join(MODEL, "FrameAPICharacterModelBase", "FrameAPITabardModelBase", "FrameAPITabardModel"),
   CinematicModel = join(MODEL, "FrameAPICharacterModelBase", "FrameAPICinematicModel"),
+  ModelFFX = join(MODEL, "SimpleModelFFXAPI"),
+  MapScene = join(MODEL, "SimpleMapSceneAPI"),
   ModelScene = join(FRAME, "FrameAPIModelSceneFrame"),
   Minimap = join(FRAME, "MinimapFrameAPI"),
   MovieFrame = join(FRAME, "SimpleMovieAPI"),
   Browser = join(FRAME, "SimpleBrowserAPI"),
+  Checkout = join(FRAME, "FrameAPISimpleCheckout"),
   OffScreenFrame = join(FRAME, "SimpleOffScreenFrameAPI"),
+  -- Frames of the game's map. The three with a blob have the methods of FrameAPIBlob: the
+  -- game's code calls DrawNone and SetFillTexture on a quest blob frame
+  -- (Blizzard_SharedMapDataProviders/QuestBlobDataProvider.lua).
+  UnitPositionFrame = join(FRAME, "FrameAPIUnitPositionFrame"),
+  FogOfWarFrame = join(FRAME, "FrameAPIFogOfWarFrame"),
+  QuestPOIFrame = join(FRAME, "FrameAPIBlob", "FrameAPIQuestPOI"),
+  ScenarioPOIFrame = join(FRAME, "FrameAPIBlob", "FrameAPIScenarioPOI"),
+  ArchaeologyDigSiteFrame = join(FRAME, "FrameAPIBlob", "FrameAPIArchaeologyDigSiteFrame"),
   -- Animations
   AnimationGroup = join(OBJECT, "SimpleAnimGroupAPI"),
   Animation = ANIMATION,
   Alpha = join(ANIMATION, "SimpleAnimAlphaAPI"),
   Rotation = join(ANIMATION, "SimpleAnimRotationAPI"),
   Scale = join(ANIMATION, "SimpleAnimScaleAPI"),
+  LineScale = join(ANIMATION, "SimpleAnimScaleAPI", "SimpleAnimScaleLineAPI"),
   Translation = join(ANIMATION, "SimpleAnimTranslationAPI"),
+  LineTranslation = join(ANIMATION, "SimpleAnimTranslationAPI", "SimpleAnimTranslationLineAPI"),
   Path = join(ANIMATION, "SimpleAnimPathAPI"),
   FlipBook = join(ANIMATION, "SimpleAnimFlipBookAPI"),
   VertexColor = join(ANIMATION, "SimpleAnimVertexColorAPI"),
   TextureCoordTranslation = join(ANIMATION, "SimpleAnimTextureCoordTranslationAPI"),
+  RadialProgress = join(ANIMATION, "SimpleAnimRadialProgressAPI"),
   -- Fonts
   Font = join(OBJECT, "SimpleFontAPI"),
 }
 
+-- What the game's UI files say and the documentation does not (tools/api/forever-ui.json, built
+-- by `cargo dev ui-names`): fonts, undocumented events, frame types, animation types, and the
+-- scripts that the XML files put on each kind.
+local UI_NAMES = snapshot.ui or {}
+
 -- The kinds that CreateFrame makes: all but the regions, the animations and the font.
 local NOT_A_FRAME = {
   Texture = true, MaskTexture = true, Line = true, FontString = true, AnimationGroup = true, Animation = true,
-  Alpha = true, Rotation = true, Scale = true, Translation = true, Path = true, FlipBook = true,
-  VertexColor = true, TextureCoordTranslation = true, Font = true,
+  Alpha = true, Rotation = true, Scale = true, LineScale = true, Translation = true, LineTranslation = true,
+  Path = true, FlipBook = true, VertexColor = true, TextureCoordTranslation = true, RadialProgress = true,
+  Font = true,
 }
+
+-- A frame type of the game that is not written above is made from another frame type, and has
+-- the methods of that one: an ItemButton and a ContainedAlertFrame are buttons
+-- (Blizzard_SharedXML/UI.xsd, and the intrinsic frames of the XML files).
+do
+  local function layersOf(name, depth)
+    if LAYERS[name] then
+      return LAYERS[name]
+    end
+    local base = UI_NAMES.frameTypes and UI_NAMES.frameTypes[name]
+    if base and base ~= "" and depth < 8 then
+      return layersOf(base, depth + 1)
+    end
+  end
+  local names = {}
+  for name in pairs(UI_NAMES.frameTypes or {}) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    if not LAYERS[name] and not NOT_A_FRAME[name] then
+      LAYERS[name] = layersOf(name, 0)
+    end
+  end
+end
 local FRAME_KIND = {} -- lower case name -> name
 for kind in pairs(LAYERS) do
   if not NOT_A_FRAME[kind] then
@@ -120,16 +165,29 @@ local LAYER_SCRIPTS = {
   SimpleButtonAPI = { "OnClick", "PreClick", "PostClick", "OnDoubleClick" },
   SimpleEditBoxAPI = {
     "OnTextChanged", "OnEnterPressed", "OnEscapePressed", "OnTabPressed", "OnSpacePressed", "OnEditFocusGained",
-    "OnEditFocusLost", "OnCursorChanged", "OnTextSet", "OnInputLanguageChanged", "OnArrowPressed",
+    "OnEditFocusLost", "OnCursorChanged", "OnTextSet", "OnInputLanguageChanged", "OnArrowPressed", "OnCharComposition",
   },
   SimpleSliderAPI = { "OnValueChanged", "OnMinMaxChanged" },
   SimpleStatusBarAPI = { "OnValueChanged", "OnMinMaxChanged" },
   SimpleScrollFrameAPI = { "OnVerticalScroll", "OnHorizontalScroll", "OnScrollRangeChanged" },
-  FrameAPITooltip = { "OnTooltipCleared", "OnTooltipSetDefaultAnchor", "OnTooltipAddMoney" },
+  -- OnTooltipSetFramestack: Blizzard_DebugTools/Blizzard_DebugTools.xml. The scripts
+  -- OnTooltipSetItem, OnTooltipSetSpell and OnTooltipSetUnit are in UI.xsd, and no file of this
+  -- client uses them: TooltipDataProcessor took their place.
+  FrameAPITooltip = { "OnTooltipCleared", "OnTooltipSetDefaultAnchor", "OnTooltipAddMoney", "OnTooltipSetFramestack" },
   FrameAPICooldown = { "OnCooldownDone" },
   SimpleMessageFrameAPI = { "OnMessageScrollChanged" },
   SimpleColorSelectAPI = { "OnColorSelect" },
-  SimpleModelAPI = { "OnAnimFinished", "OnModelLoaded", "OnUpdateModel" },
+  -- OnAnimStarted: Blizzard_RecruitAFriend/RecruitAFriendFrame.xml.
+  SimpleModelAPI = { "OnAnimFinished", "OnAnimStarted", "OnModelLoaded", "OnModelCleared", "OnUpdateModel" },
+  -- Blizzard_UIPanels_Game/Mainline/DressUpFrames.xml
+  FrameAPIModelSceneFrame = { "OnDressModel" },
+  FrameAPIDressUpModel = { "OnDressModel" },
+  -- Blizzard_HelpFrame/HelpFrame.xml
+  SimpleBrowserAPI = { "OnExternalLink", "OnButtonUpdate", "OnError", "OnEscapePressed" },
+  -- Blizzard_SimpleCheckout/Blizzard_SimpleCheckout.xml
+  FrameAPISimpleCheckout = { "OnExternalLink", "OnRequestNewSize" },
+  -- Blizzard_UIPanels_Game/Mainline/FogOfWarFrameTemplates.xml
+  FrameAPIFogOfWarFrame = { "OnUiMapChanged" },
   SimpleAnimGroupAPI = { "OnPlay", "OnFinished", "OnLoop", "OnStop", "OnPause", "OnUpdate", "OnLoad" },
   SimpleAnimAPI = { "OnPlay", "OnFinished", "OnStop", "OnPause", "OnUpdate", "OnLoad" },
   SimpleMovieAPI = { "OnMovieFinished", "OnMovieShowSubtitle", "OnMovieHideSubtitle" },
@@ -224,8 +282,22 @@ local function kindOf(name)
     end
   end
   kind.meta = {
-    __index = function(_, key)
-      return kind.methods[key]
+    -- A method of the kind, or a method that a template of the game gives the object (the
+    -- methods of the mixins of the template: see mixinMethods).
+    __index = function(object, key)
+      local method = kind.methods[key]
+      if method ~= nil then
+        return method
+      end
+      local extras = rawget(object, "__state").extras
+      if extras then
+        for index = 1, #extras do
+          method = extras[index][key]
+          if method ~= nil then
+            return method
+          end
+        end
+      end
     end,
   }
   kinds[name] = kind
@@ -405,6 +477,7 @@ define("SimpleScriptRegionAPI", "SetParent", function(self, parent)
   end
   local s = state(self)
   local old = s.parent
+  local wasVisible = isVisible(self)
   if old then
     for _, list in ipairs({ state(old).children, state(old).regions }) do
       for index = #list, 1, -1 do
@@ -417,6 +490,13 @@ define("SimpleScriptRegionAPI", "SetParent", function(self, parent)
   s.parent = parent
   if parent then
     table.insert(LAYERS[s.kind] and NOT_A_FRAME[s.kind] and state(parent).regions or state(parent).children, self)
+  end
+  -- Under a hidden parent the widget is not on the screen any more, and the other way round.
+  local nowVisible = isVisible(self)
+  if wasVisible and not nowVisible then
+    fireHidden(self)
+  elseif nowVisible and not wasVisible then
+    fireShown(self)
   end
 end)
 
@@ -514,6 +594,15 @@ end)
 define("SimpleScriptRegionResizingAPI", "ClearAllPoints", function(self)
   state(self).points = {}
 end)
+define("SimpleScriptRegionResizingAPI", "ClearPoint", function(self, point)
+  point = pointName(point, "point")
+  local points = state(self).points
+  for index = #points, 1, -1 do
+    if points[index][1] == point then
+      table.remove(points, index)
+    end
+  end
+end)
 define("SimpleScriptRegionResizingAPI", "SetAllPoints", function(self, relativeTo)
   if relativeTo ~= nil and not isWidget(relativeTo) then
     fail("SetAllPoints: the region to anchor to is not a region")
@@ -582,7 +671,6 @@ local DRAW_LAYERS = { BACKGROUND = true, BORDER = true, ARTWORK = true, OVERLAY 
 -- The fonts that a font string can inherit, and the events that the game's own code registers
 -- and the documentation does not list. Both come from the game's UI files, not from a list
 -- written by hand: tools/api/forever-ui.json, built by `cargo dev ui-names`.
-local UI_NAMES = snapshot.ui or {}
 local FONTS = UI_NAMES.fonts or {}
 local undocumentedEvent = {}
 for _, name in ipairs(UI_NAMES.undocumentedEvents or {}) do
@@ -590,6 +678,12 @@ for _, name in ipairs(UI_NAMES.undocumentedEvents or {}) do
 end
 H.undocumentedEvents = undocumentedEvent
 local knownFont = {}
+
+-- The kind of region that a template of the game's XML files is for, or nil.
+function H.regionTemplate(name)
+  local record = realType(name) == "string" and uiFiles.template and uiFiles.template(name)
+  return record and record.kind or nil
+end
 
 local function newRegion(kindName, layerArgument)
   return function(self, name, layer, template)
@@ -601,6 +695,11 @@ local function newRegion(kindName, layerArgument)
     end
     if kindName == "FontString" and template ~= nil and not knownFont[template] then
       fail("CreateFontString: Couldn't find inherited node \"" .. realTostring(template) .. "\"")
+    end
+    -- A template of a texture is a virtual texture of the game's XML files
+    -- (Blizzard_PetBattleUI: CreateTexture(nil, "ARTWORK", "SharedPetBattleStrengthPetTypeTemplate")).
+    if kindName ~= "FontString" and template ~= nil and uiFiles.template and H.regionTemplate(template) ~= kindName then
+      fail("Create" .. kindName .. ": Couldn't find inherited node \"" .. realTostring(template) .. "\"")
     end
     local region = newObject(kindName, self, name)
     table.insert(state(self).regions, region)
@@ -628,9 +727,46 @@ define("SimpleAnimGroupAPI", "CreateAnimation", function(self, animationType, na
   end
   return newObject(kindName, self, realType(name) == "string" and name or nil)
 end)
-define("SimpleAnimGroupAPI", "IsPlaying", function()
-  return false
+-- An animation group that plays: Play starts it and runs OnPlay. The stand-in has no clock
+-- for animations; the driver ends each playing group with H.finishAnimation, which runs
+-- OnLoop for a group that repeats, then OnFinished, as the game does at the end.
+define("SimpleAnimGroupAPI", "Play", function(self)
+  local s = state(self)
+  if not s.playing then
+    s.playing = true
+    H.playing = H.playing or {}
+    H.playing[#H.playing + 1] = self
+    run(self, "OnPlay")
+  end
 end)
+define("SimpleAnimGroupAPI", "Stop", function(self)
+  local s = state(self)
+  if s.playing then
+    s.playing = false
+    run(self, "OnStop", true)
+  end
+end)
+define("SimpleAnimGroupAPI", "IsPlaying", function(self)
+  return state(self).playing == true
+end)
+define("SimpleAnimGroupAPI", "SetLooping", function(self, looping)
+  state(self).looping = looping
+end)
+define("SimpleAnimGroupAPI", "GetLooping", function(self)
+  return state(self).looping or "NONE"
+end)
+function H.finishAnimation(group)
+  local s = state(group)
+  if not s.playing then
+    return
+  end
+  if s.looping and s.looping ~= "NONE" then
+    run(group, "OnLoop", "FORWARD")
+    return
+  end
+  s.playing = false
+  run(group, "OnFinished", false)
+end
 
 define("SimpleFrameAPI", "GetChildren", function(self)
   return unpack(state(self).children)
@@ -690,7 +826,7 @@ define("SimpleFrameAPI", "SetFrameLevel", function(self, level)
 end)
 local STRATA = {
   BACKGROUND = true, LOW = true, MEDIUM = true, HIGH = true, DIALOG = true, FULLSCREEN = true,
-  FULLSCREEN_DIALOG = true, TOOLTIP = true, PARENT = true, WORLD = true,
+  FULLSCREEN_DIALOG = true, TOOLTIP = true, PARENT = true, WORLD = true, BLIZZARD = true,
 }
 define("SimpleFrameAPI", "SetFrameStrata", function(self, strata)
   if realType(strata) ~= "string" or not STRATA[strata:upper()] then
@@ -835,15 +971,23 @@ define("SimpleFontStringAPI", "GetTextScale", function()
 end)
 local JUSTIFY_H = { LEFT = true, CENTER = true, RIGHT = true }
 local JUSTIFY_V = { TOP = true, MIDDLE = true, BOTTOM = true }
-define("SimpleFontStringAPI", "SetJustifyH", function(_, value)
+define("SimpleFontStringAPI", "SetJustifyH", function(self, value)
   if realType(value) ~= "string" or not JUSTIFY_H[value:upper()] then
     fail("SetJustifyH: unknown value " .. realTostring(value))
   end
+  state(self).justifyH = value:upper()
 end)
-define("SimpleFontStringAPI", "SetJustifyV", function(_, value)
+define("SimpleFontStringAPI", "GetJustifyH", function(self)
+  return state(self).justifyH or "CENTER"
+end)
+define("SimpleFontStringAPI", "SetJustifyV", function(self, value)
   if realType(value) ~= "string" or not JUSTIFY_V[value:upper()] then
     fail("SetJustifyV: unknown value " .. realTostring(value))
   end
+  state(self).justifyV = value:upper()
+end)
+define("SimpleFontStringAPI", "GetJustifyV", function(self)
+  return state(self).justifyV or "MIDDLE"
 end)
 
 for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
@@ -978,6 +1122,10 @@ local ANCHORS = {
   ANCHOR_BOTTOMRIGHT = true, ANCHOR_TOPLEFT = true, ANCHOR_BOTTOMLEFT = true, ANCHOR_CURSOR = true,
   ANCHOR_CURSOR_RIGHT = true, ANCHOR_CURSOR_LEFT = true, ANCHOR_PRESERVE = true, ANCHOR_NONE = true,
 }
+-- And each anchor that the game's own Lua code names (ANCHOR_CENTER is one).
+for _, anchor in ipairs(UI_NAMES.tooltipAnchors or {}) do
+  ANCHORS[anchor] = true
+end
 undocumented("FrameAPITooltip", "SetOwner", GAME_TOOLTIP, function(self, owner, anchor)
   if not isWidget(owner) then
     fail("SetOwner: the owner is not a region")
@@ -1045,9 +1193,209 @@ undocumented("FrameAPITooltip", "SetSpellByID", "Blizzard_DamageMeter/DamageMete
   state(self).lines = 1
   show(self)
 end)
+-- More of the older methods that fill a tooltip. Each shows the tooltip with its content.
+local function filled(self)
+  state(self).lines = 1
+  state(self).itemID = nil
+  show(self)
+  return true
+end
+undocumented("FrameAPITooltip", "SetInventoryItem", "Blizzard_AzeriteRespecUI/Blizzard_AzeriteRespecUI.lua", function(self, unit, slot)
+  if realType(unit) ~= "string" then
+    fail("SetInventoryItem: a unit is needed")
+  end
+  number(slot, "SetInventoryItem")
+  return filled(self)
+end)
+undocumented("FrameAPITooltip", "SetUnit", "Blizzard_UnitFrame/Mainline/UnitFrame.lua", function(self, unit)
+  if realType(unit) ~= "string" then
+    fail("SetUnit: a unit is needed")
+  end
+  return filled(self)
+end)
+undocumented("FrameAPITooltip", "SetCurrencyByID", "Blizzard_CovenantSanctum/Blizzard_CovenantSanctumUpgrades.lua", function(self, currencyID)
+  number(currencyID, "SetCurrencyByID")
+  return filled(self)
+end)
+undocumented("FrameAPITooltip", "SetAction", "Blizzard_ActionBar/Shared/ActionButton.lua", function(self, action)
+  number(action, "SetAction")
+  return filled(self)
+end)
+undocumented("FrameAPITooltip", "SetMerchantItem", "Blizzard_UIPanels_Game/Mainline/MerchantFrame.lua", function(self, index)
+  number(index, "SetMerchantItem")
+  return filled(self)
+end)
+undocumented("FrameAPITooltip", "SetQuestItem", "Blizzard_UIPanels_Game/Mainline/QuestInfo.lua", function(self, kind, index)
+  if realType(kind) ~= "string" then
+    fail("SetQuestItem: the kind of reward is needed")
+  end
+  number(index, "SetQuestItem")
+  return filled(self)
+end)
+undocumented("FrameAPITooltip", "SetLootItem", "Blizzard_UIPanels_Game/Mainline/LootFrame.lua", function(self, slot)
+  number(slot, "SetLootItem")
+  return filled(self)
+end)
+undocumented("FrameAPITooltip", "SetUnitAura", "Blizzard_BuffFrame/BuffFrame.lua", function(self, unit, index)
+  if realType(unit) ~= "string" then
+    fail("SetUnitAura: a unit is needed")
+  end
+  number(index, "SetUnitAura")
+  return filled(self)
+end)
+-- A picture beside the last line.
+undocumented("FrameAPITooltip", "AddTexture", "Blizzard_CooldownViewer/CooldownViewerItemData.lua", function(_, texture)
+  local kind = realType(texture)
+  if kind ~= "string" and kind ~= "number" then
+    fail("AddTexture: a file name or the number of a file is needed, got " .. kind)
+  end
+end)
+
+-- The atlas of a texture: a named part of a picture file. SetTexture takes it away.
+define("SimpleTextureBaseAPI", "SetAtlas", function(self, atlas)
+  state(self).atlas = atlas
+end)
+define("SimpleTextureBaseAPI", "GetAtlas", function(self)
+  return state(self).atlas or ""
+end)
 
 -- A font string without a text gives nil, although the documentation has a text.
 H.allowNil("FontString:GetText", "The game gives nil for a font string without a text: Blizzard_EncounterJournal/Mainline/Blizzard_EncounterJournal.lua reads self.description:GetText() or \"\".")
+
+-- The same for every kind of widget that has the method through one layer.
+local function allowNilFor(layer, method, reason)
+  for kindName, layers in pairs(LAYERS) do
+    for _, name in ipairs(layers) do
+      if name == layer then
+        H.allowNil(kindName .. ":" .. method, reason)
+      end
+    end
+  end
+end
+allowNilFor("SimpleFrameScriptObjectAPI", "GetName", "A widget made without a name has none: Blizzard_GarrisonUI/Mainline/Blizzard_AdventuresCombatLog.lua has `return frame and frame:GetName() or \"\"`.")
+allowNilFor("SimpleObjectAPI", "GetParent", "A frame at the top has no parent: Blizzard_DebugTools/Blizzard_DebugTools.lua has `self:GetParent() or UIParent`.")
+for _, layer in ipairs({ "SimpleScriptRegionAPI", "SimpleAnimAPI", "SimpleAnimGroupAPI" }) do
+  allowNilFor(layer, "GetScript", "A script that nobody set is nil: Blizzard_AchievementUI/Mainline/Blizzard_AchievementUI.lua has `searchBox:GetScript(\"OnUpdate\") == nil`.")
+end
+allowNilFor("SimpleScriptRegionResizingAPI", "GetPoint", "An anchor to the screen has no region: Blizzard_EditMode/Shared/EditModeManager.lua has `if not relativeTo then` after GetPoint(1).")
+allowNilFor("SimpleButtonAPI", "GetText", "The text of a button is the text of its font string, which is nil without a text (FontString:GetText above).")
+
+-- The part of the picture that a texture shows. SetTexCoord takes (left, right, top, bottom) or
+-- the four corners; GetTexCoord gives the four corners: upper left, lower left, upper right,
+-- lower right, x and y of each (Blizzard_SharedXMLBase/TextureUtil.lua and
+-- Blizzard_UnitFrame/Mainline/UnitPowerBarAlt.lua read them in this order).
+define("SimpleTextureBaseAPI", "SetTexCoord", function(self, a, b, c, d, e, f, g, h)
+  local corners
+  if e ~= nil then
+    corners = { a, b, c, d, e, f, g, h }
+  else
+    corners = { a, c, a, d, b, c, b, d }
+  end
+  for index = 1, 8 do
+    corners[index] = number(corners[index], "SetTexCoord")
+  end
+  state(self).texCoord = corners
+end)
+define("SimpleTextureBaseAPI", "GetTexCoord", function(self)
+  return unpack(state(self).texCoord or { 0, 0, 0, 1, 1, 0, 1, 1 }, 1, 8)
+end)
+
+-- The draw layer of a region, one of the layers of UI.xsd, and its place in that layer.
+define("SimpleRegionAPI", "SetDrawLayer", function(self, layer, sublevel)
+  if realType(layer) ~= "string" or not DRAW_LAYERS[layer:upper()] then
+    fail("SetDrawLayer: unknown draw layer " .. realTostring(layer))
+  end
+  local s = state(self)
+  s.drawLayer, s.sublevel = layer:upper(), sublevel ~= nil and number(sublevel, "SetDrawLayer") or 0
+end)
+define("SimpleRegionAPI", "GetDrawLayer", function(self)
+  local s = state(self)
+  return s.drawLayer or "ARTWORK", s.sublevel or 0
+end)
+
+-- A value that must be one of a list of UI.xsd: the blend mode of a texture (ALPHAMODE), the
+-- direction of a slider or a status bar (ORIENTATION). The value is kept for the getter.
+local function listed(layer, setter, getter, enumeration, default)
+  local allowed = {}
+  for _, value in ipairs((UI_NAMES.enumerations or {})[enumeration] or {}) do
+    allowed[value] = true
+  end
+  define(layer, setter, function(self, value)
+    if next(allowed) and not (realType(value) == "string" and allowed[value:upper()]) then
+      fail(setter .. ": unknown value " .. realTostring(value))
+    end
+    state(self)["listed:" .. setter] = realType(value) == "string" and value:upper() or value
+  end)
+  define(layer, getter, function(self)
+    return state(self)["listed:" .. setter] or default
+  end)
+end
+listed("SimpleTextureBaseAPI", "SetBlendMode", "GetBlendMode", "ALPHAMODE", "BLEND")
+listed("SimpleSliderAPI", "SetOrientation", "GetOrientation", "ORIENTATION", "VERTICAL")
+listed("SimpleStatusBarAPI", "SetOrientation", "GetOrientation", "ORIENTATION", "HORIZONTAL")
+
+-- The offset of one corner of a texture, by the number of the corner.
+define("SimpleTextureBaseAPI", "SetVertexOffset", function(self, index, x, y)
+  local s = state(self)
+  s.vertexOffsets = s.vertexOffsets or {}
+  s.vertexOffsets[number(index, "SetVertexOffset")] = { number(x, "SetVertexOffset"), number(y, "SetVertexOffset") }
+end)
+define("SimpleTextureBaseAPI", "GetVertexOffset", function(self, index)
+  local kept = (state(self).vertexOffsets or {})[number(index, "GetVertexOffset")]
+  if kept then
+    return kept[1], kept[2]
+  end
+  return 0, 0
+end)
+
+-- A font by its name or as an object: the game's code gives a name
+-- (Blizzard_GuildControlUI/Localization.lua: SetFontObject("AchievementDescriptionFont")).
+-- The getter gives the font object.
+local function fontObject(value, what)
+  if realType(value) == "string" then
+    local font = rawget(_G, value)
+    if not (isWidget(font) and state(font).kind == "Font") then
+      fail(what .. ": there is no font with the name " .. value)
+    end
+    return font
+  end
+  return value
+end
+local function fontPair(layer, setter, getter)
+  local spec = H.parseSpec(snapshot.widgets[layer].methods[getter])
+  define(layer, setter, function(self, font)
+    state(self)["font:" .. setter] = fontObject(font, setter)
+  end)
+  define(layer, getter, function(self)
+    local font = state(self)["font:" .. setter]
+    if font == nil then
+      return H.defaultOf(spec.returns[1], 0)
+    end
+    return font
+  end)
+end
+for _, layer in ipairs({ "SimpleFontStringAPI", "SimpleEditBoxAPI", "SimpleMessageFrameAPI" }) do
+  fontPair(layer, "SetFontObject", "GetFontObject")
+end
+for _, which in ipairs({ "Normal", "Highlight", "Disabled" }) do
+  fontPair("SimpleButtonAPI", "Set" .. which .. "FontObject", "Get" .. which .. "FontObject")
+end
+
+-- The number of an edit box is its text: SetNumber changes the text, and the box tells its
+-- OnTextChanged script (NumericInputBoxMixin in Blizzard_SharedXML/Shared/InputBox/InputBoxTemplates.lua
+-- answers OnTextChanged with GetNumber after its own SetNumber).
+define("SimpleEditBoxAPI", "SetNumber", function(self, value)
+  state(self).text = realTostring(number(value, "SetNumber"))
+  run(self, "OnTextChanged", false)
+end)
+define("SimpleEditBoxAPI", "GetNumber", function(self)
+  return tonumber(plain(state(self).text)) or 0
+end)
+define("SimpleEditBoxAPI", "Insert", function(self, text)
+  checkText(text, "Insert")
+  state(self).text = realTostring(plain(state(self).text) or "") .. realTostring(plain(text))
+  run(self, "OnTextChanged", false)
+end)
 
 ---------------------------------------------------------------------------------------------------
 -- Pairs of a setter and a getter that keep the value
@@ -1133,55 +1481,114 @@ end
 ---------------------------------------------------------------------------------------------------
 -- Templates
 --
--- What a template of the game gives a frame: child keys, methods and scripts. Each entry names
--- the frame kind of the template and the game file. A template that is not here fails, the
--- same as an unknown template in the game.
+-- What a template of the game gives a frame: child keys, methods, key values and scripts. A
+-- template that the game's XML files do not have fails, the same as in the game.
 
-local function child(kindName, key, alias)
-  return function(frame)
-    local kindIsRegion = NOT_A_FRAME[kindName]
-    local name = state(frame).name
-    local object = newObject(kindName, frame, name and realType(alias) == "string" and (name .. alias) or nil)
-    table.insert(kindIsRegion and state(frame).regions or state(frame).children, object)
-    frame[key] = object
-    if state(object).name then
-      _G[state(object).name] = object
+-- The record of a template of the game, from the game's XML files (tools/api/forever-ui.json):
+-- { kind, inherits = { name }, mixin = { name }, children = { { kind, key, array, name, part,
+-- inherits, mixin, children, values } }, values = { key = { type, value } }, scripts = { name } }.
+local templateRecords, mixinRecords = {}, {}
+local function gameTemplate(name)
+  local record = templateRecords[name]
+  if record == nil then
+    record = uiFiles.template and realType(name) == "string" and uiFiles.template(name) or false
+    templateRecords[name] = record
+  end
+  return record or nil
+end
+local function gameMixin(name)
+  local record = mixinRecords[name]
+  if record == nil then
+    record = uiFiles.mixin and uiFiles.mixin(name) or false
+    mixinRecords[name] = record
+  end
+  return record or nil
+end
+
+-- A method that a mixin of the game gives a frame, and that nobody wrote for the stand-in. The
+-- name is there, as in the game; a call fails, because a method that does nothing would let
+-- the addon run on with a wrong result.
+local function unwritten(template, mixin, method)
+  return function()
+    fail("the stand-in for the game does not have the method " .. method .. " of " .. mixin .. " yet (template " .. template .. "): write it in tools/harness/02-widgets.lua")
+  end
+end
+-- The methods that a mixin of the game gives, with those of the mixins that it is made from:
+-- one table for each mixin, made once and shared by every frame with that mixin. The frame
+-- finds them through its method lookup (kindOf), after the methods of its own kind: a mixin
+-- method with the name of a method of the widget (SetEnabled, SetText) stands on top of that
+-- one in the game and calls it, so the stand-in keeps the method of the widget.
+local mixinTables = {}
+local function mixinMethods(mixinName, templateName)
+  local methods = mixinTables[mixinName]
+  if methods == nil then
+    methods = {}
+    mixinTables[mixinName] = methods
+    local mixin = gameMixin(mixinName)
+    if mixin then
+      for _, parent in ipairs(mixin.from or {}) do
+        for method, stub in pairs(mixinMethods(parent, templateName)) do
+          methods[method] = stub
+        end
+      end
+      for _, method in ipairs(mixin.methods or {}) do
+        methods[method] = unwritten(templateName, mixinName, method)
+      end
     end
-    return object
+  end
+  return methods
+end
+
+local function mixInto(object, mixinName, templateName)
+  local methods = mixinMethods(mixinName, templateName)
+  if next(methods) then
+    local s = state(object)
+    s.extras = s.extras or {}
+    s.extras[#s.extras + 1] = methods
+  end
+end
+-- A key value of a template: <KeyValue key="fitTextWidthPadding" value="40" type="number"/>.
+local function setValues(object, values)
+  for key, entry in pairs(values or {}) do
+    local kind, value = entry[1], entry[2]
+    if kind == "number" then
+      rawset(object, key, tonumber(value))
+    elseif kind == "boolean" then
+      rawset(object, key, value == "true")
+    elseif kind == "string" then
+      rawset(object, key, value)
+    elseif kind == "global" then
+      rawset(object, key, rawget(_G, value))
+    end
   end
 end
 
-local function all(...)
-  local steps = { ... }
-  return function(frame)
-    for _, step in ipairs(steps) do
-      step(frame)
-    end
-  end
-end
-
-local function threePart(frame)
-  child("Texture", "Left")(frame)
-  child("Texture", "Right")(frame)
-  child("Texture", "Middle")(frame)
-end
+-- A part of a frame that the XML file makes with its own element (<ButtonText>, <NormalTexture>)
+-- is what the getter of the frame gives: the key in the state of the frame.
+local PART = {
+  ButtonText = "fontString", NormalTexture = "GetNormalTexture", PushedTexture = "GetPushedTexture",
+  HighlightTexture = "GetHighlightTexture", DisabledTexture = "GetDisabledTexture", ThumbTexture = "thumb",
+  BarTexture = "barTexture", CheckedTexture = "texture:CheckedTexture",
+  DisabledCheckedTexture = "texture:DisabledCheckedTexture",
+}
 
 local function noop() end
 
+-- What the stand-in adds to a template of the game by hand: behaviour. The kind, the child
+-- keys, the names of the mixin methods and the key values of a template come from the game's
+-- XML files. `fields`: a field that the Lua code of the game sets and no XML file shows, with
+-- the file of the game that sets it.
 local TEMPLATES = {
-  -- Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml
-  UIPanelButtonTemplate = { kind = "Button", setup = function(frame)
-    threePart(frame)
-    -- The text of the button, "$parentText" in the game.
-    local text = child("FontString", "Text", "Text")(frame)
-    state(frame).fontString = text
+  -- Blizzard_SharedXML/SecureUIPanelTemplates.xml, UIButtonFitToTextBehaviorMixin in
+  -- Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.lua.
+  UIPanelButtonNoTooltipTemplate = { setup = function(frame)
     frame.SetTextToFit = function(self, value)
       self:SetText(value)
     end
     frame.FitToText = noop
   end },
-  UIPanelCloseButton = { kind = "Button", setup = function(frame)
-    -- UIPanelCloseButton_OnClick hides the parent.
+  -- Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml: UIPanelCloseButton_OnClick hides the parent.
+  UIPanelCloseButton = { setup = function(frame)
     state(frame).scripts.OnClick = function(self)
       local parent = self:GetParent()
       if parent then
@@ -1189,68 +1596,63 @@ local TEMPLATES = {
       end
     end
   end },
-  UISliderTemplate = { kind = "Slider", setup = all(child("Frame", "NineSlice"), child("Texture", "Thumb")) },
-  -- Blizzard_SharedXML/Shared/Button/CheckButtonTemplates.xml: .Text, and .text as an alias.
-  UICheckButtonTemplate = { kind = "CheckButton", setup = function(frame)
-    local text = child("FontString", "Text", "Text")(frame)
-    frame.text = text
-  end },
-  -- Blizzard_SharedXML/Shared/InputBox/InputBoxTemplates.xml
-  InputBoxTemplate = { kind = "EditBox", setup = function(frame)
-    threePart(frame)
+  -- Blizzard_SharedXML/Shared/Button/CheckButtonTemplates.xml: the font string .Text is also
+  -- .text (UICheckButtonFontString_SetParentKeyAlias in Mainline/SharedUIPanelTemplates.lua).
+  UICheckButtonTemplate = {
+    fields = { text = "Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.lua" },
+    setup = function(frame)
+      frame.text = frame.Text
+    end,
+  },
+  -- Blizzard_SharedXML/Shared/InputBox/InputBoxTemplates.xml: Escape takes the focus away (EditBox_ClearFocus).
+  InputBoxScriptTemplate = { setup = function(frame)
     state(frame).scripts.OnEscapePressed = function(self)
       self:ClearFocus()
-    end
-  end },
-  SearchBoxTemplate = { kind = "EditBox", setup = function(frame)
-    threePart(frame)
-    child("FontString", "Instructions")(frame)
-    child("Texture", "searchIcon")(frame)
-    local clear = child("Button", "clearButton")(frame)
-    child("Texture", "Icon")(clear)
-    state(frame).scripts.OnEscapePressed = function(self)
-      self:ClearFocus()
-    end
-  end },
-  -- Blizzard_UIPanelTemplates/Mainline/UIPanelTemplates.xml. It has no .Inset.
-  BasicFrameTemplateWithInset = { kind = "Frame", setup = function(frame)
-    child("FontString", "TitleText")(frame)
-    local close = child("Button", "CloseButton")(frame)
-    state(close).scripts.OnClick = function(self)
-      self:GetParent():Hide()
-    end
-    for _, key in ipairs({ "Bg", "TitleBg", "TopTileStreaks", "InsetBg" }) do
-      child("Texture", key)(frame)
     end
   end },
   -- Blizzard_SharedXML/Backdrop.xml and Backdrop.lua
-  BackdropTemplate = { setup = function(frame)
-    function frame:SetBackdrop(info)
-      if info ~= nil and realType(info) ~= "table" then
-        fail("SetBackdrop: a table is needed")
+  BackdropTemplate = {
+    fields = { backdropInfo = "Blizzard_SharedXML/Backdrop.lua" },
+    setup = function(frame)
+      function frame:SetBackdrop(info)
+        if info ~= nil and realType(info) ~= "table" then
+          fail("SetBackdrop: a table is needed")
+        end
+        self.backdropInfo = info
       end
-      self.backdropInfo = info
-    end
-    function frame:GetBackdrop()
-      return self.backdropInfo
-    end
-    frame.ClearBackdrop = function(self)
-      self.backdropInfo = nil
-    end
-    frame.ApplyBackdrop = noop
-    function frame:SetBackdropColor(r, g, b)
-      number(r, "SetBackdropColor")
-      number(g, "SetBackdropColor")
-      number(b, "SetBackdropColor")
-    end
-    function frame:SetBackdropBorderColor(r, g, b)
-      number(r, "SetBackdropBorderColor")
-      number(g, "SetBackdropBorderColor")
-      number(b, "SetBackdropBorderColor")
-    end
-  end },
+      function frame:GetBackdrop()
+        return self.backdropInfo
+      end
+      frame.ClearBackdrop = function(self)
+        self.backdropInfo = nil
+      end
+      frame.ApplyBackdrop = noop
+      frame.OnBackdropLoaded = noop
+      frame.OnBackdropSizeChanged = noop
+      function frame:HasBackdropInfo(info)
+        return self.backdropInfo ~= nil and (info == nil or info == self.backdropInfo)
+      end
+      -- Blizzard_SharedXML/Backdrop.lua: the colour goes to SetVertexColor of the pieces.
+      local function color(key, what)
+        frame["Set" .. key] = function(self, r, g, b, a)
+          number(r, what)
+          number(g, what)
+          number(b, what)
+          state(self)["backdrop:" .. key] = { r, g, b, a or 1 }
+        end
+        frame["Get" .. key] = function(self)
+          local kept = state(self)["backdrop:" .. key]
+          if kept then
+            return kept[1], kept[2], kept[3], kept[4]
+          end
+        end
+      end
+      color("BackdropColor", "SetBackdropColor")
+      color("BackdropBorderColor", "SetBackdropBorderColor")
+    end,
+  },
   -- Blizzard_GameTooltip/Mainline/GameTooltip.xml: GameTooltipDataMixin gives GetItem.
-  GameTooltipTemplate = { kind = "GameTooltip", setup = function(frame)
+  GameTooltipTemplate = { setup = function(frame)
     function frame:GetItem()
       local itemID = state(self).itemID
       local item = itemID and H.items and H.items[itemID]
@@ -1260,35 +1662,118 @@ local TEMPLATES = {
     end
   end },
   -- Blizzard_UIPanels_Game/Mainline/ContainerFrame.xml and ContainerFrame.lua
-  ContainerFrameItemButtonTemplate = { kind = "ItemButton", setup = function(frame)
-    for _, method in ipairs({
-      "SetHasItem", "SetItemButtonTexture", "SyncAppearanceWithHasItem", "UpdateExtended", "UpdateQuestItem",
-      "UpdateNewItem", "UpdateJunkItem", "UpdateCooldown", "SetReadable", "SetMatchesSearch",
-    }) do
-      frame[method] = noop
-    end
-    function frame:GetBagID()
-      return self.bagID or self:GetParent():GetID()
-    end
-    function frame:SetBagID(id)
-      self:SetAttribute("bagid", id)
-    end
-    child("Texture", "icon")(frame)
-    child("FontString", "Count")(frame)
-    child("Texture", "IconBorder")(frame)
+  ContainerFrameItemButtonTemplate = {
+    fields = { bagID = "Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua" },
+    setup = function(frame)
+      for _, method in ipairs({
+        "SetHasItem", "SyncAppearanceWithHasItem", "UpdateExtended", "UpdateQuestItem", "UpdateNewItem",
+        "UpdateJunkItem", "UpdateCooldown", "SetReadable",
+      }) do
+        frame[method] = noop
+      end
+      function frame:GetBagID()
+        return self.bagID or self:GetParent():GetID()
+      end
+      -- ContainerFrameItemButtonMixin:OnAttributeChanged keeps the number of the bag.
+      function frame:SetBagID(id)
+        self:SetAttribute("bagid", id)
+        self.bagID = id
+      end
+      function frame:GetSlotAndBagID()
+        return self:GetID(), self:GetBagID()
+      end
+    end,
+  },
+  -- The intrinsic frame ItemButton: Blizzard_ItemButton/Shared/ItemButtonTemplate.xml,
+  -- ItemButtonMixin in Blizzard_ItemButton/Shared and Mainline/ItemButtonTemplate.lua.
+  ItemButton = { setup = function(frame)
+    frame.SetItemButtonTexture = noop
+    frame.SetMatchesSearch = noop
   end },
 }
 H.templates = TEMPLATES
 
--- Templates of the game that the stand-in does not have yet: the message says so, and does not
--- say that the game lacks them.
-local GAME_TEMPLATES = {
-  BasicFrameTemplate = true, ButtonFrameTemplate = true, PortraitFrameTemplate = true, DefaultPanelTemplate = true,
-  UIPanelScrollFrameTemplate = true, ScrollFrameTemplate = true, CooldownFrameTemplate = true,
-  SecureActionButtonTemplate = true, UIDropDownMenuTemplate = true, UISliderTemplateWithLabels = true,
-  UIPanelCloseButtonDefaultAnchors = true, InsetFrameTemplate = true, SharedTooltipTemplate = true,
-  SecureHandlerStateTemplate = true, SecureUnitButtonTemplate = true, OptionsSliderTemplate = true,
-}
+local applyTemplate
+
+local function addChildren(parent, children, templateName)
+  for _, child in ipairs(children or {}) do
+    if LAYERS[child.kind] then
+      local parentName = state(parent).name
+      local name = child.name and parentName and (parentName .. child.name) or nil
+      local object = newObject(child.kind, parent, name)
+      local s = state(parent)
+      if child.kind == "AnimationGroup" then
+        table.insert(s.groups, object)
+      elseif not NOT_A_FRAME[child.kind] then
+        table.insert(s.children, object)
+      elseif s.regions and state(object).class.methods.SetPoint then
+        table.insert(s.regions, object)
+      end
+      if child.key then
+        rawset(parent, child.key, object)
+      end
+      if child.array then
+        local list = rawget(parent, child.array)
+        if realType(list) ~= "table" then
+          list = {}
+          rawset(parent, child.array, list)
+        end
+        list[#list + 1] = object
+      end
+      if name then
+        _G[name] = object
+      end
+      if child.part and PART[child.part] then
+        s[PART[child.part]] = object
+      end
+      for _, inherited in ipairs(child.inherits or {}) do
+        -- A font string inherits a font, which is not a template with parts.
+        if gameTemplate(inherited) or TEMPLATES[inherited] then
+          applyTemplate(object, inherited, 1)
+        end
+      end
+      for _, mixin in ipairs(child.mixin or {}) do
+        mixInto(object, mixin, templateName)
+      end
+      addChildren(object, child.children, templateName)
+      setValues(object, child.values)
+    end
+  end
+end
+
+-- The kind of frame that a template is for, or nil for a template that the game does not have.
+local function templateKind(name)
+  local record = gameTemplate(name)
+  return record and record.kind or (TEMPLATES[name] and TEMPLATES[name].kind)
+end
+H.templateKind = templateKind
+
+applyTemplate = function(frame, name, depth)
+  local record, hand = gameTemplate(name), TEMPLATES[name]
+  if not record and not hand then
+    fail("CreateFrame: Couldn't find inherited node \"" .. realTostring(name) .. "\"")
+  end
+  local kindName = state(frame).kind
+  local wanted = templateKind(name)
+  if wanted and wanted ~= kindName and not kindOf(kindName).isA[wanted:lower()] then
+    fail("CreateFrame: the template \"" .. name .. "\" is for a " .. wanted .. ", not for a " .. kindName)
+  end
+  if record and depth <= 20 then
+    for _, inherited in ipairs(record.inherits or {}) do
+      if gameTemplate(inherited) or TEMPLATES[inherited] then
+        applyTemplate(frame, inherited, depth + 1)
+      end
+    end
+    for _, mixin in ipairs(record.mixin or {}) do
+      mixInto(frame, mixin, name)
+    end
+    addChildren(frame, record.children, name)
+    setValues(frame, record.values)
+  end
+  if hand and hand.setup then
+    hand.setup(frame)
+  end
+end
 
 function CreateFrame(kindName, name, parent, template, id)
   local kind = realType(kindName) == "string" and FRAME_KIND[kindName:lower()]
@@ -1305,19 +1790,14 @@ function CreateFrame(kindName, name, parent, template, id)
   if id ~= nil then
     state(frame).id = number(id, "CreateFrame")
   end
+  -- An intrinsic frame type of the game (ItemButton, DropdownButton) is made from its own
+  -- XML definition, which has the name of the type.
+  if kind ~= "Frame" and (gameTemplate(kind) or TEMPLATES[kind]) then
+    applyTemplate(frame, kind, 1)
+  end
   if template ~= nil then
     for part in realTostring(template):gmatch("[^,%s]+") do
-      local entry = TEMPLATES[part]
-      if not entry then
-        if GAME_TEMPLATES[part] then
-          fail("CreateFrame: the stand-in for the game does not have the template \"" .. part .. "\" yet (tools/harness/02-widgets.lua)")
-        end
-        fail("CreateFrame: Couldn't find inherited node \"" .. part .. "\"")
-      end
-      if entry.kind and entry.kind ~= kind and not kindOf(kind).isA[entry.kind:lower()] then
-        fail("CreateFrame: the template \"" .. part .. "\" is for a " .. entry.kind .. ", not for a " .. kind)
-      end
-      entry.setup(frame)
+      applyTemplate(frame, part, 1)
     end
   end
   if parent then
@@ -1367,27 +1847,16 @@ local NOT_A_LAYER = {
   UnitHealPredictionCalculatorAPI = "a heal prediction object",
   -- Frames and parts of frames that only the game's own windows make. CreateFrame of the
   -- stand-in does not know these frame types, so an addon that asks for one fails.
-  FrameAPIArchaeologyDigSiteFrame = "the dig site frame of the game's map",
-  FrameAPIBlob = "a quest blob frame of the game's map",
-  FrameAPIFogOfWarFrame = "the fog of war frame of the game's map",
-  FrameAPIModelSceneFrameActor = "an actor of a model scene",
-  FrameAPIModelSceneFrameActorBase = "an actor of a model scene",
-  FrameAPINamePlate = "a name plate of the game",
-  FrameAPIQuestPOI = "the quest marker frame of the game's map",
-  FrameAPIScenarioPOI = "the scenario marker frame of the game's map",
-  FrameAPISimpleCheckout = "the checkout frame of the shop",
-  FrameAPIUnitPositionFrame = "the unit position frame of the game's map",
-  HousingFixturePointFrameAPI = "a frame of the housing editor",
-  HousingLayoutPinFrameAPI = "a frame of the housing editor",
-  PingPinFrameAPI = "the ping frame of the game",
-  SimpleAnimRadialProgressAPI = "an animation type that the stand-in does not make",
-  SimpleAnimScaleLineAPI = "an animation type that the stand-in does not make",
-  SimpleAnimTranslationLineAPI = "an animation type that the stand-in does not make",
-  SimpleControlPointAPI = "a control point of a path animation",
-  SimpleMapSceneAPI = "the map scene frame of the game",
+  -- Objects that only the game's own code makes: no frame type of UI.xsd has them.
+  FrameAPIModelSceneFrameActor = "an actor of a model scene: ModelScene:CreateActor makes it, CreateFrame does not",
+  FrameAPIModelSceneFrameActorBase = "an actor of a model scene: ModelScene:CreateActor makes it, CreateFrame does not",
+  FrameAPINamePlate = "a name plate: the game makes it for a unit, and UI.xsd has no such frame type",
+  HousingFixturePointFrameAPI = "a frame of the housing editor: UI.xsd has no such frame type",
+  HousingLayoutPinFrameAPI = "a frame of the housing editor: UI.xsd has no such frame type",
+  PingPinFrameAPI = "the ping frame of the game: UI.xsd has no such frame type",
+  SimpleControlPointAPI = "a control point of a path animation: Path:CreateControlPoint makes it",
   SimpleMaskTextureAPI = "a mask texture has no methods of its own in the documentation",
-  SimpleModelFFXAPI = "a model frame type that the stand-in does not make",
-  SimpleVectorGraphicsAPI = "a vector graphics region that the stand-in does not make",
+  SimpleVectorGraphicsAPI = "a vector graphics region: no method of a frame makes one, only an XML file",
 }
 
 -- Returns the problems, one text for each.
@@ -1447,4 +1916,242 @@ function H.selfCheck()
   end
   table.sort(problems)
   return problems
+end
+
+---------------------------------------------------------------------------------------------------
+-- Check of this file against the game's UI files
+--
+-- tools/api/forever-ui.json has what the game's own XML and Lua files say: the frame types,
+-- the scripts that each kind of widget gets, the templates, and each call of a widget method
+-- with its arguments written out. H.uiCheck compares the stand-in with all of it and returns
+-- the differences. `cargo test` and `cargo dev conformance` run it.
+
+-- Calls in the game's Lua code that are not calls of a widget: a Lua object of the game with
+-- a method of the same name. Each needs the file of the game with the call.
+local NOT_A_WIDGET_CALL = {
+  ["SetValue(true)"] = "Blizzard_MicroMenu/Mainline/MainMenuBarMicroButtons.lua: a setting object of the game, not a slider",
+  ["SetValue(false)"] = "Blizzard_MicroMenu/Mainline/MainMenuBarMicroButtons.lua: a setting object of the game, not a slider",
+  ["SetSize(0)"] = "Blizzard_SharedXML/IndexRangeDataProvider.lua: a data provider, not a region",
+  ["SetRotation(\"left\")"] = "Blizzard_SharedXML/ModelSceneControlFrame.lua: a button of the model controls with its own SetRotation",
+  ["SetRotation(\"right\")"] = "Blizzard_SharedXML/ModelSceneControlFrame.lua: a button of the model controls with its own SetRotation",
+  ["SetGlow(true)"] = "Blizzard_PlayerSpells/Camelot/ClassTalents/Blizzard_ClassTalentsFrame.lua: a button of the talent window with its own SetGlow",
+  ["SetGlow(false)"] = "Blizzard_PlayerSpells/Camelot/ClassTalents/Blizzard_ClassTalentsFrame.lua: a button of the talent window with its own SetGlow",
+}
+
+-- One widget of each kind, each under its own parent.
+local function oneOfEach()
+  local list = {}
+  local names = {}
+  for name in pairs(LAYERS) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  local host = CreateFrame("Frame", nil, UIParent)
+  local group = host:CreateAnimationGroup()
+  for _, name in ipairs(names) do
+    local object
+    if not NOT_A_FRAME[name] then
+      object = CreateFrame(name, nil, host)
+    elseif name == "AnimationGroup" then
+      object = host:CreateAnimationGroup()
+    elseif name == "Font" then
+      object = newObject("Font", nil, nil)
+    elseif LAYERS[name][#OBJECT + 1] == "SimpleAnimAPI" then
+      object = group:CreateAnimation(name)
+    else
+      object = newObject(name, host)
+      table.insert(state(host).regions, object)
+    end
+    list[#list + 1] = { name, object }
+  end
+  return list
+end
+
+-- The fields that a template of the game gives a frame: child keys, lists, key values and the
+-- methods of its mixins, with those of the templates that it inherits.
+local function templateFields(name, into, depth)
+  local record = gameTemplate(name)
+  if not record or depth > 20 then
+    return into
+  end
+  for _, inherited in ipairs(record.inherits or {}) do
+    templateFields(inherited, into, depth + 1)
+  end
+  for _, child in ipairs(record.children or {}) do
+    if child.key then
+      into[child.key] = true
+    end
+    if child.array then
+      into[child.array] = true
+    end
+  end
+  for key in pairs(record.values or {}) do
+    into[key] = true
+  end
+  local seen = {}
+  local function methodsOf(mixinName)
+    local mixin = gameMixin(mixinName)
+    if mixin and not seen[mixinName] then
+      seen[mixinName] = true
+      for _, parent in ipairs(mixin.from or {}) do
+        methodsOf(parent)
+      end
+      for _, method in ipairs(mixin.methods or {}) do
+        into[method] = true
+      end
+    end
+  end
+  for _, mixin in ipairs(record.mixin or {}) do
+    methodsOf(mixin)
+  end
+  if TEMPLATES[name] then
+    for field in pairs(TEMPLATES[name].fields or {}) do
+      into[field] = true
+    end
+  end
+  return into
+end
+
+function H.uiCheck()
+  local problems = {}
+  local function problem(text)
+    problems[#problems + 1] = text
+  end
+  if not UI_NAMES.frameTypes or not uiFiles.template then
+    return { "tools/api/forever-ui.json has no frame types and templates: build it with cargo dev ui-names" }
+  end
+
+  -- 1. Frame types and animation types: each one of the game is a kind, and each frame kind
+  --    of this file is a frame type of the game.
+  for name in pairs(UI_NAMES.frameTypes) do
+    if not LAYERS[name] or NOT_A_FRAME[name] then
+      problem("the frame type " .. name .. " of the game is not a widget kind (LAYERS)")
+    end
+  end
+  for name in pairs(LAYERS) do
+    if not NOT_A_FRAME[name] and not UI_NAMES.frameTypes[name] then
+      problem("the widget kind " .. name .. " is not a frame type of the game (UI.xsd and the intrinsic frames)")
+    end
+  end
+  for _, name in ipairs(UI_NAMES.animationTypes or {}) do
+    if not (LAYERS[name] and NOT_A_FRAME[name]) then
+      problem("the animation type " .. name .. " of the game is not a widget kind (LAYERS)")
+    end
+  end
+
+  -- The lists of allowed texts of UI.xsd: each value is one that the hand-written list takes.
+  for enumeration, list in pairs({ DRAWLAYER = DRAW_LAYERS, FRAMESTRATA = STRATA, JUSTIFYHTYPE = JUSTIFY_H, JUSTIFYVTYPE = JUSTIFY_V, FRAMEPOINT = POINTS }) do
+    local values = (UI_NAMES.enumerations or {})[enumeration]
+    if not values then
+      problem("UI.xsd does not have the list " .. enumeration .. " any more")
+    end
+    for _, value in ipairs(values or {}) do
+      if not list[value] then
+        problem("UI.xsd has the value " .. value .. " in " .. enumeration .. ", and the stand-in refuses it")
+      end
+    end
+  end
+
+  -- 2. Scripts: a script that an XML file of the game puts on a kind is a script of that kind.
+  for element, scripts in pairs(UI_NAMES.scripts or {}) do
+    if LAYERS[element] then
+      local known = kindOf(element).scripts
+      for _, script in ipairs(scripts) do
+        if not known[script] then
+          problem("the game's XML files put the script " .. script .. " on a " .. element .. ", and the stand-in does not have it for that kind (LAYER_SCRIPTS)")
+        end
+      end
+    elseif element ~= "Actor" then
+      problem("the game's XML files put scripts on a " .. element .. ", which is not a widget kind")
+    end
+  end
+
+  -- 3. Templates: each hand-written entry is a template of the game, and gives no field that
+  --    the game's template does not have.
+  local templateNames = {}
+  for name in pairs(TEMPLATES) do
+    templateNames[#templateNames + 1] = name
+  end
+  table.sort(templateNames)
+  for _, name in ipairs(templateNames) do
+    local record = gameTemplate(name)
+    if not record then
+      problem("the template " .. name .. " is written by hand, and the game's XML files do not have it")
+    else
+      local ok, frame = pcall(CreateFrame, record.kind, nil, UIParent, name)
+      if not ok then
+        problem("the template " .. name .. " cannot be made: " .. realTostring(frame))
+      else
+        local fields = templateFields(name, {}, 0)
+        -- The intrinsic frame type of the template brings its own fields.
+        templateFields(record.kind, fields, 0)
+        for key, value in pairs(frame) do
+          if key ~= "__state" and realType(key) == "string" and not fields[key] then
+            problem("the template " .. name .. " gives the field " .. key .. ", which the game's template does not have (a child key, a key value or a mixin method)")
+          end
+        end
+      end
+    end
+  end
+
+  -- 4. Calls of the game's own code: each must be accepted by one kind that has the method.
+  local calls = uiFiles.calls and uiFiles.calls() or {}
+  local objects
+  local used = {}
+  for index, call in ipairs(calls) do
+    if index % 200 == 1 then
+      objects = oneOfEach()
+    end
+    local method = call:match("^([%w_]+)%(")
+    local chunk = loadstring("return function(o) return o:" .. call .. " end")
+    if method and chunk then
+      local fn = chunk()
+      local has, accepted, firstError, firstKind = false, false, nil, nil
+      for _, entry in ipairs(objects) do
+        local object = entry[2]
+        if object[method] ~= nil then
+          has = true
+          local ok, err = pcall(fn, object)
+          if ok then
+            accepted = true
+            break
+          elseif not firstError then
+            firstError, firstKind = realTostring(err), entry[1]
+          end
+        end
+      end
+      if has and not accepted then
+        if NOT_A_WIDGET_CALL[call] then
+          used[call] = true
+        elseif firstError:find("there is no region with the name", 1, true) then
+          -- An anchor to a frame of the game by its name: the stand-in does not have that frame.
+        else
+          problem("the game's code calls " .. call .. ", and the stand-in refuses it: " .. firstKind .. ": " .. firstError)
+        end
+      end
+    end
+  end
+  for call in pairs(NOT_A_WIDGET_CALL) do
+    if #calls > 0 and not used[call] then
+      problem("NOT_A_WIDGET_CALL lists " .. call .. ", which the stand-in accepts or the game's code does not have any more")
+    end
+  end
+  table.sort(problems)
+  return problems
+end
+
+-- The names of the methods that a widget can have: those of every kind. `cargo dev ui-names`
+-- collects the calls of these in the game's own Lua code.
+function H.widgetMethodNames()
+  local seen, names = {}, {}
+  for kindName in pairs(LAYERS) do
+    for method in pairs(kindOf(kindName).methods) do
+      if not seen[method] then
+        seen[method] = true
+        names[#names + 1] = method
+      end
+    end
+  end
+  table.sort(names)
+  return names
 end

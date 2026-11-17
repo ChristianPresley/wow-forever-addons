@@ -4,7 +4,7 @@
 //!   cargo dev test            load each addon in a stand-in for the game and use everything in it
 //!   cargo dev conformance     check each API name that the addons use, without running them
 //!   cargo dev api-snapshot    build the API snapshot that the stand-in is made from
-//!   cargo dev ui-names        list the fonts and the undocumented events of the game's UI files
+//!   cargo dev ui-names        read the fonts, frame types, scripts, templates and calls of the game's UI files
 //!   cargo dev marketplace     build dist/marketplace: one ZIP for each addon, and index.json
 //!   cargo dev icon <out.png>  draw the source image of the app icon
 
@@ -39,8 +39,9 @@ Commands:
                             --check       compare with the snapshot of the repository and
                                           list the differences; nothing is written to it
   ui-names <folder>       build tools/api/forever-ui.json from the Interface/AddOns folder of the
-                          UI source: the fonts of the game, and the events that the game's own
-                          code registers and the documentation does not list
+                          UI source: the fonts, the frame types, the scripts and the templates of
+                          the game, the events that the documentation does not list, and the
+                          calls of widget methods in the game's own code
                             --check       compare with the file of the repository; nothing is
                                           written to it
   marketplace             build dist/marketplace: one ZIP for each addon, and index.json
@@ -139,15 +140,26 @@ fn run() -> Result<bool, String> {
             let (globals, methods) = harness::known_names(&snapshot)?;
             let known = conformance::Known::new(&snapshot, globals, methods);
             let problems = conformance::check(&addons, &known)?;
+            // The stand-in itself against the game's UI files: frame types, scripts, templates,
+            // and the calls of widget methods in the game's own code.
+            let stand_in_problems = harness::ui_check(&snapshot)?;
             if problems.is_empty() {
                 println!("{} addons: every name of the game's API that they use is in the API of this client.", addons.len());
-                return Ok(true);
+            } else {
+                for problem in &problems {
+                    eprintln!("{problem}");
+                }
+                eprintln!("\n{} name(s) that this client does not have. Each one is a mistake, or code for another client that never runs here.", problems.len());
             }
-            for problem in &problems {
-                eprintln!("{problem}");
+            if stand_in_problems.is_empty() {
+                println!("The stand-in for the game agrees with the game's UI files: frame types, scripts, templates and the calls of the game's own code.");
+            } else {
+                for problem in &stand_in_problems {
+                    eprintln!("{problem}");
+                }
+                eprintln!("\n{} difference(s) between the stand-in for the game and the game's UI files (tools/api/forever-ui.json).", stand_in_problems.len());
             }
-            eprintln!("\n{} name(s) that this client does not have. Each one is a mistake, or code for another client that never runs here.", problems.len());
-            Ok(false)
+            Ok(problems.is_empty() && stand_in_problems.is_empty())
         }
         (Some("api-snapshot"), Some(docs_dir)) => {
             // The snapshot is what the addon tests are judged against. `--out <file>` writes a
@@ -195,7 +207,12 @@ fn run() -> Result<bool, String> {
             let snapshot_file = root.join("tools").join("api").join("forever-api.json");
             let text = std::fs::read_to_string(&snapshot_file).map_err(|error| format!("Cannot read {}: {error}", snapshot_file.display()))?;
             let snapshot: serde_json::Value = serde_json::from_str(&text).map_err(|error| format!("The API snapshot is not valid JSON: {error}"))?;
-            let (fresh, lines) = ui_names::collect(Path::new(addons_dir), &snapshot)?;
+            // The method names of the widgets of the stand-in: the calls of these in the game's
+            // Lua code are collected.
+            let mut with_names = snapshot.clone();
+            harness::with_ui_names(&mut with_names)?;
+            let widget_methods = harness::widget_methods(&with_names)?;
+            let (fresh, lines) = ui_names::collect(Path::new(addons_dir), &snapshot, &widget_methods)?;
             let file = root.join("tools").join("api").join("forever-ui.json");
             if args.iter().any(|arg| arg == "--check") {
                 let committed = std::fs::read_to_string(&file).map_err(|error| format!("Cannot read {}: {error}", file.display()))?;
@@ -206,17 +223,8 @@ fn run() -> Result<bool, String> {
                 let old: serde_json::Value = serde_json::from_str(&committed).map_err(|error| error.to_string())?;
                 let new: serde_json::Value = serde_json::from_str(&fresh).map_err(|error| error.to_string())?;
                 eprintln!("tools/api/forever-ui.json differs from the UI files in {addons_dir}:");
-                for key in ["fonts", "undocumentedEvents"] {
-                    let names = |value: &serde_json::Value| -> std::collections::BTreeSet<String> {
-                        value.get(key).and_then(|list| list.as_array()).map(|list| list.iter().filter_map(|name| name.as_str().map(String::from)).collect()).unwrap_or_default()
-                    };
-                    let (before, after) = (names(&old), names(&new));
-                    for name in after.difference(&before).take(40) {
-                        eprintln!("  added    {key}.{name}");
-                    }
-                    for name in before.difference(&after).take(40) {
-                        eprintln!("  removed  {key}.{name}");
-                    }
+                for line in ui_names::differences(&old, &new) {
+                    eprintln!("{line}");
                 }
                 eprintln!("\nIf the game was patched: build the file again (cargo dev ui-names <folder>), then run cargo dev test.");
                 return Ok(false);
