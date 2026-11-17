@@ -7,7 +7,7 @@ use std::process::ExitCode;
 
 use wfam_core::detect::Install;
 use wfam_core::marketplace::DEFAULT_SOURCE;
-use wfam_core::service::{InstallState, Service};
+use wfam_core::service::{only_root_from_env, InstallState, Service};
 use wfam_core::version::compare_versions;
 use wfam_core::{Error, Result};
 
@@ -27,7 +27,11 @@ Commands:
 Options:
   --install <folder>   use this World of Warcraft folder
   --source <url|path>  use this marketplace index
-  --force              also replace or remove a copy that the manager did not install";
+  --force              also replace or remove a copy that the manager did not install
+
+Environment:
+  WFAM_ROOT=<folder>   work in this World of Warcraft folder and search nowhere else
+  WFAM_SOURCE=<url|path>  the marketplace index, if --source is not given";
 
 struct Args {
     positional: Vec<String>,
@@ -124,11 +128,14 @@ fn link_addons(install: &Install, source_dir: &Path, unlink: bool) -> Result<()>
 
 fn run() -> Result<bool> {
     let args = parse_args()?;
-    let config = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    let mut service = Service::new(
-        config.join("wow-forever-addon-manager").join("cli-settings.json"),
-        args.source.clone().unwrap_or_else(|| DEFAULT_SOURCE.to_string()),
-    );
+    let source = args.source.clone().unwrap_or_else(|| DEFAULT_SOURCE.to_string());
+    let mut service = match only_root_from_env() {
+        Some(root) => Service::in_only_root(&root, source)?,
+        None => {
+            let config = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+            Service::new(config.join("wow-forever-addon-manager").join("cli-settings.json"), source)
+        }
+    };
     if let Some(folder) = &args.install {
         service.settings.extra_roots.push(folder.clone());
     }

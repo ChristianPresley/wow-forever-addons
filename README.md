@@ -83,6 +83,12 @@ The manager finds installs from the Battle.net product database, the registry, a
 - A development link (see below) is never changed.
 - Each package is checked against the SHA-256 in the marketplace index before it is installed.
 
+To try the manager without the real game folder, set the `WFAM_ROOT` environment variable to a folder, for example a temporary one. The manager then works in that folder and searches nowhere else: not the Battle.net product database, the registry, the drives, or the folders that you added. If the folder holds no Forever install, the manager makes an empty one in it (`_forever_/Interface/AddOns`). It keeps the settings of that run in `wfam-settings.json` in the same folder, and **Add folder…** is refused. The command line reads the same variable, and so do `cargo link-addons` and `cargo unlink-addons`.
+
+```powershell
+$env:WFAM_ROOT = "$env:TEMP\wfam-trial"; cargo tauri dev
+```
+
 The same operations are available on the command line:
 
 ```bash

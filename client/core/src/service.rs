@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::addons::{install_addon, list_installed, uninstall_addon, InstalledAddon};
-use crate::detect::{detect_installs, DetectOptions, Install};
+use crate::detect::{detect_installs, inspect_root, DetectOptions, Install};
 use crate::error::{Error, Result};
 use crate::marketplace::{download_package, load_index, Index, MarketAddon};
 use crate::version::compare_versions;
@@ -71,19 +71,51 @@ pub struct ScanResult {
     pub auto_update: bool,
 }
 
+/// Environment variable that names the one World of Warcraft folder to work in. With it,
+/// the manager searches nowhere else, so a trial run cannot reach the real game folder.
+pub const ONLY_ROOT_VAR: &str = "WFAM_ROOT";
+
+/// Name of the settings file that a run with `ONLY_ROOT_VAR` keeps in that folder.
+pub const ONLY_ROOT_SETTINGS: &str = "wfam-settings.json";
+
+/// The folder that `ONLY_ROOT_VAR` names, if it is set.
+pub fn only_root_from_env() -> Option<PathBuf> {
+    std::env::var_os(ONLY_ROOT_VAR).filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
 pub struct Service {
     settings_file: PathBuf,
     default_source: String,
     pub settings: Settings,
     installs: Vec<Install>,
     index: Option<Index>,
+    only_root: Option<PathBuf>,
 }
 
 impl Service {
     /// `settings_file` is where the settings are kept. `default_source` is the
     /// marketplace to use when the settings name none.
     pub fn new(settings_file: PathBuf, default_source: String) -> Self {
-        Self { settings_file, default_source, settings: Settings::default(), installs: Vec::new(), index: None }
+        Self { settings_file, default_source, settings: Settings::default(), installs: Vec::new(), index: None, only_root: None }
+    }
+
+    /// A service that works in the World of Warcraft folder `root` and nowhere else: no
+    /// automatic search, and no folder from the settings. The settings are kept in `root`,
+    /// so the settings of the user stay as they are. If `root` holds no Forever install,
+    /// an empty one is made there.
+    pub fn in_only_root(root: &Path, default_source: String) -> Result<Self> {
+        let root = std::path::absolute(root)?;
+        if inspect_root(&root).is_empty() {
+            fs::create_dir_all(root.join("_forever_").join("Interface").join("AddOns"))?;
+        }
+        let mut service = Self::new(root.join(ONLY_ROOT_SETTINGS), default_source);
+        service.only_root = Some(root);
+        Ok(service)
+    }
+
+    /// The one folder that this service works in, if it was made with `in_only_root`.
+    pub fn only_root(&self) -> Option<&Path> {
+        self.only_root.as_deref()
     }
 
     /// Reads the settings file. A missing or damaged file leaves the defaults.
@@ -109,7 +141,10 @@ impl Service {
 
     /// Searches for installs and reads the addons of each one.
     pub fn scan(&mut self) -> ScanResult {
-        self.installs = detect_installs(&DetectOptions { extra_roots: self.settings.extra_roots.clone(), roots: None });
+        self.installs = match &self.only_root {
+            Some(root) => inspect_root(root),
+            None => detect_installs(&DetectOptions { extra_roots: self.settings.extra_roots.clone(), roots: None }),
+        };
         let installs = self
             .installs
             .iter()
@@ -171,6 +206,9 @@ impl Service {
 
     /// Adds a folder that the user picked. Returns false if it holds no Forever install.
     pub fn add_root(&mut self, folder: &Path) -> Result<bool> {
+        if let Some(root) = &self.only_root {
+            return Err(Error::other(format!("This run works in {} only ({ONLY_ROOT_VAR} is set). No folder was added.", root.display())));
+        }
         let found = detect_installs(&DetectOptions { extra_roots: vec![folder.to_path_buf()], roots: Some(Vec::new()) });
         if found.is_empty() {
             return Ok(false);

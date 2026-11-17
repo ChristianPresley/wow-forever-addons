@@ -304,6 +304,40 @@ fn service_scan_install_from_a_marketplace_and_uninstall() {
     assert_eq!(restarted.settings.extra_roots, vec![root]);
 }
 
+#[test]
+fn service_in_only_root_works_in_that_folder_and_nowhere_else() {
+    let tmp = TempDir::new().unwrap();
+    let (other, other_addons) = make_wow(tmp.path(), "other", false);
+    let (source, _) = make_market(tmp.path());
+    let root = tmp.path().join("trial");
+
+    // An empty folder gets an empty Forever install, and the settings file is in it.
+    let mut service = Service::in_only_root(&root, source.clone()).unwrap();
+    assert_eq!(service.only_root(), Some(root.as_path()));
+    let addons = root.join("_forever_").join("Interface").join("AddOns");
+    assert!(addons.is_dir());
+
+    // A folder from the settings is not searched, and none can be added.
+    service.settings.extra_roots.push(other.clone());
+    let scan = service.scan();
+    assert_eq!(scan.installs.len(), 1);
+    assert_eq!(scan.installs[0].install.root, root);
+    assert!(service.add_root(&other).unwrap_err().message.contains("WFAM_ROOT"));
+
+    let id = scan.installs[0].install.id.clone();
+    service.install(&id, "demo", false).unwrap();
+    assert_eq!(list_installed(&addons)[0].managed.as_ref().unwrap().id, "demo");
+    assert!(list_installed(&other_addons).is_empty());
+
+    service.set_auto_update(false).unwrap();
+    assert!(root.join("wfam-settings.json").is_file());
+
+    // An install that is there already is used as it is.
+    let again = Service::in_only_root(&other, source).unwrap().scan();
+    assert_eq!(again.installs.len(), 1);
+    assert_eq!(again.installs[0].install.version.as_deref(), Some("1.60.1.70938"));
+}
+
 /// Puts version `version` of the Demo addon in the marketplace at `source`.
 fn publish_demo(source: &str, version: &str) {
     let dir = Path::new(source).parent().unwrap();

@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use wfam_core::marketplace::{Index, MarketAddon, DEFAULT_SOURCE};
-use wfam_core::service::{ScanResult, Service, UpdateReport};
+use wfam_core::service::{only_root_from_env, ScanResult, Service, UpdateReport};
 
 /// What the window receives when a command fails.
 #[derive(Serialize)]
@@ -133,8 +133,10 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let settings_file = app.path().app_config_dir()?.join("settings.json");
-            let mut service = Service::new(settings_file, default_source());
+            let mut service = match only_root_from_env() {
+                Some(root) => Service::in_only_root(&root, default_source()).map_err(|error| error.message)?,
+                None => Service::new(app.path().app_config_dir()?.join("settings.json"), default_source()),
+            };
             service.load_settings();
             app.manage(Mutex::new(service));
             Ok(())
