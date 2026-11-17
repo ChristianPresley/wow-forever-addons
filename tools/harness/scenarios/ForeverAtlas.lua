@@ -279,3 +279,9 @@ ns.MAP_KINDS[1].find = broken
 ns.RefreshMapPins()
 expect(count("areaPOIs") == 2, "and the kind is back when it works again")
 ForeverAtlasMap:Hide()
+
+-- /fatlas status also says what the game draws: each part with its place on the screen.
+ns.ShowMap(37)
+T.slash("/fatlas", "status")
+expect(T.printed("what the game draws") and T.printed("layer 1 image 1: visible") and T.printed("pin 1 %("), "/fatlas status lists the drawn parts of the map")
+ForeverAtlasMap:Hide()

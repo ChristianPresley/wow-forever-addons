@@ -1079,6 +1079,55 @@ function ns.PrintMapStatus()
   if errors == 0 then
     print("  no error inside the map so far.")
   end
+  -- What the game draws: each part of the map with its place on the screen. A part that is
+  -- there and does not show is hidden, clear, of no size, or outside the window.
+  local function call(object, method)
+    local fn = object[method]
+    if type(fn) ~= "function" then
+      return "?"
+    end
+    local ok, value = pcall(fn, object)
+    if not ok or value == nil then
+      return "-"
+    end
+    if type(value) == "number" then
+      return string.format("%.2f", value)
+    end
+    return tostring(value)
+  end
+  local function drawn(name, object)
+    print(string.format("  %s: visible %s, opacity %s, level %s, scale %s, left %s, top %s, %s by %s", name,
+      call(object, "IsVisible"), call(object, "GetEffectiveAlpha"), call(object, "GetFrameLevel"), call(object, "GetEffectiveScale"),
+      call(object, "GetLeft"), call(object, "GetTop"), call(object, "GetWidth"), call(object, "GetHeight")))
+  end
+  print("  what the game draws:")
+  drawn("window", window)
+  drawn("map area", viewport)
+  drawn("canvas", canvas)
+  for index, layer in ipairs(view.layers) do
+    drawn("layer " .. index, layer.frame)
+    local entry = layerFrames[index]
+    local tile = entry and entry.tiles[1]
+    if tile then
+      drawn("layer " .. index .. " image 1", tile)
+      print(string.format("    its picture: %s, draw layer %s", call(tile, "GetTexture"), call(tile, "GetDrawLayer")))
+    end
+  end
+  if exploredFrame then
+    drawn("uncovered parts", exploredFrame)
+    local shown = 0
+    for _, texture in ipairs(overlays) do
+      if texture:IsShown() then
+        shown = shown + 1
+      end
+    end
+    print("    images of uncovered parts: " .. shown)
+  end
+  drawn("pin layer", overlay)
+  if pins[1] then
+    drawn("pin 1 (" .. tostring(pins[1].kind) .. ")", pins[1])
+    print(string.format("    its picture: %s", call(pins[1].icon, "GetTexture")))
+  end
   return true
 end
 

@@ -1417,6 +1417,23 @@ define("SimpleTextureBaseAPI", "GetAtlas", function(self)
   return state(self).atlas or ""
 end)
 
+-- The picture of a texture. SetTexture takes a file name or the number of a file, and more
+-- values for how the picture repeats and how it is smoothed. GetTexture gives the picture
+-- alone, as a text, and nothing for a texture without one.
+define("SimpleTextureBaseAPI", "SetTexture", function(self, asset)
+  state(self).texture = asset
+  state(self).atlas = nil
+  return true
+end)
+define("SimpleTextureBaseAPI", "GetTexture", function(self)
+  local asset = state(self).texture
+  if asset ~= nil then
+    return realTostring(asset)
+  end
+end)
+H.allowNil("Texture:GetTexture", "A texture without a picture has none to give: Blizzard_SharedTalentUI/Blizzard_TalentDisplay.lua has `self.Icon:GetTexture() or self.Icon:GetAtlas()`.")
+H.allowNil("MaskTexture:GetTexture", "A texture without a picture has none to give, the same as for Texture:GetTexture above.")
+H.allowNil("Line:GetTexture", "A texture without a picture has none to give, the same as for Texture:GetTexture above.")
 -- A font string without a text gives nil, although the documentation has a text.
 H.allowNil("FontString:GetText", "The game gives nil for a font string without a text: Blizzard_EncounterJournal/Mainline/Blizzard_EncounterJournal.lua reads self.description:GetText() or \"\".")
 
