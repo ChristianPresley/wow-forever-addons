@@ -260,7 +260,12 @@ local function updateMarker(marker, elapsed, heading, half, scale, continent, no
   local target, yards, dNorth, dWest = nearest(marker, continent, north, west)
   if not target then
     local kind = ns.KindByKey[ns.GetCompass(index, "kind")]
-    marker.status = kind and kind.learned and #ns.Places(kind.key) == 0 and "none learned yet" or "none near"
+    if kind and kind.key == "quest" then
+      -- One chosen quest: say why the marker is not there.
+      marker.status = ns.GetCompass(index, "questID") == 0 and "no quest chosen" or "the game shows no place for this quest on your continent"
+    else
+      marker.status = kind and kind.learned and #ns.Places(kind.key) == 0 and "none learned yet" or "none near"
+    end
     marker:Hide()
     return
   end

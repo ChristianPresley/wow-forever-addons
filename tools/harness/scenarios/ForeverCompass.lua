@@ -125,7 +125,19 @@ expect(ForeverCompass.UntrackQuest(40) == false, "a quest that is not on the com
 -- A tracker of the kind for one quest without a quest points to nothing.
 ns.SetCompass(3, "enabled", true)
 T.advance(2)
-expect(ns.TrackerQuest(3) == nil, "a tracker for one quest with no quest set shows nothing")
+expect(ns.TrackerQuest(3) == nil and ns.TrackerStatus(3) == "no quest chosen", "a tracker for one quest with no quest set shows nothing and says so, got " .. ns.TrackerStatus(3))
+-- A quest that the game shows no place for: the tracker says so.
+ns.SetCompass(3, "questID", 12345)
+T.advance(2)
+expect(ns.TrackerQuest(3) == nil and ns.TrackerStatus(3):find("no place for this quest"), "a quest without a place on the map says why, got " .. ns.TrackerStatus(3))
+ns.SetCompass(3, "questID", 0)
+-- A quest that leaves the log (turned in or abandoned) gives its tracker back.
+ns.SetCompass(3, "enabled", false)
+expect(ForeverCompass.TrackQuest(40) == 3, "quest 40 is on the compass again")
+T.fire("QUEST_REMOVED", 41, false)
+expect(ForeverCompass.QuestTracker(40) == 3, "another quest that leaves the log changes nothing")
+T.fire("QUEST_REMOVED", 40, false)
+expect(ForeverCompass.QuestTracker(40) == nil and ns.GetCompass(3, "enabled") == false and ns.GetCompass(3, "questID") == 0 and T.printed("free again"), "a quest that leaves the log frees its tracker")
 ns.SetCompass(3, "enabled", false)
 ForeverCompass.UntrackQuest(176)
 ns.SetCompass(3, "kind", kept[1])

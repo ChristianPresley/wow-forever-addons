@@ -212,6 +212,16 @@ function ForeverCompass.UntrackQuest(questID)
   return true
 end
 
+-- A quest that left the log (turned in or abandoned) gives its tracker back: else the tracker
+-- would point to nothing and stay in use.
+local questWatcher = CreateFrame("Frame")
+questWatcher:RegisterEvent("QUEST_REMOVED")
+questWatcher:SetScript("OnEvent", function(_, _, questID)
+  if ns.Usable(questID) and ForeverCompass.UntrackQuest(questID) then
+    ns.Print("the quest left your log: its tracker on the compass is free again.")
+  end
+end)
+
 function ns.ColorOf(index)
   local key = ns.GetCompass(index, "color")
   for _, color in ipairs(ns.COLORS) do
