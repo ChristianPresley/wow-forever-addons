@@ -1,13 +1,14 @@
 //! Builds one ZIP package for each addon and the marketplace index.
 //! Output: `<out>/index.json` and `<out>/<Folder>-<version>.zip`.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
-use wfam_core::marketplace::{validate_index, Download, Index, MarketAddon, INDEX_SCHEMA};
+use wfam_core::marketplace::{load_index, validate_index, Download, Index, MarketAddon, INDEX_SCHEMA};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, ZipWriter};
 
@@ -90,12 +91,106 @@ pub fn build(addons: &[Addon], out_dir: &Path) -> Result<Vec<String>, String> {
     Ok(report)
 }
 
+/// The files of a package, by name.
+fn package_files(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let problem = |error: &dyn std::fmt::Display| format!("Cannot read {}: {error}", path.display());
+    let bytes = fs::read(path).map_err(|error| problem(&error))?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|error| problem(&error))?;
+    let mut files = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index).map_err(|error| problem(&error))?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).map_err(|error| problem(&error))?;
+        files.insert(file.name().to_string(), data);
+    }
+    Ok(files)
+}
+
+/// Compares the marketplace in `out_dir` with the one that is published now, of which
+/// `published_dir` holds a copy (the index and the packages).
+///
+/// The manager finds an update by the version alone. So an addon whose files changed while
+/// its version stayed the same would never reach a user who has that version. This is an
+/// error. A package that only differs in its bytes, with the same files, is not.
+/// Returns one line of report. A folder without an index means that nothing is published yet.
+pub fn check_published(out_dir: &Path, published_dir: &Path) -> Result<String, String> {
+    let published_index = published_dir.join("index.json");
+    if !published_index.is_file() {
+        return Ok(format!("No published index in {}. Nothing to compare.", published_dir.display()));
+    }
+    let load = |path: &Path| load_index(&path.to_string_lossy()).map_err(|error| format!("{}: {error}", path.display()));
+    let published = load(&published_index)?;
+    let built = load(&out_dir.join("index.json"))?;
+
+    let mut problems = Vec::new();
+    let mut same = 0;
+    for addon in &built.addons {
+        let Some(old) = published.addons.iter().find(|old| old.id == addon.id && old.version == addon.version) else { continue };
+        same += 1;
+        if old.download.sha256 == addon.download.sha256 {
+            continue;
+        }
+        let old_files = package_files(&published_dir.join(&old.download.url))?;
+        let new_files = package_files(&out_dir.join(&addon.download.url))?;
+        if old_files != new_files {
+            let names: BTreeSet<&String> = old_files.keys().chain(new_files.keys()).collect();
+            let changed: Vec<&str> = names.into_iter().filter(|name| old_files.get(*name) != new_files.get(*name)).map(String::as_str).collect();
+            problems.push(format!(
+                "{} {} is published already, and its files are different now ({}). Raise the version in the .toc file.",
+                addon.name,
+                addon.version,
+                changed.join(", ")
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(format!("{same} addon(s) have the published version, with the published files."))
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::addons::{read_addons, testing::write_addon};
     use wfam_core::addons::{install_addon, list_installed};
-    use wfam_core::marketplace::{download_package, load_index};
+    use wfam_core::marketplace::download_package;
+
+    /// Builds the marketplace of one addon "Demo" 1.2.3 with this Lua code, in `<tmp>/<name>`.
+    fn build_demo(tmp: &Path, name: &str, lua: &str) -> std::path::PathBuf {
+        let source = tmp.join(format!("{name}-addons"));
+        write_addon(&source, "Demo", "demo", lua);
+        let out = tmp.join(name);
+        build(&read_addons(&source).unwrap(), &out).unwrap();
+        out
+    }
+
+    #[test]
+    fn changed_files_under_a_published_version_are_an_error() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let published = build_demo(tmp.path(), "published", "print(1)\n");
+
+        let same = build_demo(tmp.path(), "same", "print(1)\n");
+        assert!(check_published(&same, &published).unwrap().starts_with("1 addon(s)"));
+
+        let changed = build_demo(tmp.path(), "changed", "print(2)\n");
+        let error = check_published(&changed, &published).unwrap_err();
+        assert!(error.contains("Demo 1.2.3") && error.contains("(Demo/Core.lua)") && error.contains("Raise the version"), "{error}");
+
+        // The same files in a package with other bytes: the checksum differs, the files do not.
+        let index_path = published.join("index.json");
+        let mut index = load_index(&index_path.to_string_lossy()).unwrap();
+        index.addons[0].download.sha256 = "0".repeat(64);
+        fs::write(&index_path, serde_json::to_string(&index).unwrap()).unwrap();
+        assert!(check_published(&same, &published).is_ok());
+
+        // Another version is a new package, and an empty folder means nothing is published.
+        index.addons[0].version = "1.2.2".to_string();
+        fs::write(&index_path, serde_json::to_string(&index).unwrap()).unwrap();
+        assert!(check_published(&changed, &published).unwrap().starts_with("0 addon(s)"));
+        assert!(check_published(&changed, &tmp.path().join("nothing")).unwrap().contains("Nothing to compare"));
+    }
 
     #[test]
     fn iso_time_matches_known_dates() {

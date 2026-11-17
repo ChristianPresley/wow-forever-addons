@@ -45,6 +45,8 @@ Commands:
                             --check       compare with the file of the repository; nothing is
                                           written to it
   marketplace             build dist/marketplace: one ZIP for each addon, and index.json
+                          --published <folder>  fail if an addon has the version of the
+                          marketplace copy in <folder>, with other files
   icon <out.png>          draw the source image of the app icon
   track-icon              draw the symbols of Forever Quests (Media/Track.tga, Media/Compass.tga)";
 
@@ -77,6 +79,10 @@ fn run() -> Result<bool, String> {
                 println!("{line}");
             }
             println!("-> {}", out_dir.display());
+            // `--published <folder>` names a copy of the marketplace that is published now.
+            if let Some(published) = args.iter().position(|arg| arg == "--published").and_then(|index| args.get(index + 1)) {
+                println!("{}", marketplace::check_published(&out_dir, Path::new(published))?);
+            }
             Ok(true)
         }
         (Some("test"), filter) => {

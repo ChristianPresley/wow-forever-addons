@@ -28,9 +28,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # The manager installs what this job uploads without a question, so the same checks
+      # as in the CI run first.
       - run: cargo dev lint
-      - run: cargo dev marketplace
-      - name: Upload to the marketplace release
+      - run: cargo dev conformance
+      - run: cargo dev test
+      - name: Fetch the marketplace that is published now
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,4 +41,21 @@ jobs:
             --title "Addon marketplace" \
             --notes "Packages and index for the Forever Addon Manager. This release is updated automatically." \
             --latest=false
-          gh release upload marketplace dist/marketplace/* --clobber
+          mkdir published
+          # The index, and the package of each addon that the index names. The first run has none.
+          if gh release download marketplace --dir published --pattern index.json; then
+            jq -r '.addons[].download.url' published/index.json | while read -r package; do
+              gh release download marketplace --dir published --pattern "$package"
+            done
+          fi
+      # Fails if the files of an addon changed and its version did not: the manager finds
+      # an update by the version, so that change would not reach anyone.
+      - run: cargo dev marketplace --published published
+      - name: Upload to the marketplace release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The packages first and the index last, so the index never names a package
+          # that is not there yet.
+          gh release upload marketplace dist/marketplace/*.zip --clobber
+          gh release upload marketplace dist/marketplace/index.json --clobber

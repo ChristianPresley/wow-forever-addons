@@ -103,6 +103,8 @@ cargo wfam install forever-quests
 
 `https://github.com/ChristianPresley/wow-forever-addons/releases/download/marketplace/index.json`
 
+The publish workflow runs the lint, the conformance check and the addon tests first, and uploads nothing if one of them fails. The manager finds an update by the version of an addon. So the workflow also fails if the files of an addon changed and its version did not: raise `## Version` in the `.toc` file with each change to an addon. `cargo dev marketplace --published <folder>` makes this check against a copy of the published marketplace in `<folder>`.
+
 A development build of the manager uses the local `dist/marketplace/index.json` when that file exists. You can also set a different source in the app, or with the `WFAM_SOURCE` environment variable.
 
 ## Develop an addon
