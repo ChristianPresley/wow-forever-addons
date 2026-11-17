@@ -630,6 +630,103 @@ mod tests {
         assert!(failures.iter().any(|failure| failure.contains("a secret value is a key")), "{failures:?}");
     }
 
+    /// True if each failure is from the fight, and there is one about a secret value.
+    fn fails_in_the_fight_only(lua: &str) {
+        let (failures, _) = check(lua);
+        assert!(failures.iter().any(|failure| failure.contains("secret value")), "expected a failure about a secret value, got {failures:?}");
+        assert!(failures.iter().all(|failure| failure.contains("in a fight") || failure.contains("[fight]")), "out of a fight the values are plain: {failures:?}");
+    }
+
+    #[test]
+    fn a_result_is_secret_where_the_documentation_says_so() {
+        // A function that nobody wrote by hand, with SecretReturns (UnitDocumentation.lua): its
+        // number can be shown in a fight, and not calculated with.
+        let health = r#"
+            local f = CreateFrame("Frame")
+            local bar = CreateFrame("StatusBar", nil, f)
+            f:SetScript("OnUpdate", function()
+              local health = UnitHealth("player")
+              bar:SetValue(health)
+              USE
+            end)
+        "#;
+        assert!(check(&health.replace("USE", "")).0.is_empty());
+        fails_in_the_fight_only(&health.replace("USE", "local half = health / 2"));
+        let (failures, _) = check(&health.replace("USE", "if not issecretvalue(health) then local half = health / 2 end"));
+        assert!(failures.is_empty(), "{failures:?}");
+
+        // A hand-written function with a named restriction: SecretWhenUnitIdentityRestricted is
+        // for a unit that no player controls. The NPC is there in the fight; the player's own
+        // GUID stays plain in it.
+        let guid = r#"
+            local f = CreateFrame("Frame")
+            f:SetScript("OnUpdate", function()
+              local guid = UnitGUID("UNIT")
+              if guid then
+                local length = #guid
+              end
+            end)
+        "#;
+        fails_in_the_fight_only(&guid.replace("UNIT", "npc"));
+        let (failures, _) = check(&guid.replace("UNIT", "player"));
+        assert!(failures.is_empty(), "{failures:?}");
+        let (failures, _) = check(&guid.replace("UNIT", "raid2"));
+        assert!(failures.is_empty(), "{failures:?}");
+
+        // The fields of a structure: all are secret in a fight but the ones marked NeverSecret.
+        // The data of the world is plain, so the marks alone decide.
+        let field = r#"
+            local f = CreateFrame("Frame")
+            f:SetScript("OnUpdate", function()
+              local source = C_DamageMeter.GetCombatSessionFromType(1, 1).combatSources[1]
+              local value = source.FIELD
+              local length = #tostring(value)
+            end)
+        "#;
+        for name in ["totalAmount", "sourceDisplayType", "name", "deathTimeSeconds"] {
+            fails_in_the_fight_only(&field.replace("FIELD", name));
+        }
+        for name in ["classFilename", "isLocalPlayer", "deathRecapID", "classification"] {
+            let (failures, _) = check(&field.replace("FIELD", name));
+            assert!(failures.is_empty(), "{name}: {failures:?}");
+        }
+        // A field marked SecretValue is secret at all times: the failure is there at load too.
+        let (failures, _) = check("local source = C_DamageMeter.GetCombatSessionFromType(1, 1).combatSources[1]\nlocal next = source.specIconID + 1\n");
+        assert!(failures.iter().any(|failure| failure.contains("Probe/Core.lua:2") && failure.contains("secret value")), "{failures:?}");
+        let (failures, _) = check("local source = C_DamageMeter.GetCombatSessionFromType(1, 1).combatSources[1]\nlocal next = source.totalAmount + 1\n");
+        assert!(failures.is_empty(), "{failures:?}");
+
+        // The arguments of an event with SecretPayloads (UNIT_IN_RANGE_UPDATE).
+        let event = r#"
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("UNIT_IN_RANGE_UPDATE")
+            f:SetScript("OnEvent", function(self, event, unit, inRange)
+              USE
+            end)
+        "#;
+        fails_in_the_fight_only(&event.replace("USE", "local length = #unit"));
+        let (failures, _) = check(&event.replace("USE", "if not issecretvalue(unit) then local length = #unit end"));
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    /// A restriction of the documentation that the stand-in has no rule for is a failure, and
+    /// so is a rule for a restriction that the documentation does not use.
+    #[test]
+    fn each_restriction_of_the_documentation_has_a_rule() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("Probe");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Probe.toc"), "## Interface: 16001\n## Title: Probe\n\nCore.lua\n").unwrap();
+        fs::write(dir.join("Core.lua"), "local name = ...\n").unwrap();
+        let addons = read_addons(tmp.path()).unwrap();
+        assert!(run(&addons, SNAPSHOT).unwrap()[0].failures.is_empty());
+        let renamed = SNAPSHOT.replace("\"SecretWhenUnitNameIdentityRestricted\"", "\"SecretWhenSomethingNew\"");
+        assert_ne!(renamed, SNAPSHOT);
+        let failures = &run(&addons, &renamed).unwrap()[0].failures;
+        assert!(failures.iter().any(|failure| failure.contains("SecretWhenSomethingNew") && failure.contains("no rule for it")), "{failures:?}");
+        assert!(failures.iter().any(|failure| failure.contains("SecretWhenUnitNameIdentityRestricted") && failure.contains("does not use")), "{failures:?}");
+    }
+
     #[test]
     fn an_event_comes_with_its_documented_arguments() {
         let (failures, _) = check(

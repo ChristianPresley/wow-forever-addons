@@ -147,14 +147,14 @@ What it does with an addon:
 4. Runs each slash command: the words come from the help text of the command.
 5. Uses each frame as a player can: opens its window if that is closed, shows and hides it, moves the pointer over it, clicks it, turns the mouse wheel, drags it, drags a slider, types in an edit box, and runs each entry of each menu.
 6. Sends each event that the addon listens to, with arguments of the documented kinds.
-7. Does steps 3 to 6 three times: alone, in a party, and in a fight in a raid. In the fight the numbers of the damage meter and the name of an NPC are secret values.
+7. Does steps 3 to 6 three times: alone, in a party, and in a fight in a raid. In the fight the values that the documentation marks as secret are secret values (see "Secret values" below).
 8. Sends `PLAYER_LOGOUT`, saves the variables, and runs the addon a second time from them, as after `/reload`.
 
 What makes an error show:
 
 - **Names.** A function, an event, a frame type, a template, a font or a script name that the game does not have fails, the same as in the game. A widget has the methods of its own kind only: `texture:SetText()` fails. A template is for one kind of frame: a button template on a plain frame fails.
 - **Arguments.** A documented function checks its arguments against the documentation: a missing required argument and a value of the wrong kind fail.
-- **Secret values.** Arithmetic with a secret value and a comparison of order fail. `type` gives the real type, so a test of the type does not protect code that calculates. A secret value fails as an argument of a function that the documentation does not open to addon code, and as a table key.
+- **Secret values.** Arithmetic with a secret value and a comparison of order fail. `type` gives the real type, so a test of the type does not protect code that calculates. A secret value fails as an argument of a function that the documentation does not open to addon code, and as a table key. In the fight a result is secret where the documentation says so, for every documented function and event, hand-written or not: the health of a unit (`UnitHealth`), the name, GUID and class of a unit that no player controls, auras, cooldowns, the casts of other units, and each field of the damage meter that is not marked as never secret. The rule of each restriction is in `RULES` of `tools/harness/01-api.lua`, with the text of Blizzard's `SecretPredicatesDocumentation.lua` beside it.
 - **Saved variables.** A function, a frame, a secret value or a table that contains itself in a saved variable fails: the game cannot save it.
 - **Replaced functions.** An addon that puts its own function in the place of a global function of the game (`ToggleAllBags = function() ... end`) fails. In the game this is taint: the game's own code then runs addon code, and the game refuses what only its own UI may do, with "blocked from an action only available to the Blizzard UI". Use `hooksecurefunc`.
 - **An addon that does not end.** A loop without an end stops with an error after three million lines, in a handler that runs again too. After two stops the addon is not called again.
@@ -253,14 +253,20 @@ Where these sources say nothing, the game client itself was asked. `tools/ingame
 - A status bar and a slider bring a value into the range, also when `SetMinMaxValues` makes the range smaller than the value; a slider then calls `OnValueChanged`. A slider that obeys its step goes to a step in `SetValue`.
 - `SetAllPoints(true)` and the strata `WORLD` give no error.
 
+The probe also asks about secret values: which results are secret out of a fight and in one, and what the game does with `==`, a table key and `tostring` of a secret number. It runs these cases with `/foreverprobe`, and once more by itself two seconds after a fight starts: target an enemy NPC, attack it, wait for the line "cases of the fight are saved", then `/reload`. The answers are in `ForeverProbeDB.lines` and `ForeverProbeDB.fight`.
+
 Run the probe again after a patch of the game, and put the new answers in `answers.txt`. Add a case to the probe for each new question that no source settles.
+
+After a patch that adds a restriction to the documentation, the test fails with "the stand-in has no rule for it" until the restriction is in `RULES` or `UNKNOWN` of `01-api.lua`.
 #### What it cannot find
 
 - How a window looks: positions, sizes, overlap.
 - Taint other than a replaced function: an action that the game refuses because addon code touched a protected value or a frame of the game.
 - What the game really returns. The stand-in returns a value of the documented kind, or the small world above.
 - A function that the documentation does not list and the stand-in does not have. The game's own code calls about 580 such `C_` functions (`C_PetJournal`, `C_TradeSkillUI`, `C_LFGList` and others). An addon that calls one fails the test until the function is added with the file that proves it.
-- Secret results outside the damage meter. In the fight only the damage meter and the name of an NPC are secret. The unit functions and the events that the documentation marks as secret under a restriction give plain values.
+- Secret results under a restriction that the documentation does not explain. The list `UNKNOWN` in `tools/harness/01-api.lua` has each one with the reason: the unit statistics (`UnitArmor`, `GetCritChance` and about 60 more), `UnitPower`, the threat functions, and the values of widgets that were set from a secret value. These give plain values, also in the fight.
+- Secret results outside a fight. The stand-in makes a value secret in the fight only. The documentation does not say if the health of a unit or the name of an NPC is secret out of a fight too. The probe asks (the cases "secret, out of a fight").
+- Encounters, keystone dungeons, PvP matches and restricted maps. The world has none, so what is secret only there (chat messages in an instance) is plain.
 - `==` and `~=` with a secret value, and a test of a secret boolean. The game fails there; Lua 5.1 gives the stand-in no way to see it. Test with `issecretvalue` first, before the type and before a comparison.
 - Code that the test does not reach. `--coverage` shows it.
 

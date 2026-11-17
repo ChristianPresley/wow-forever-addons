@@ -4,6 +4,8 @@
 -- Use: copy this folder to Interface/AddOns, log in, type /foreverprobe. Each line is one
 -- case with what the game answered. The same lines are saved in ForeverProbeDB.lines
 -- (WTF/Account/<account>/SavedVariables/ForeverProbe.lua after /reload or logout).
+-- Then target an enemy NPC and attack it: two seconds into the fight the probe runs the cases
+-- about secret values once more by itself and saves them in ForeverProbeDB.fight.
 -- docs/addon-development.md, "Where the sources say nothing", says how the answers are used:
 -- tools/ingame-probe/answers.txt has them, and a test compares the stand-in with them.
 
@@ -17,14 +19,143 @@ local function show(value)
 end
 
 -- Runs one case. The line says "ok" with the results, or "error" with the text of the game.
-local function case(name, fn)
+-- `into` is the list for the line; without it, the list of /foreverprobe.
+local function case(name, fn, into)
   local results = { pcall(fn) }
   local parts = {}
   for index = 2, #results do
     parts[#parts + 1] = show(results[index])
   end
-  lines[#lines + 1] = name .. " = " .. (results[1] and "ok" or "error") .. (#parts > 0 and (": " .. table.concat(parts, ", ")) or "")
+  into = into or lines
+  into[#into + 1] = name .. " = " .. (results[1] and "ok" or "error") .. (#parts > 0 and (": " .. table.concat(parts, ", ")) or "")
 end
+
+---------------------------------------------------------------------------------------------------
+-- Secret values
+--
+-- Blizzard's documentation marks the functions whose results can be secret, and names the
+-- restriction. For many it does not say in which state of the game, or for which units, the
+-- result is secret in fact. These cases ask. They run twice: with /foreverprobe, and by
+-- themselves two seconds after the start of a fight (once in each session). For the fight:
+-- target an enemy NPC, attack it, and wait for the line "cases of the fight are saved".
+--
+-- A case gives only "secret", "plain" or "nil" for each result, never the value: a secret
+-- value cannot be joined into the line.
+
+local function secrecy(...)
+  local count = select("#", ...)
+  if count == 0 then
+    return "nothing"
+  end
+  local parts = {}
+  for index = 1, count do
+    local value = select(index, ...)
+    -- The order matters: a secret value cannot be compared, not even with nil.
+    parts[index] = issecretvalue(value) and "secret" or (value == nil and "nil" or "plain")
+  end
+  return table.concat(parts, " ")
+end
+
+local function secretCases(into)
+  local state = InCombatLockdown() and "secret, in a fight: " or "secret, out of a fight: "
+  local function ask(name, fn)
+    case(state .. name, fn, into)
+  end
+  ask("the target", function()
+    if not UnitExists("target") then
+      return "none"
+    end
+    return UnitIsPlayer("target") and "a player" or "an NPC"
+  end)
+  ask("UnitHealth('player')", function() return secrecy(UnitHealth("player")) end)
+  ask("UnitHealth('target')", function() return secrecy(UnitHealth("target")) end)
+  ask("UnitHealthMax('player')", function() return secrecy(UnitHealthMax("player")) end)
+  ask("UnitHealthMax('target')", function() return secrecy(UnitHealthMax("target")) end)
+  ask("UnitName('player')", function() return secrecy(UnitName("player")) end)
+  ask("UnitName('target')", function() return secrecy(UnitName("target")) end)
+  ask("UnitGUID('target')", function() return secrecy(UnitGUID("target")) end)
+  ask("UnitClass('target')", function() return secrecy(UnitClass("target")) end)
+  ask("UnitPower('player')", function() return secrecy(UnitPower("player")) end)
+  ask("UnitArmor('player')", function() return secrecy(UnitArmor("player")) end)
+  ask("GetCritChance()", function() return secrecy(GetCritChance()) end)
+  ask("UnitThreatSituation('player')", function() return secrecy(UnitThreatSituation("player")) end)
+  ask("UnitThreatSituation('player', 'target')", function() return secrecy(UnitThreatSituation("player", "target")) end)
+  ask("UnitCastingInfo('target')", function() return secrecy(UnitCastingInfo("target")) end)
+  ask("UnitIsUnit('player', 'target')", function() return secrecy(UnitIsUnit("player", "target")) end)
+  ask("UnitInRange('player')", function() return secrecy(UnitInRange("player")) end)
+  ask("the first buff of the player: name, duration, spellId", function()
+    local aura = C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL")
+    if issecretvalue(aura) then
+      return "the table is secret"
+    elseif not aura then
+      return "no buff"
+    end
+    return secrecy(aura.name, aura.duration, aura.spellId)
+  end)
+  ask("C_Spell.GetSpellCooldown(6603): startTime, duration", function()
+    local info = C_Spell.GetSpellCooldown(6603)
+    if issecretvalue(info) then
+      return "the table is secret"
+    elseif not info then
+      return "nothing"
+    end
+    return secrecy(info.startTime, info.duration)
+  end)
+
+  -- What the game does with a secret number. Without one (out of a fight, if the health is
+  -- plain there) the line says so.
+  local function withSecret(name, fn)
+    ask(name, function()
+      local health = UnitHealth("player")
+      if not issecretvalue(health) then
+        return "no secret number to try"
+      end
+      return fn(health)
+    end)
+  end
+  withSecret("a secret number == 1", function(health) return secrecy(health == 1) end)
+  withSecret("a secret number ~= nil", function(health) return secrecy(health ~= nil) end)
+  withSecret("a secret number as a table key", function(health)
+    local t = {}
+    t[health] = true
+  end)
+  withSecret("type of a secret number", function(health)
+    local kind = type(health)
+    return issecretvalue(kind) and "secret" or kind
+  end)
+  withSecret("tostring of a secret number", function(health) return secrecy(tostring(health)) end)
+  withSecret("string.format('%d') of a secret number", function(health) return secrecy(string.format("%d", health)) end)
+  withSecret("a secret number .. ''", function(health) return secrecy(health .. "") end)
+  withSecret("AbbreviateNumbers of a secret number", function(health) return secrecy(AbbreviateNumbers(health)) end)
+  ask("if with a secret boolean", function()
+    local inRange = UnitInRange("player")
+    if not issecretvalue(inRange) then
+      return "no secret boolean to try"
+    end
+    if inRange then
+      return "the test is true"
+    end
+    return "the test is false"
+  end)
+end
+
+-- The cases of the fight, once in each session, two seconds after the fight starts.
+local fightDone = false
+local watcher = CreateFrame("Frame")
+watcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+watcher:SetScript("OnEvent", function()
+  if fightDone then
+    return
+  end
+  fightDone = true
+  C_Timer.After(2, function()
+    local fight = {}
+    secretCases(fight)
+    ForeverProbeDB = ForeverProbeDB or {}
+    ForeverProbeDB.fight = fight
+    print("|cff66ccffForever Probe|r " .. #fight .. " cases of the fight are saved. Type /reload after the fight.")
+  end)
+end)
 
 local function run()
   wipe(lines)
@@ -209,9 +340,17 @@ local function run()
   case("string.format('%.2f') and '..' of a text from AbbreviateNumbers", function()
     return string.format("%.2f", 345.678901), AbbreviateNumbers(1234.56789) .. "!"
   end)
+  -- The quest log gives a quest its objective lines if this CVar is on
+  -- (Blizzard_UIPanels_Game/Mainline/QuestMapFrame.lua). No file gives its default.
+  case("The CVar showQuestObjectivesInLog: its default, its value now", function()
+    return C_CVar.GetCVarDefault("showQuestObjectivesInLog"), C_CVar.GetCVar("showQuestObjectivesInLog")
+  end)
   host:Hide()
+  secretCases(lines)
 
-  ForeverProbeDB = { client = (select(4, GetBuildInfo())), build = (select(2, GetBuildInfo())), lines = lines }
+  -- The cases of a fight of this session or an earlier one stay.
+  local fight = ForeverProbeDB and ForeverProbeDB.fight
+  ForeverProbeDB = { client = (select(4, GetBuildInfo())), build = (select(2, GetBuildInfo())), lines = lines, fight = fight }
   for _, line in ipairs(lines) do
     print("|cff66ccffForever Probe|r " .. line)
   end

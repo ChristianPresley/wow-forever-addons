@@ -18,8 +18,18 @@
 //! enumMeta    { "BagIndex": [numValues, minValue, maxValue], ... }
 //! constants   { "AuctionConstants": { "DEFAULT_AUCTION_PRICE_MULTIPLIER": 1.5 }, ... }
 //! structures  { "ContainerItemInfo": { "stackCount": "n", "quality": "n?", ... }, ... }
-//! secretFields { "DamageMeterCombatSource": { "totalAmount": "S", ... }, ... }   S: always
-//!             secret, R: secret under a restriction
+//! secretFields { "DamageMeterCombatSource": { "specIconID": "S", ... }, ... }   S: always
+//!             secret, R: secret under a restriction, N: never secret
+//! secretWhen  { "UnitName": "SecretWhenUnitNameIdentityRestricted", ... }   for a function
+//!             ("Name", "C_Space.Name") or a widget method ("SimpleFrameAPI:Name") with the flag
+//!             R: the names of the restrictions, with a comma between. The documentation says
+//!             what each one means in SecretPredicatesDocumentation.lua
+//! eventSecretWhen { "UNIT_AURA": "SecretWhen...", ... }   the same for the payload of an event
+//! neverSecret { "C_Space.Name": [2, 3], ... }   the results that are never secret, by position
+//! eventNeverSecret { "UNIT_AURA": [1], ... }   the same for the payload of an event
+//! innerTypes  { "DamageMeterCombatSession.combatSources": "DamageMeterCombatSource",
+//!             "C_Space.Name@1": "AuraData", ... }   the structure of each entry of a list: of
+//!             a field, and of a result by its position
 //! ```
 //!
 //! SPEC is `"returns|arguments|flags"`. Each value is one letter:
@@ -29,7 +39,8 @@
 //! `{Name}` the structure of a table. The flags:
 //! `T`, `U`, `N`: a secret value as an argument is allowed for addon code, allowed for the
 //! game's own code only, or never allowed. `C`: the results are secret in a fight. `S`: the
-//! results are always secret. `R`: the results can be secret under another restriction.
+//! documentation marks the results as secret (`SecretReturns`) and names no condition. `R`: the
+//! results are secret under the restrictions that `secretWhen` names.
 //! `M`: the function can return nothing. `P`: protected, addon code cannot call it in a fight.
 //! `A`: the results are secret when the object has a secret aspect (a text or a colour that was
 //! set from a secret value). `H`: the function has restrictions that the documentation does
@@ -298,6 +309,12 @@ local function codes(list, optional, wider)
   return table.concat(out)
 end
 
+-- The structure of each entry of a list (`InnerType`), where it is a documented structure.
+local innerTypes = {}
+local function isStructure(name)
+  return type(name) == "string" and type(kinds[name]) == "string" and kinds[name]:sub(1, 2) == "t{"
+end
+
 for _, doc in ipairs(DOCS) do
   for _, entry in ipairs(doc.Tables or {}) do
     if entry.Type == "Structure" then
@@ -308,9 +325,12 @@ for _, doc in ipairs(DOCS) do
           code = code .. "?"
         end
         fields[field.Name] = code
-        if field.SecretValue or field.ConditionalSecret then
+        if field.SecretValue or field.ConditionalSecret or field.NeverSecret then
           secretFields[entry.Name] = secretFields[entry.Name] or {}
-          secretFields[entry.Name][field.Name] = field.SecretValue and "S" or "R"
+          secretFields[entry.Name][field.Name] = field.SecretValue and "S" or field.ConditionalSecret and "R" or "N"
+        end
+        if isStructure(field.InnerType) then
+          innerTypes[entry.Name .. "." .. field.Name] = field.InnerType
         end
       end
       structures[entry.Name] = fields
@@ -324,19 +344,40 @@ end
 local out = {
   namespaces = {}, globals = {}, widgets = {}, events = {}, enums = enums, enumMeta = enumMeta,
   constants = constants, structures = structures, secretFields = secretFields, eventFlags = {},
+  secretWhen = {}, eventSecretWhen = {}, neverSecret = {}, eventNeverSecret = {}, innerTypes = innerTypes,
 }
 local secureOnly = 0
 
 local SECRET_ARGUMENTS = { AllowedWhenTainted = "T", AllowedWhenUntainted = "U", NotAllowed = "N" }
 
--- True if the entry has a `SecretWhen...` or `SecretIn...` key other than SecretWhenInCombat.
-local function secretUnderRestriction(entry)
-  for key in pairs(entry) do
-    if type(key) == "string" and (key:find("^SecretWhen") or key:find("^SecretIn")) and key ~= "SecretWhenInCombat" then
-      return true
+-- The `SecretWhen...` and `SecretIn...` keys of an entry other than SecretWhenInCombat, in
+-- order, with a comma between. Nil if it has none.
+local function restrictions(entry)
+  local names = {}
+  for key, value in pairs(entry) do
+    if value and type(key) == "string" and (key:find("^SecretWhen") or key:find("^SecretIn")) and key ~= "SecretWhenInCombat" then
+      names[#names + 1] = key
     end
   end
-  return false
+  if #names == 0 then
+    return nil
+  end
+  table.sort(names)
+  return table.concat(names, ",")
+end
+local function secretUnderRestriction(entry)
+  return restrictions(entry) ~= nil
+end
+
+-- The positions of the values of a list that are marked NeverSecret. Nil if there are none.
+local function neverSecret(list)
+  local positions = {}
+  for index, value in ipairs(list or {}) do
+    if value.NeverSecret then
+      positions[#positions + 1] = index
+    end
+  end
+  return #positions > 0 and positions or nil
 end
 
 local function spec(fn, key)
@@ -344,6 +385,15 @@ local function spec(fn, key)
   local widerResults = key and WIDER_RESULTS[key]
   if wider or widerResults then
     widerUsed[key] = true
+  end
+  if key then
+    out.secretWhen[key] = restrictions(fn)
+    out.neverSecret[key] = neverSecret(fn.Returns)
+    for index, value in ipairs(fn.Returns or {}) do
+      if isStructure(value.InnerType) then
+        innerTypes[key .. "@" .. index] = value.InnerType
+      end
+    end
   end
   local flags = SECRET_ARGUMENTS[fn.SecretArguments] or ""
   if fn.SecretWhenInCombat then
@@ -427,6 +477,8 @@ for _, doc in ipairs(DOCS) do
       if flags ~= "" then
         out.eventFlags[event.LiteralName] = flags
       end
+      out.eventSecretWhen[event.LiteralName] = restrictions(event)
+      out.eventNeverSecret[event.LiteralName] = neverSecret(event.Payload)
     end
   end
 end
@@ -571,7 +623,10 @@ pub fn differences(old: &serde_json::Value, new: &serde_json::Value) -> Vec<Stri
         }
     }
     let mut out = Vec::new();
-    for section in ["namespaces", "globals", "widgets", "events", "eventFlags", "enums", "enumMeta", "constants", "structures", "secretFields"] {
+    for section in [
+        "namespaces", "globals", "widgets", "events", "eventFlags", "enums", "enumMeta", "constants", "structures", "secretFields",
+        "secretWhen", "eventSecretWhen", "neverSecret", "eventNeverSecret", "innerTypes",
+    ] {
         walk(section, old.get(section), new.get(section), 0, &mut out);
     }
     out

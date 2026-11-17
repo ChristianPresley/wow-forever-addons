@@ -138,7 +138,10 @@ setGlobal("IsModifiedClick", function() return false end, "Blizzard_ArtifactUI/B
 setGlobal("CanMerchantRepair", function() return true end, "Blizzard_UIPanels_Game/Mainline/MerchantFrame.lua")
 
 -- Settings of the game. H.world.cvars has the values; a name that is not there is not a CVar.
-H.world.cvars = { damageMeterEnabled = "1", combinedBags = "1" }
+-- showQuestObjectivesInLog: the quest log shows the objectives under each quest. No file of the
+-- game gives its default (the probe asks); the quest log of the stand-in has the lines, so it
+-- is on here. A scenario can set it to "0".
+H.world.cvars = { damageMeterEnabled = "1", combinedBags = "1", showQuestObjectivesInLog = "1" }
 set("C_CVar", "GetCVar", function(name) return H.world.cvars[name] end)
 set("C_CVar", "SetCVar", function(name, value)
   H.world.cvars[name] = realTostring(value)
@@ -455,6 +458,18 @@ set("C_EncounterJournal", "GetEncountersOnMap", function(mapID)
   return { { encounterID = 1, mapX = 0.3, mapY = 0.3 }, { encounterID = 2, mapX = 0.6, mapY = 0.35 } }
 end)
 set("C_EncounterJournal", "IsEncounterComplete", function(encounterID) return encounterID == 2 end)
+-- Where the spirit comes back after a release (DeathMapDataProvider.lua tests the result with
+-- `if deathReleasePosition then`; the documentation has it as a value that can be nil): none
+-- until H.world.release is set.
+set("C_DeathInfo", "GetDeathReleasePosition", function(mapID) return mapID == 37 and H.world.release and CreateVector2D(0.3, 0.55) or nil end)
+-- A quest hub of Elwynn Forest, and the abbey, which is a landmark too
+-- (QuestOfferDataProvider.lua reads GetQuestHubsForMap).
+AREA_POIS[107] = { areaPoiID = 107, name = "Eastvale Logging Camp", description = "Quests", position = CreateVector2D(0.8, 0.65), atlasName = "poi-hub" }
+set("C_AreaPoiInfo", "GetQuestHubsForMap", function(mapID) return mapID == 37 and { 102, 107 } or {} end)
+-- A pet tamer of Elwynn Forest (PetTamerDataProvider.lua; the structure is PetTamerMapInfo).
+set("C_PetInfo", "GetPetTamersForMap", function(mapID)
+  return mapID == 37 and { { areaPoiID = 108, name = "Julia Stevens", position = CreateVector2D(0.3, 0.8), atlasName = "WildBattlePetCapturable" } } or {}
+end)
 
 ---------------------------------------------------------------------------------------------------
 -- Bags and items
@@ -850,6 +865,30 @@ function QuestLogQuests_Update()
       line:Show()
       line.questID = entry.questID
       objectives[#objectives + 1] = line
+      -- The height of the title button, as QuestLogQuests_AddQuestButton sets it
+      -- (Blizzard_UIPanels_Game/Mainline/QuestMapFrame.lua): 8 and the height of the title;
+      -- 4 more if the CVar showQuestObjectivesInLog is off; else for a quest that is ready
+      -- its one line and 3, and for another quest each objective that is not finished, with
+      -- 3 above the first and 2 above each later one; then 6 for the icon. The height of a
+      -- text is 12 here, as GetStringHeight of the stand-in: the game's number depends on the
+      -- font. No quest of this world needs money, so the line for money is left out. The
+      -- stand-in still shows one line frame for each quest, whatever the number here.
+      local TEXT_HEIGHT = 12
+      local height = 8 + TEXT_HEIGHT
+      if not GetCVarBool("showQuestObjectivesInLog") then
+        height = height + 4
+      elseif C_QuestLog.IsComplete(entry.questID) then
+        height = height + TEXT_HEIGHT + 3
+      else
+        local first = true
+        for _, objective in ipairs(C_QuestLog.GetQuestObjectives(entry.questID)) do
+          if not objective.finished then
+            height = height + TEXT_HEIGHT + (first and 3 or 2)
+            first = false
+          end
+        end
+      end
+      button:SetHeight(height + 6)
     end
   end
   QuestScrollFrame.titleFramePool.active = titles
@@ -965,26 +1004,27 @@ end, MAIL_FRAME)
 --
 -- DamageMeterDocumentation.lua: the four session functions are secret in a fight. Every field
 -- is secret then, but the ones marked NeverSecret: classFilename, isLocalPlayer, deathRecapID
--- and classification. specIconID is secret at all times.
+-- and classification. specIconID is secret at all times. The data here is plain: 01-api.lua
+-- makes the values secret from the marks of the documentation, as for every function.
 
 local function fightSources()
   return {
     {
-      sourceGUID = hidden("Player-1-00000002"), name = hidden("Otherplayer"), classFilename = "MAGE",
-      specIconID = H.secret(0), totalAmount = hidden(5400), amountPerSecond = hidden(180), isLocalPlayer = false,
-      deathRecapID = 0, deathTimeSeconds = hidden(-1), classification = "",
-      sourceDisplayType = hidden(Enum.DamageMeterSourceDisplayType.Ally),
+      sourceGUID = "Player-1-00000002", name = "Otherplayer", classFilename = "MAGE",
+      specIconID = 0, totalAmount = 5400, amountPerSecond = 180, isLocalPlayer = false,
+      deathRecapID = 0, deathTimeSeconds = -1, classification = "",
+      sourceDisplayType = Enum.DamageMeterSourceDisplayType.Ally,
     },
     {
-      sourceGUID = hidden("Player-1-00000001"), name = hidden("Tester"), classFilename = "WARRIOR",
-      specIconID = H.secret(0), totalAmount = hidden(3600), amountPerSecond = hidden(120), isLocalPlayer = true,
-      deathRecapID = 0, deathTimeSeconds = hidden(-1), classification = "",
-      sourceDisplayType = hidden(Enum.DamageMeterSourceDisplayType.Ally),
+      sourceGUID = "Player-1-00000001", name = "Tester", classFilename = "WARRIOR",
+      specIconID = 0, totalAmount = 3600, amountPerSecond = 120, isLocalPlayer = true,
+      deathRecapID = 0, deathTimeSeconds = -1, classification = "",
+      sourceDisplayType = Enum.DamageMeterSourceDisplayType.Ally,
     },
   }
 end
 local function fight()
-  return { combatSources = fightSources(), maxAmount = hidden(5400), totalAmount = hidden(9000), durationSeconds = hidden(30) }
+  return { combatSources = fightSources(), maxAmount = 5400, totalAmount = 9000, durationSeconds = 30 }
 end
 set("C_DamageMeter", "IsDamageMeterAvailable", function() return true, "" end)
 set("C_DamageMeter", "GetCombatSessionFromType", fight)
@@ -998,10 +1038,10 @@ set("C_DamageMeter", "ResetAllCombatSessions", function() did("reset damage data
 -- a secret source GUID before this function runs.
 local function fightSource()
   return {
-    maxAmount = hidden(2000), totalAmount = hidden(3600),
+    maxAmount = 2000, totalAmount = 3600,
     combatSpells = { {
-      spellID = hidden(78), totalAmount = hidden(2000), amountPerSecond = hidden(66), creatureName = hidden(""),
-      overkillAmount = hidden(0), isAvoidable = hidden(false), isDeadly = hidden(false), combatSpellDetails = {},
+      spellID = 78, totalAmount = 2000, amountPerSecond = 66, creatureName = "",
+      overkillAmount = 0, isAvoidable = false, isDeadly = false, combatSpellDetails = {},
     } },
   }
 end

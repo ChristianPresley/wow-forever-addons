@@ -561,6 +561,8 @@ local function useEverything(suffix)
   for _, event in ipairs(events) do
     counts.events = counts.events + 1
     local values, n = payloadOf(event)
+    -- In a fight the arguments are secret where the documentation says so.
+    H.concealPayload(event, values, n)
     fire(event, unpack(values, 1, n))
     H.advance(1)
   end

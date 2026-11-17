@@ -284,6 +284,12 @@ function AbbreviateNumbers(value, options)
     end
   end
   local text = realTostring(number)
+  -- No source says what the game does with a number below every breakpoint. With
+  -- H.world.abbreviateWhole the stand-in is a client that gives a whole number there (the
+  -- game's own damage meter shows such numbers with no rules of its own), for Forever Meter.
+  if H.world and H.world.abbreviateWhole then
+    text = realTostring(math.floor(number))
+  end
   for _, entry in ipairs(breakpoints) do
     if math.abs(number) >= entry.breakpoint then
       local shown = math.floor(number / entry.significandDivisor) / entry.fractionDivisor
@@ -444,22 +450,251 @@ local function checkArguments(name, spec, strict, ...)
 end
 H.checkArguments = checkArguments
 
+---------------------------------------------------------------------------------------------------
+-- When a result is secret
+--
+-- The documentation marks each function and event whose values can be secret, and names the
+-- restriction (snapshot.secretWhen, snapshot.eventSecretWhen). The text of each restriction is
+-- in Blizzard_APIDocumentationGenerated/SecretPredicatesDocumentation.lua, and is quoted here.
+-- The world of the stand-in has one restricted state: the fight (H.world.secret), which is the
+-- game's "combat addon restriction". It has no encounter, no keystone dungeon, no PvP match and
+-- no restricted map.
+--
+-- The rule for a hand-written function is the same as for one from the snapshot: the result is
+-- made secret here, after the function ran, so the world cannot forget it.
+--
+-- What no source says: whether a value that is secret in a fight for a unit is secret for that
+-- unit out of a fight too. The texts about units name the unit and not the state. The stand-in
+-- takes the narrow reading, a fight and the unit, so that everything secret here is secret in
+-- the game under either reading. tools/ingame-probe asks the game client (the cases "secret:").
+
+local function inFight()
+  return H.world.secret == true
+end
+-- The unit of a call: its first argument, if that is a text.
+local function unitOf(...)
+  local unit = plain((...))
+  return realType(unit) == "string" and unit:lower() or ""
+end
+-- A unit that a player controls: the player's own, and the members of the group. In the world
+-- of the stand-in every other unit is an NPC. A compound token ("party1target") is not one:
+-- "results are secret if any unit in the chain fails this".
+local function ofPlayers(unit)
+  return unit == "player" or unit == "pet" or unit == "vehicle" or unit:find("^party%d+$") ~= nil or unit:find("^raid%d+$") ~= nil
+    or unit:find("^partypet%d+$") ~= nil or unit:find("^raidpet%d+$") ~= nil
+end
+local function fightOnly()
+  return inFight()
+end
+local function never()
+  return false
+end
+local function fightAndNotOfPlayers(...)
+  return inFight() and not ofPlayers(unitOf(...))
+end
+
+local RULES = {
+  -- "produce secret values when combat, encounter, challenge mode, or PvP match addon
+  -- restrictions are in effect". A spell can be flagged as never secret, and no source lists
+  -- those spells: here none is.
+  SecretWhenUnitAuraRestricted = fightOnly,
+  SecretWhenAurasRestricted = fightOnly,
+  SecretWhenCooldownsRestricted = fightOnly,
+  SecretWhenTotemSlotSecret = fightOnly,
+  -- "when the unit isn't player-controlled or in the party/raid".
+  SecretWhenUnitIdentityRestricted = fightAndNotOfPlayers,
+  -- "under regular unit identity secrecy rules, except in PvP when the queried unit is a player".
+  SecretWhenUnitNameIdentityRestricted = fightAndNotOfPlayers,
+  -- "when the unit isn't player-controlled".
+  SecretWhenUnitHealthMaxRestricted = fightAndNotOfPlayers,
+  SecretWhenUnitPowerMaxRestricted = fightAndNotOfPlayers,
+  -- "based on aura secrecy, except for unit tokens under the player's direct control".
+  SecretWhenUnitPossessionRestricted = function(...)
+    local unit = unitOf(...)
+    return inFight() and not (unit == "player" or unit == "pet" or unit == "vehicle")
+  end,
+  -- "if the unit being queried for cast information is not the player or their pet".
+  SecretWhenUnitSpellCastRestricted = function(...)
+    local unit = unitOf(...)
+    return inFight() and not (unit == "player" or unit == "pet")
+  end,
+  -- "always produce secret values, unless the active player is an active spectator or
+  -- commentator of a PvP match".
+  SecretWhenLossOfControlRestricted = function() return true end,
+  SecretWhenLossOfControlInfoRestricted = function() return true end,
+  -- "when encounter, challenge mode, or PvP match addon restrictions are in effect, and when the
+  -- player is on a communication-restricted map such as a dungeon or raid": none of these is in
+  -- the world of the stand-in.
+  SecretInChatMessagingLockdown = never,
+  -- "when PvP match addon restrictions are in effect".
+  SecretInActivePvPMatch = never,
+  -- "This restriction only applies when the player is on an addon-restricted map."
+  SecretWhenUnitComparisonRestricted = never,
+  -- A table with a secret key: the driver fails an addon that makes one, so there is none.
+  SecretWhenLuaTableHasSecretKeys = never,
+}
+-- Restrictions without a rule: the result stays plain, also in a fight. Each one has the reason.
+-- An addon that calculates with such a value passes here and can fail in the game.
+local UNKNOWN = {
+  SecretWhenUnitStatsRestricted = "The text is \"when access to unit stats would generally produce secret values\": it does not say when that is.",
+  SecretWhenUnitPowerRestricted = "The text is \"for power types not explicitly flagged as being never secret\": no source lists those power types.",
+  SecretWhenUnitThreatStateRestricted = "The text is \"generally not secret\" for some pairs of units: it gives no rule for the others.",
+  SecretWhenUnitThreatValuesRestricted = "The text is \"generally not secret\" for some pairs of units: it gives no rule for the others.",
+  SecretWhenEncounterEvent = "SecretPredicatesDocumentation.lua has no text for it, and the world has no encounter.",
+  SecretWhenAnchoringSecret = "A property of a region that was anchored with a secret value: the stand-in does not follow where a value of a region came from.",
+  SecretWhenCurveSecret = "A property of a curve object that was made with secret values: the stand-in does not follow it.",
+  SecretWhenNumericFormatterSecret = "A property of a formatter object that was made with secret values: the stand-in does not follow it.",
+}
+H.secretRules, H.secretUnknown = RULES, UNKNOWN
+
+-- True if the documentation makes the results of this call secret now. `key` is the name of
+-- the function in the snapshot ("UnitName", "C_Spell.GetSpellName"). The flags without a named
+-- restriction: C is SecretWhenInCombat ("when combat addon restrictions are in effect"); S is
+-- SecretReturns, for which the documentation names no condition. C_Secrets.HasSecretRestrictions
+-- calls every such mark "potentially returning secrets", so S is secret in the fight, which is
+-- sure, and plain out of it, which no source settles (the probe asks).
+local function secretNow(names, spec, ...)
+  if spec and (spec.secretAlways or spec.secretInCombat) and inFight() then
+    return true
+  end
+  if names then
+    for name in names:gmatch("[^,]+") do
+      local rule = RULES[name]
+      if rule and rule(...) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+-- True if a table of this structure has, at any depth, a field that is secret at all times
+-- (SecretValue in the documentation, "S" in snapshot.secretFields).
+local alwaysSecretInside = {}
+local function hasAlwaysSecret(structure, depth)
+  if not structure or depth > 4 then
+    return false
+  end
+  local known = alwaysSecretInside[structure]
+  if known ~= nil then
+    return known
+  end
+  alwaysSecretInside[structure] = false
+  local found = false
+  for _, mark in pairs(snapshot.secretFields[structure] or {}) do
+    if mark == "S" then
+      found = true
+    end
+  end
+  for field, code in pairs(snapshot.structures[structure] or {}) do
+    if not found then
+      found = hasAlwaysSecret(parseCodes(code)[1].structure, depth + 1) or hasAlwaysSecret(snapshot.innerTypes[structure .. "." .. field], depth + 1)
+    end
+  end
+  alwaysSecretInside[structure] = found
+  return found
+end
+
+-- A copy of a table with its values made secret. `structure` is the documented structure of
+-- the table, `entries` the structure of each entry of a list. With `all`, every value is secret
+-- but the fields marked NeverSecret; without it, only the fields marked SecretValue. A table
+-- with a metatable (a vector, a colour) is an object of the game and stays as it is.
+local function concealTable(value, structure, entries, all, depth)
+  if getmetatable(value) ~= nil or depth > 6 then
+    return value
+  end
+  local marks = structure and snapshot.secretFields[structure] or {}
+  local fields = structure and snapshot.structures[structure] or {}
+  local copy = {}
+  for key, entry in pairs(value) do
+    local kind = realType(entry)
+    local named = realType(key) == "string"
+    local mark = named and marks[key]
+    if secrets[entry] ~= nil or mark == "N" then
+      copy[key] = entry
+    elseif kind == "table" then
+      if named then
+        local code = fields[key]
+        copy[key] = concealTable(entry, code and parseCodes(code)[1].structure, structure and snapshot.innerTypes[structure .. "." .. key], all, depth + 1)
+      else
+        copy[key] = concealTable(entry, entries, nil, all, depth + 1)
+      end
+    elseif (all or mark == "S") and (kind == "number" or kind == "string" or kind == "boolean") then
+      copy[key] = H.secret(entry)
+    else
+      copy[key] = entry
+    end
+  end
+  return copy
+end
+
+local neverSets = {}
+local function neverSecretSet(list)
+  if not list then
+    return nil
+  end
+  local set = neverSets[list]
+  if not set then
+    set = {}
+    for _, position in ipairs(list) do
+      set[position] = true
+    end
+    neverSets[list] = set
+  end
+  return set
+end
+
+-- Makes the values of a call secret where the documentation says so. `codes` are the documented
+-- kinds of the values, `never` the positions marked NeverSecret, `inner(position)` the structure
+-- of the entries of a list at that position.
+local function conceal(codes, never, inner, all, n, out)
+  never = neverSecretSet(never)
+  local last = codes[#codes]
+  for index = 1, n do
+    local value = out[index]
+    if value ~= nil and secrets[value] == nil then
+      local entry = codes[index] or (last and last.list and last)
+      local kind = realType(value)
+      local secret = all and not (never and never[index])
+      if kind == "table" then
+        local structure, entries = entry and entry.structure, inner(index)
+        if secret or hasAlwaysSecret(structure, 0) or hasAlwaysSecret(entries, 0) then
+          out[index] = concealTable(value, structure, entries, secret, 0)
+        end
+      elseif secret and (kind == "number" or kind == "string" or kind == "boolean") then
+        out[index] = H.secret(value)
+      end
+    end
+  end
+end
+
+local function concealResults(key, spec, n, out, ...)
+  conceal(spec.returns, key and snapshot.neverSecret[key], function(index)
+    return key and snapshot.innerTypes[key .. "@" .. index]
+  end, secretNow(key and snapshot.secretWhen[key], spec, ...), n, out)
+end
+
+-- The same for the arguments of an event that the driver sends. An event with SecretPayloads
+-- and no named restriction is as a function with SecretReturns: secret in the fight.
+function H.concealPayload(event, values, n)
+  local flags = snapshot.eventFlags[event] or ""
+  local all = (flags:find("S", 1, true) ~= nil and inFight()) or secretNow(snapshot.eventSecretWhen[event], nil, unpack(values, 1, n))
+  conceal(parseCodes(snapshot.events[event] or ""), snapshot.eventNeverSecret[event], function() return nil end, all, n, values)
+end
+
 -- The results of a stand-in: defaults of the documented kinds, secret where the documentation
--- says so.
-local function results(spec)
+-- says so. `key` is nil for a method of a widget: the restrictions of widgets (a secret
+-- anchor, a secret aspect) are not followed, only the flags C and S.
+local function results(key, spec, ...)
   local out, n = {}, 0
-  local secret = spec.secretAlways or (spec.secretInCombat and H.world.secret)
   for _, entry in ipairs(spec.returns) do
     if entry.list then
       break
     end
     n = n + 1
-    local value = defaultOf(entry, 0)
-    if secret and value ~= nil and realType(value) ~= "table" and realType(value) ~= "function" then
-      value = H.secret(value)
-    end
-    out[n] = value
+    out[n] = defaultOf(entry, 0)
   end
+  concealResults(key, spec, n, out, ...)
   return out, n
 end
 
@@ -467,7 +702,7 @@ local function stub(name, specText, strict)
   local spec = parseSpec(specText)
   return function(...)
     checkArguments(name, spec, strict, ...)
-    local out, n = results(spec)
+    local out, n = results(name, spec, ...)
     return unpack(out, 1, n)
   end
 end
@@ -478,7 +713,7 @@ function H.methodStub(name, specText)
   local spec = parseSpec(specText)
   return function(_, ...)
     checkArguments(name, spec, false, ...)
-    local out, n = results(spec)
+    local out, n = results(nil, spec, ...)
     return unpack(out, 1, n)
   end
 end
@@ -590,7 +825,33 @@ function H.documented(name, specText, strict, fn)
     checkArguments(name, spec, strict, ...)
     local n, out = pack(fn(...))
     checkResults(name, spec, n, out)
+    concealResults(name, spec, n, out, ...)
     return unpack(out, 1, n)
+  end
+end
+
+-- Each restriction that the documentation names has a rule or a reason for having none. A new
+-- one, after a patch of the game, is a problem of the stand-in until someone reads its text.
+do
+  local seen = {}
+  for _, list in ipairs({ snapshot.secretWhen, snapshot.eventSecretWhen }) do
+    for _, names in pairs(list) do
+      for name in names:gmatch("[^,]+") do
+        if not seen[name] then
+          seen[name] = true
+          if RULES[name] == nil and UNKNOWN[name] == nil then
+            problem("the documentation has the restriction " .. name .. ", and the stand-in has no rule for it: read its text in SecretPredicatesDocumentation.lua and add it to RULES or UNKNOWN in 01-api.lua")
+          end
+        end
+      end
+    end
+  end
+  for _, list in ipairs({ RULES, UNKNOWN }) do
+    for name in pairs(list) do
+      if not seen[name] then
+        problem("the stand-in has a rule for the restriction " .. name .. ", which the documentation does not use")
+      end
+    end
   end
 end
 
