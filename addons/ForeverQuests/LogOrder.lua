@@ -115,18 +115,63 @@ local function isComplete(questID)
   return ok and complete and true or false
 end
 
--- A quest that is ready to turn in, in the quest log:
---   the whole quest (its title and the lines under it) is on a green background, in white text
---   "COMPLETED" is in front of the name of the quest
+-- Every quest of the quest log:
 --   the tracking symbol is at the right end of the title, where the game has the box that
 --   tracks the quest (button.Checkbox). The box is not drawn there. A click on the symbol
---   tracks the quest or stops tracking it, as the box does; a right-click shows where to turn
---   the quest in. The symbol is grey while the quest is not tracked and bright while it is.
--- A quest that is not ready has the look of the game and its box back. The game uses a button
--- again for another quest and writes the title and its colours again each time it builds the
--- log, so this is set each time too.
+--   tracks the quest or stops tracking it, as the box does. The symbol is grey while the quest
+--   is not tracked and bright while it is. It has some room around it, which takes the click too.
+--   under it is the compass symbol, if Forever Compass is loaded: a click makes a tracker of
+--   the compass point to this quest, a second click takes it off the compass again.
+-- A quest that is ready to turn in, with the option completeFanfare:
+--   the whole quest (its title and the lines under it) is on a green background, in white text
+--   "COMPLETED" is in front of the name of the quest
+--   a right-click on the tracking symbol shows where to turn the quest in.
+-- The game uses a button again for another quest and writes the title and its colours again
+-- each time it builds the log, so this is set each time too.
 local PREFIX = "COMPLETED  "
 local SYMBOL_SIZE = 13
+local SYMBOL_ROOM = 4 -- around the tracking symbol, on each side
+local SYMBOL_LEFT = 3 -- the symbol is this far to the left of the middle of the game's box
+local COMPASS_GAP = 2 -- between the tracking symbol and the compass symbol under it
+
+-- The functions of Forever Compass for other addons, or nil if it is not loaded.
+local function compassApi()
+  -- A name of another addon, which may not be there: read from the table of all names.
+  local api = rawget(_G, "ForeverCompass")
+  if type(api) == "table" and type(api.TrackQuest) == "function" and type(api.UntrackQuest) == "function" and type(api.QuestTracker) == "function" then
+    return api
+  end
+  return nil
+end
+
+-- The tracker of the compass that points to the quest, or nil.
+function ns.CompassTracker(questID)
+  local api = compassApi()
+  if not api or not questID then
+    return nil
+  end
+  local ok, index = pcall(api.QuestTracker, questID)
+  return ok and index or nil
+end
+
+-- Puts the quest on the compass, or takes it off. Returns true if it is on the compass after.
+function ns.ToggleCompass(questID)
+  local api = compassApi()
+  if not api or not questID then
+    return false
+  end
+  if ns.CompassTracker(questID) then
+    pcall(api.UntrackQuest, questID)
+    return false
+  end
+  local ok, index, why = pcall(api.TrackQuest, questID)
+  if ok and index then
+    ns.Print("tracker " .. tostring(index) .. " of the compass points to this quest now.")
+    return true
+  end
+  ns.Print("the compass cannot take this quest: " .. tostring(ok and why or index) .. ".")
+  return false
+end
 
 local function trackBox(button)
   local box = button.Checkbox
@@ -170,6 +215,17 @@ local function showTracked(tracker)
     tracker.symbol:SetVertexColor(1, 0.9, 0.3, 1)
   else
     tracker.symbol:SetVertexColor(0.8, 0.8, 0.8, 0.6)
+  end
+end
+
+-- The compass symbol: grey and dim while the quest is not on the compass, bright while it is.
+local function showOnCompass(compass)
+  local on = ns.CompassTracker(compass.questID) ~= nil
+  compass.onCompass = on
+  if on then
+    compass.symbol:SetVertexColor(0.4, 0.8, 1, 1)
+  else
+    compass.symbol:SetVertexColor(0.8, 0.8, 0.8, 0.6)
   end
 end
 
@@ -225,19 +281,20 @@ local function createMark(button)
   mark.back:SetColorTexture(0.1, 0.5, 0.15, 0.9)
 
   local tracker = CreateFrame("Button", nil, button)
-  tracker:SetSize(SYMBOL_SIZE, SYMBOL_SIZE)
+  tracker:SetSize(SYMBOL_SIZE + 2 * SYMBOL_ROOM, SYMBOL_SIZE + 2 * SYMBOL_ROOM)
   -- The picture of this addon (Media/Track.tga, drawn by `cargo dev track-icon`). It is white,
   -- so its colour is the one set here.
   tracker.symbol = tracker:CreateTexture(nil, "OVERLAY")
   tracker.symbol:SetTexture("Interface\\AddOns\\ForeverQuests\\Media\\Track")
-  tracker.symbol:SetAllPoints()
+  tracker.symbol:SetSize(SYMBOL_SIZE, SYMBOL_SIZE)
+  tracker.symbol:SetPoint("CENTER")
   tracker:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   tracker:SetScript("OnClick", function(self, mouseButton)
     if not self.questID then
       return
     end
     if mouseButton == "RightButton" then
-      if ns.ShowTurnIn then
+      if mark.on and ns.ShowTurnIn then
         ns.ShowTurnIn(self.questID)
       end
     else
@@ -247,15 +304,46 @@ local function createMark(button)
   end)
   tracker:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Ready to turn in", 1, 1, 1)
+    GameTooltip:SetText(mark.on and "Ready to turn in" or "Track this quest", 1, 1, 1)
     GameTooltip:AddLine(self.questID and isTracked(self.questID) and "Click to stop tracking this quest." or "Click to track this quest.", 0.6, 0.6, 0.6, true)
-    GameTooltip:AddLine("Right-click to see where to turn it in.", 0.6, 0.6, 0.6, true)
+    if mark.on then
+      GameTooltip:AddLine("Right-click to see where to turn it in.", 0.6, 0.6, 0.6, true)
+    end
     GameTooltip:Show()
   end)
   tracker:SetScript("OnLeave", function()
     GameTooltip:Hide()
   end)
   mark.tracker = tracker
+
+  -- The compass symbol (Media/Compass.tga, drawn by `cargo dev track-icon`), under the
+  -- tracking symbol.
+  local compass = CreateFrame("Button", nil, button)
+  compass:SetSize(SYMBOL_SIZE + 2 * SYMBOL_ROOM, SYMBOL_SIZE + COMPASS_GAP)
+  compass:SetPoint("TOP", tracker, "BOTTOM", 0, SYMBOL_ROOM - COMPASS_GAP)
+  compass.symbol = compass:CreateTexture(nil, "OVERLAY")
+  compass.symbol:SetTexture("Interface\\AddOns\\ForeverQuests\\Media\\Compass")
+  compass.symbol:SetSize(SYMBOL_SIZE, SYMBOL_SIZE)
+  compass.symbol:SetPoint("BOTTOM")
+  compass:RegisterForClicks("LeftButtonUp")
+  compass:SetScript("OnClick", function(self)
+    if self.questID then
+      ns.ToggleCompass(self.questID)
+      showOnCompass(self)
+    end
+  end)
+  compass:SetScript("OnEnter", function(self)
+    local index = ns.CompassTracker(self.questID)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Track in compass", 1, 1, 1)
+    GameTooltip:AddLine(index and ("Tracker " .. index .. " of the compass points to this quest. Click to take it off the compass.")
+      or "Click to make a tracker of the compass point to this quest.", 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+  end)
+  compass:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+  mark.compass = compass
 
   -- The game gives the title and its lines their own colours again when the pointer comes onto
   -- the quest and when it leaves (QuestMapLogTitleButton_OnEnter and _OnLeave). After that, the
@@ -275,37 +363,52 @@ end
 local function updateBadge(button, enabled)
   local mark = badges[button]
   local box = trackBox(button)
-  if enabled and isComplete(button.questID) then
-    if not mark then
-      mark = createMark(button)
-      badges[button] = mark
-    end
-    mark.on = true
-    mark.back:Show()
-    local tracker = mark.tracker
-    tracker.questID = button.questID
-    tracker:ClearAllPoints()
-    if box then
-      tracker:SetPoint("CENTER", box, "CENTER", 0, 0)
-      tracker:SetFrameLevel(box:GetFrameLevel() + 2)
-      box:SetAlpha(0)
-    else
-      tracker:SetPoint("TOPRIGHT", button, "TOPRIGHT", -6, -5)
-      tracker:SetFrameLevel(button:GetFrameLevel() + 3)
-    end
-    showTracked(tracker)
-    tracker:Show()
-    prefixTitle(button)
-    whiten(button)
-  else
+  if not button.questID then
     if mark then
       mark.on = false
       mark.back:Hide()
       mark.tracker:Hide()
+      mark.compass:Hide()
     end
     if box then
       box:SetAlpha(1)
     end
+    return
+  end
+  if not mark then
+    mark = createMark(button)
+    badges[button] = mark
+  end
+  -- The symbols, on every quest.
+  local tracker, compass = mark.tracker, mark.compass
+  tracker.questID = button.questID
+  tracker:ClearAllPoints()
+  if box then
+    tracker:SetPoint("CENTER", box, "CENTER", -SYMBOL_LEFT, 0)
+    tracker:SetFrameLevel(box:GetFrameLevel() + 2)
+    box:SetAlpha(0)
+  else
+    tracker:SetPoint("TOPRIGHT", button, "TOPRIGHT", -6 - SYMBOL_LEFT + SYMBOL_ROOM, -5 + SYMBOL_ROOM)
+    tracker:SetFrameLevel(button:GetFrameLevel() + 3)
+  end
+  showTracked(tracker)
+  tracker:Show()
+  compass.questID = button.questID
+  compass:SetFrameLevel(tracker:GetFrameLevel())
+  if compassApi() then
+    showOnCompass(compass)
+    compass:Show()
+  else
+    compass:Hide()
+  end
+  -- The look of a ready quest.
+  mark.on = enabled and isComplete(button.questID)
+  if mark.on then
+    mark.back:Show()
+    prefixTitle(button)
+    whiten(button)
+  else
+    mark.back:Hide()
   end
 end
 
@@ -315,7 +418,8 @@ function ns.HasCompletedMark(button)
   return mark ~= nil and mark.on
 end
 
--- The parts of the look of a ready quest on a button: { on, back, tracker }, or nil.
+-- What this addon puts on a button of the quest log: { on (the look of a ready quest), back,
+-- tracker, compass }, or nil.
 function ns.CompletedMark(button)
   return badges[button]
 end

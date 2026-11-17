@@ -57,7 +57,7 @@ Run these from any folder of the repository.
 | `cargo dev api-snapshot <folder> --check`, `cargo dev ui-names <folder> --check` | Compare the API files in `tools/api/` with Blizzard's UI source. CI runs both at the pinned commit, and each day against the newest one |
 | `cargo dev marketplace` | Writes one ZIP for each addon and an `index.json` to `dist/marketplace/` |
 | `cargo dev icon <out.png>` | Draws the source image of the app icon |
-| `cargo dev track-icon` | Draws the tracking symbol of Forever Quests as a texture of the game (`Media/Track.tga`) |
+| `cargo dev track-icon` | Draws the tracking and the compass symbol of Forever Quests as textures of the game (`Media/Track.tga`, `Media/Compass.tga`) |
 | `cargo wfam <command>` | The addon manager on the command line: `detect`, `list`, `market`, `install <id>`, `update`, `uninstall <id>` |
 | `cargo link-addons` | Links each addon folder into the game, so the game loads your working copy |
 | `cargo unlink-addons` | Removes those links |

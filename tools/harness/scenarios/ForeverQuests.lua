@@ -222,7 +222,7 @@ local function colour(region)
 end
 expect(mark ~= nil and mark.back:IsShown() and select(2, mark.back:GetPoint(1)) == ready, "the green background covers the button of the ready quest")
 expect(ready.Text:GetText() == "COMPLETED  A Fishy Peril", "COMPLETED is in front of the name of the quest, got " .. tostring(ready.Text:GetText()))
-expect(other.Text:GetText() == "Wanted: Hogger" and ns.CompletedMark(other) == nil, "the quest that is not ready keeps its name and the look of the game")
+expect(other.Text:GetText() == "Wanted: Hogger" and not ns.CompletedMark(other).back:IsShown(), "the quest that is not ready keeps its name and has no green")
 expect(colour(ready.Text) == "1 1 1" and colour(H.questLogFrames.line3.Text) == "1 1 1", "the title of the ready quest and the line under it are white, got " .. colour(ready.Text))
 expect(colour(other.Text) ~= "1 1 1", "the title of the other quest has the colour of the game")
 -- The game gives the texts their own colours again when the pointer leaves the quest. After
@@ -238,10 +238,61 @@ QuestMapFrame:Hide()
 QuestMapFrame:Show()
 expect(ready.Text:GetText() == "COMPLETED  A Fishy Peril", "COMPLETED is in front of the name once, got " .. tostring(ready.Text:GetText()))
 -- The tracking symbol is small, at the right end of the title where the game has its tracking
--- box, and the box is not drawn there.
+-- box, and the box is not drawn there. It has room around it that takes the click too.
 local tracker = mark.tracker
-expect(tracker:IsShown() and tracker:GetWidth() <= 14 and select(2, tracker:GetPoint(1)) == ready.Checkbox, "the tracking symbol is small and at the place of the tracking box")
-expect(ready.Checkbox:GetAlpha() == 0 and other.Checkbox:GetAlpha() == 1, "the tracking box of the ready quest is not drawn; the box of the other quest is")
+expect(tracker:IsShown() and tracker.symbol:GetWidth() <= 14 and select(2, tracker:GetPoint(1)) == ready.Checkbox, "the tracking symbol is small and at the place of the tracking box")
+expect(tracker:GetWidth() >= tracker.symbol:GetWidth() + 6 and tracker:GetHeight() >= tracker.symbol:GetHeight() + 6, "the tracking symbol has room around it")
+-- Every quest has the symbol in the place of the box, not only a ready one.
+local otherMark = ns.CompletedMark(other)
+expect(ready.Checkbox:GetAlpha() == 0 and other.Checkbox:GetAlpha() == 0, "the tracking box of the game is not drawn on any quest")
+expect(otherMark.tracker:IsShown() and select(2, otherMark.tracker:GetPoint(1)) == other.Checkbox and otherMark.tracker.questID == 176, "a quest that is not ready has the tracking symbol too")
+local wasTracked = H.watched[176] == true
+expect(otherMark.tracker.tracked == wasTracked, "the symbol of a quest that is not ready shows whether the quest is tracked")
+H.click(otherMark.tracker, "LeftButton", false)
+expect((H.watched[176] == true) == not wasTracked and otherMark.tracker.tracked == not wasTracked, "a click on the symbol of a quest that is not ready changes its tracking")
+H.click(otherMark.tracker, "LeftButton", false)
+expect((H.watched[176] == true) == wasTracked and otherMark.tracker.tracked == wasTracked, "and a second click changes it back")
+local openedByOther = H.count("open quest")
+H.click(otherMark.tracker, "RightButton", false)
+expect(H.count("open quest") == openedByOther, "a right-click on a quest that is not ready opens nothing: there is no turn-in yet")
+-- The compass symbol is under the tracking symbol, only with Forever Compass.
+expect(not mark.compass:IsShown() and ns.CompassTracker(40) == nil and ns.ToggleCompass(40) == false, "without Forever Compass there is no compass symbol")
+local onCompass, compassFull = {}, false
+ForeverCompass = {
+  QuestTracker = function(questID) return onCompass[questID] end,
+  TrackQuest = function(questID)
+    if compassFull then
+      return nil, "all 4 trackers of the compass are in use"
+    end
+    onCompass[questID] = 3
+    return 3
+  end,
+  UntrackQuest = function(questID)
+    local had = onCompass[questID] ~= nil
+    onCompass[questID] = nil
+    return had
+  end,
+}
+QuestLogQuests_Update()
+local compass = mark.compass
+local function compassLook()
+  local red, green, blue, alpha = compass.symbol:GetVertexColor()
+  return red == 0.4 and green == 0.8 and blue == 1 and alpha == 1 and "bright" or (red == 0.8 and alpha == 0.6 and "grey" or "other")
+end
+expect(compass:IsShown() and otherMark.compass:IsShown() and select(2, compass:GetPoint(1)) == tracker and select(3, compass:GetPoint(1)) == "BOTTOM", "with Forever Compass every quest has the compass symbol under the tracking symbol")
+expect(compass.onCompass == false and compassLook() == "grey", "a quest that is not on the compass has a grey compass symbol, got " .. compassLook())
+H.click(compass, "LeftButton", false)
+expect(onCompass[40] == 3 and compass.onCompass == true and compassLook() == "bright" and T.printed("tracker 3 of the compass"), "a click puts the quest on the compass, and the symbol is bright, got " .. compassLook())
+expect(H.watched[40] == nil, "the compass symbol does not change the tracking of the game")
+H.run(compass, "OnEnter")
+expect(GameTooltip:IsShown(), "the compass symbol has a tooltip")
+H.run(compass, "OnLeave")
+H.click(compass, "LeftButton", false)
+expect(onCompass[40] == nil and compass.onCompass == false and compassLook() == "grey", "a second click takes the quest off the compass")
+compassFull = true
+H.click(compass, "LeftButton", false)
+expect(onCompass[40] == nil and compassLook() == "grey" and T.printed("all 4 trackers of the compass are in use"), "with every tracker in use the quest is not added, and the addon says why")
+compassFull = false
 local function symbolLook()
   local red, green, blue, alpha = tracker.symbol:GetVertexColor()
   return red == 1 and green == 0.9 and blue == 0.3 and alpha == 1 and "bright" or (red == 0.8 and alpha == 0.6 and "grey" or "other")
@@ -290,8 +341,8 @@ ns.SetOption("completeFanfare", false)
 expect(ns.ShowQuestComplete(40, "A Fishy Peril") == false and ns.FanfareQuest() == nil, "with the option off there is no banner")
 QuestLogQuests_Update()
 expect(not ns.HasCompletedMark(logButton(40)), "with the option off there is no COMPLETED mark")
-expect(logButton(40).Checkbox:GetAlpha() == 1, "with the option off the tracking box is back")
-expect(not ns.CompletedMark(logButton(40)).back:IsShown() and not ns.CompletedMark(logButton(40)).tracker:IsShown() and logButton(40).Text:GetText() == "A Fishy Peril", "with the option off the quest has the look of the game: no green, no symbol, its own name")
+expect(logButton(40).Checkbox:GetAlpha() == 0 and ns.CompletedMark(logButton(40)).tracker:IsShown(), "with the option off the quest still has the tracking symbol")
+expect(not ns.CompletedMark(logButton(40)).back:IsShown() and logButton(40).Text:GetText() == "A Fishy Peril", "with the option off the quest has no green and its own name")
 ns.SetOption("completeFanfare", true)
 -- The glow starts when the quest log comes onto the screen, also without a new build by the game.
 T.world.completed = nil

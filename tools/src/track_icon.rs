@@ -25,8 +25,34 @@ fn inside(x: f64, y: f64) -> bool {
     ring || dot || mark
 }
 
-/// How much of each pixel the symbol covers, 0 to 255, row by row from the top.
+/// True inside the compass symbol: a ring with a needle from north to south, widest in the middle.
+fn inside_compass(x: f64, y: f64) -> bool {
+    let (dx, dy) = (x - 32.0, y - 32.0);
+    let distance = dx.hypot(dy);
+    let ring = (24.5..=29.5).contains(&distance);
+    let needle = dx.abs() / 7.5 + dy.abs() / 21.0 <= 1.0;
+    ring || needle
+}
+
+/// The pictures this file draws.
+#[derive(Clone, Copy)]
+pub enum Symbol {
+    /// The sight of a tracker: Media/Track.tga.
+    Track,
+    /// A compass: Media/Compass.tga.
+    Compass,
+}
+
+/// How much of each pixel the tracking symbol covers, 0 to 255, row by row from the top.
 fn coverage() -> Vec<u8> {
+    coverage_of(Symbol::Track)
+}
+
+fn coverage_of(symbol: Symbol) -> Vec<u8> {
+    let inside: fn(f64, f64) -> bool = match symbol {
+        Symbol::Track => inside,
+        Symbol::Compass => inside_compass,
+    };
     let mut data = Vec::with_capacity((SIZE * SIZE) as usize);
     for y in 0..SIZE {
         for x in 0..SIZE {
@@ -46,8 +72,14 @@ fn coverage() -> Vec<u8> {
     data
 }
 
-/// The TGA file: 32 bits for each pixel, not compressed, the first row at the top.
+/// The TGA file of the tracking symbol.
+#[cfg(test)]
 pub fn tga() -> Vec<u8> {
+    tga_of(Symbol::Track)
+}
+
+/// The TGA file: 32 bits for each pixel, not compressed, the first row at the top.
+pub fn tga_of(symbol: Symbol) -> Vec<u8> {
     let size = SIZE.to_le_bytes();
     let mut file = vec![
         0, // no ID field
@@ -59,7 +91,7 @@ pub fn tga() -> Vec<u8> {
         32,   // bits for each pixel
         0x28, // 8 bits of alpha, the first row at the top
     ];
-    for alpha in coverage() {
+    for alpha in coverage_of(symbol) {
         // Blue, green, red, alpha: white, as clear as the symbol is thin there.
         file.extend_from_slice(&[255, 255, 255, alpha]);
     }
@@ -67,10 +99,14 @@ pub fn tga() -> Vec<u8> {
 }
 
 pub fn write(out: &Path) -> Result<(), String> {
+    write_symbol(out, Symbol::Track)
+}
+
+pub fn write_symbol(out: &Path, symbol: Symbol) -> Result<(), String> {
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    fs::write(out, tga()).map_err(|error| format!("Cannot write {}: {error}", out.display()))
+    fs::write(out, tga_of(symbol)).map_err(|error| format!("Cannot write {}: {error}", out.display()))
 }
 
 /// A PNG to look at: the symbol eight times larger, grey on the left and gold on the right, on
@@ -124,5 +160,17 @@ mod tests {
         assert_eq!(at(32, 3), 255, "the mark at the top goes out past the ring");
         // The same on all four sides.
         assert_eq!((at(14, 32), at(50, 32), at(32, 50)), (255, 255, 255));
+    }
+
+    #[test]
+    fn the_compass_has_a_ring_a_needle_and_clear_sides() {
+        let cover = coverage_of(Symbol::Compass);
+        let at = |x: u32, y: u32| cover[(y * SIZE + x) as usize];
+        assert_eq!(tga_of(Symbol::Compass).len(), 18 + 64 * 64 * 4);
+        assert_eq!(at(32, 32), 255, "the middle of the needle");
+        assert_eq!((at(32, 14), at(32, 49)), (255, 255), "the needle points north and south");
+        assert_eq!((at(32, 5), at(5, 32), at(59, 32)), (255, 255, 255), "the ring");
+        assert_eq!((at(16, 32), at(48, 32)), (0, 0), "beside the needle it is clear");
+        assert_eq!(at(1, 1), 0, "the corner is clear");
     }
 }

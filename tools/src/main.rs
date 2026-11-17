@@ -46,7 +46,7 @@ Commands:
                                           written to it
   marketplace             build dist/marketplace: one ZIP for each addon, and index.json
   icon <out.png>          draw the source image of the app icon
-  track-icon              draw the tracking symbol of Forever Quests (Media/Track.tga)";
+  track-icon              draw the symbols of Forever Quests (Media/Track.tga, Media/Compass.tga)";
 
 /// The repository root: the parent of this crate's folder.
 fn repo_root() -> PathBuf {
@@ -240,6 +240,10 @@ fn run() -> Result<bool, String> {
             // The tracking symbol of Forever Quests, as a texture of the game, and a picture to look at.
             let texture = root.join("addons").join("ForeverQuests").join("Media").join("Track.tga");
             track_icon::write(&texture)?;
+            // The compass symbol of the button "track in compass".
+            let compass = root.join("addons").join("ForeverQuests").join("Media").join("Compass.tga");
+            track_icon::write_symbol(&compass, track_icon::Symbol::Compass)?;
+            println!("-> {}", compass.display());
             let preview = root.join("target").join("track-icon-preview.png");
             track_icon::write_preview(&preview)?;
             println!("{}  {0}x{0}", track_icon::SIZE);
