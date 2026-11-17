@@ -92,6 +92,15 @@ local sales, earned, buys, spent = ns.LedgerSummary(7)
 expect(sales == 1 and earned == 950 and buys == 0 and spent == 0, "the totals of the week are one sale of 950")
 T.slash("/fah", "ledger")
 T.slash("/fah", "ledger text")
+-- The ledger window remembers where the player dragged it.
+local ledgerFrame = ForeverAuctionsLedgerFrame
+expect(ledgerFrame ~= nil and ledgerFrame:IsShown() and ForeverAuctionsDB.options.ledgerWindow == nil, "the ledger window is open and has no saved position yet")
+if ledgerFrame then
+  ledgerFrame:GetScript("OnDragStop")(ledgerFrame)
+  expect(type(ForeverAuctionsDB.options.ledgerWindow) == "table" and ForeverAuctionsDB.options.ledgerWindow.point ~= nil, "the end of a drag saves the position of the ledger window")
+  ns.ResetLedgerPosition()
+  expect(ForeverAuctionsDB.options.ledgerWindow == nil, "the reset forgets the position of the ledger window")
+end
 
 -- The price window and its deals view.
 T.slash("/fah", "")
@@ -118,3 +127,8 @@ if fillButton then
   H.click(fillButton, "LeftButton", false)
   expect(H.count("price filled") == before + 1 and H.did[#H.did][2] == 144, "a click writes 144 into the price field, got " .. tostring(H.did[#H.did][2]))
 end
+-- /fah clear deletes the stored prices only with "yes".
+T.slash("/fah", "clear")
+expect(ns.Lookup(2589) ~= nil and T.printed("Type /fah clear yes"), "/fah clear alone deletes nothing and says how to delete")
+T.slash("/fah", "clear yes")
+expect(ns.Lookup(2589) == nil and ns.Lookup(769) == nil, "/fah clear yes deletes the stored prices")

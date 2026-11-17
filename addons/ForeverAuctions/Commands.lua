@@ -25,7 +25,7 @@ local function help()
   print("  /fah scanbutton - turn the full scan button on or off")
   print("  /fah days [number] - set how many days of prices are kept")
   print("  /fah options - open the settings page")
-  print("  /fah clear - delete the stored prices of this realm")
+  print("  /fah clear yes - delete the stored prices of this realm. /fah clear says how many there are")
   print("  /fah help - show this list")
 end
 
@@ -198,9 +198,18 @@ SlashCmdList["FOREVERAUCTIONS"] = function(input)
   elseif command == "options" or command == "config" or command == "settings" then
     ns.OpenOptions()
   elseif command == "clear" then
+    -- The settings page asks before it deletes, and so does the command: the word "yes" is the answer.
+    local count = 0
+    for _ in pairs(ns.Prices()) do
+      count = count + 1
+    end
+    if rest:lower() ~= "yes" then
+      ns.Print(count .. " item prices are stored for this realm and faction. Type /fah clear yes to delete them.")
+      return
+    end
     wipe(ns.Prices())
     ns.RefreshHistory()
-    ns.Print("stored prices of this realm deleted.")
+    ns.Print(count .. " stored prices of this realm and faction deleted.")
   else
     help()
   end

@@ -219,6 +219,34 @@ local function addColumns(parent, font, texts)
   end
 end
 
+local function savePosition()
+  local point, _, relativePoint, x, y = frame:GetPoint(1)
+  if point and ForeverAuctionsDB then
+    ForeverAuctionsDB.options.ledgerWindow = { point = point, relativePoint = relativePoint, x = x, y = y }
+  end
+end
+
+local function restorePosition()
+  local saved = ForeverAuctionsDB and ForeverAuctionsDB.options.ledgerWindow
+  frame:ClearAllPoints()
+  if type(saved) == "table" and type(saved.point) == "string" and type(saved.x) == "number" and type(saved.y) == "number" then
+    local ok = pcall(frame.SetPoint, frame, saved.point, UIParent, saved.relativePoint or saved.point, saved.x, saved.y)
+    if ok then
+      return
+    end
+    frame:ClearAllPoints()
+  end
+  frame:SetPoint("CENTER")
+end
+
+-- Puts the window back in the middle of the screen.
+function ns.ResetLedgerPosition()
+  ForeverAuctionsDB.options.ledgerWindow = nil
+  if frame then
+    restorePosition()
+  end
+end
+
 local function createWindow()
   local ok, window = pcall(CreateFrame, "Frame", FRAME_NAME, UIParent, "BasicFrameTemplateWithInset")
   if not ok then
@@ -239,14 +267,17 @@ local function createWindow()
   frame = window
   frame:Hide()
   frame:SetSize(WIDTH, HEIGHT)
-  frame:SetPoint("CENTER")
+  restorePosition()
   frame:SetToplevel(true)
   frame:SetMovable(true)
   frame:SetClampedToScreen(true)
   frame:EnableMouse(true)
   frame:RegisterForDrag("LeftButton")
   frame:SetScript("OnDragStart", frame.StartMoving)
-  frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+  frame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    savePosition()
+  end)
   -- Both forms of the window have the title text: the template, and the plain window above.
   frame.TitleText:SetText("Forever Auctions: sales and purchases")
   tinsert(UISpecialFrames, FRAME_NAME) -- Escape closes the window

@@ -236,6 +236,13 @@ local function buildLedger()
       end,
     },
     {
+      label = "Reset window position",
+      hint = "Puts the ledger window back in the middle of the screen.",
+      click = function()
+        ns.ResetLedgerPosition()
+      end,
+    },
+    {
       label = "Delete the ledger",
       hint = "Deletes the sales and purchases of this realm and faction.",
       confirm = "Delete all sales and purchases of this realm and faction from the ledger?",
