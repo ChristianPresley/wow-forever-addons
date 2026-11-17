@@ -274,11 +274,9 @@ ForeverCompass = {
   end,
 }
 QuestLogQuests_Update()
--- The game makes the button of a quest as high as its title and the lines under it. The
--- stand-in does not do that yet, so the heights of a quest with lines are set here.
-ready:SetHeight(60)
-other:SetHeight(60)
-ns.ArrangeLog()
+-- The game makes the button of a quest as high as its title and the lines under it, and so
+-- does the stand-in: both quests have a line, so their buttons have room for two symbols.
+expect(ready:GetHeight() >= 38 and other:GetHeight() >= 38, "a quest with a line under its title has a button high enough for both symbols, got " .. ready:GetHeight() .. " and " .. other:GetHeight())
 local compass = mark.compass
 local function compassLook()
   local red, green, blue, alpha = compass.symbol:GetVertexColor()
