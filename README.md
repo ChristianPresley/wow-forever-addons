@@ -67,6 +67,10 @@ Run these from any folder of the repository.
 
 ## Use the addon manager
 
+The Windows installer is in the [latest release of the Forever Addon Manager](https://github.com/ChristianPresley/wow-forever-addons/releases/latest). It is not signed, so Windows can show a SmartScreen warning. The release notes give the SHA-256 of the installer.
+
+To run the manager from this repository instead:
+
 ```bash
 cargo dev marketplace
 ```
