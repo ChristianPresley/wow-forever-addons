@@ -490,19 +490,23 @@ do
   -- A bonus objective: the one of this map, not the one that the game lists for a map under it.
   expect(count("taskQuests") == 1 and tooltipOf(pinOf("taskQuests")):find("^Clear the Fields | ") and pinOf("taskQuests").data.task == 900, "the bonus objective of this map has a pin with its name, got " .. count("taskQuests"))
   -- The place that a guard pointed out comes with the event of the game, and has its picture of the sheet of map icons.
+  -- Map.lua hears the event and reads the pins again at its next update, not in the event itself.
   expect(count("guide") == 0, "no guard has pointed out a place yet")
   T.world.guide = true
   T.fire("DYNAMIC_GOSSIP_POI_UPDATED")
+  T.advance(1)
   local guide = pinOf("guide")
-  expect(count("guide") == 1 and guide.data.look.texture == "Interface/Minimap/POIIcons" and math.abs(guide.data.look.coords[1] - 0.6) < 0.001, "the place that a guard pointed out is on the map at once, got " .. count("guide"))
-  expect(tooltipOf(guide) == "Goldshire Smithy | A guard showed you this place", "and says what it is, got " .. tooltipOf(guide))
+  expect(count("guide") == 1 and guide and guide.data.look.texture == "Interface/Minimap/POIIcons" and math.abs(guide.data.look.coords[1] - 0.6) < 0.001, "the place that a guard pointed out is on the map soon after the event, got " .. count("guide"))
+  expect(guide and tooltipOf(guide) == "Goldshire Smithy | A guard showed you this place", "and says what it is, got " .. (guide and tooltipOf(guide) or "no pin"))
   T.world.guide = nil
   T.fire("DYNAMIC_GOSSIP_POI_UPDATED")
+  T.advance(1)
   expect(count("guide") == 0, "and is gone when the game drops it")
   -- The way to the quest that the player follows, when its goal is on another map.
   expect(count("questWaypoint") == 0, "a quest with its goal on this map has no way to show")
   T.world.questWaypoint = true
   T.fire("SUPER_TRACKING_CHANGED")
+  T.advance(1)
   local way = pinOf("questWaypoint")
   expect(count("questWaypoint") == 1 and math.abs(way.x - 0.85) < 0.001 and way.data.wayTo == 176, "the next step to the followed quest is on the map, got " .. count("questWaypoint"))
   local opened = H.count("open quest")

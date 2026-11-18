@@ -474,7 +474,8 @@ end
 
 -- Places that the game lists apart from its points of interest, each where this client has
 -- them: quest hubs, delves, flying races, pet tamers and dig sites (the files of the same
--- names in Blizzard_SharedMapDataProviders). A place that is a landmark too is left to that kind.
+-- names in Blizzard_SharedMapDataProviders; the quest hubs are read in
+-- QuestOfferDataProvider.lua). A place that is a landmark too is left to that kind.
 local OTHER_IDS = {
   { "GetQuestHubsForMap", "Quest hub" }, { "GetDelvesForMap", "Delve" }, { "GetDragonridingRacesForMap", "Flying race" },
 }
@@ -693,10 +694,6 @@ local npcEvents = {
   QUEST_GREETING = function() remember("quests") end,
   QUEST_COMPLETE = function() remember("quests") end,
   GOSSIP_SHOW = function() remember("talk") end,
-  -- Not about an NPC: the game changed something that a kind above shows, and Map.lua does not
-  -- listen for it.
-  DYNAMIC_GOSSIP_POI_UPDATED = function() ns.RefreshPins() end,
-  SUPER_TRACKING_CHANGED = function() ns.RefreshPins() end,
 }
 
 local watcher = CreateFrame("Frame")
