@@ -15,11 +15,13 @@ local MAIL_DAYS = 30 -- an auction house mail expires after 30 days, so this giv
 local SAME_MAIL_SECONDS = 300
 local ROWS = 16
 local ROW_HEIGHT = 18
-local WIDTH, HEIGHT = 640, 452
+local WIDTH, HEIGHT = 640, 478
 local FRAME_NAME = "ForeverAuctionsLedgerFrame"
 
 local frame
 local filter = "all" -- "all", "sale" or "buy"
+local filterDays -- nil: all the ledger has; else the last number of days
+local filterName = "" -- lower case part of the item name, "" for any
 local shown = {}
 local offset = 0
 
@@ -148,6 +150,14 @@ end
 
 local FILTER_TEXT = { all = "Sales and purchases", sale = "Sales only", buy = "Purchases only" }
 local NEXT_FILTER = { all = "sale", sale = "buy", buy = "all" }
+local DAY_CHOICES = { 1, 7, 30 } -- the date button goes through these, then back to all
+
+local function daysText()
+  if not filterDays then
+    return "All dates"
+  end
+  return filterDays == 1 and "Last 24 hours" or ("Last " .. filterDays .. " days")
+end
 
 local function render()
   if not frame then
@@ -171,26 +181,51 @@ local function render()
   frame.empty:SetShown(#shown == 0)
 end
 
+-- The lines that pass the filters, the newest first.
+function ns.LedgerShown()
+  local result = {}
+  local ledger = ns.Ledger()
+  local since = filterDays and (time() - filterDays * DAY) or nil
+  for i = #ledger, 1, -1 do
+    local entry = ledger[i]
+    if (filter == "all" or entry.kind == filter) and (not since or entry.t >= since)
+      and (filterName == "" or entry.name:lower():find(filterName, 1, true)) then
+      result[#result + 1] = entry
+    end
+  end
+  return result
+end
+
+-- kind: "all", "sale" or "buy". days: nil or a number of days. name: part of the item name.
+function ns.SetLedgerFilter(kind, days, name)
+  if kind and NEXT_FILTER[kind] then
+    filter = kind
+  end
+  filterDays = type(days) == "number" and days > 0 and days or nil
+  filterName = ((name or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""))
+  if frame then
+    if frame.nameBox and (frame.nameBox:GetText() or ""):lower() ~= filterName then
+      frame.nameBox:SetText(name or "")
+    end
+    offset = 0
+  end
+  ns.RefreshLedger()
+end
+
 local function rebuild()
   if not (frame and ForeverAuctionsDB) then
     return
   end
   prune(time())
-  shown = {}
-  local ledger = ns.Ledger()
-  for i = #ledger, 1, -1 do -- the newest first
-    local entry = ledger[i]
-    if filter == "all" or entry.kind == filter then
-      shown[#shown + 1] = entry
-    end
-  end
+  shown = ns.LedgerShown()
   frame.summary:SetText(table.concat({
     summaryLine("Last 24 hours", 1),
     summaryLine("Last 7 days", 7),
     summaryLine("Last " .. ns.GetOption("ledgerDays") .. " days", nil),
   }, "\n"))
   frame.filterButton:SetText(FILTER_TEXT[filter])
-  frame.count:SetText(#shown .. " lines. A sale shows the price minus the cut of the auction house.")
+  frame.daysButton:SetText(daysText())
+  frame.count:SetText(#shown .. " of " .. #ns.Ledger() .. " lines. A sale shows the price minus the cut of the auction house.")
   render()
 end
 
@@ -301,9 +336,52 @@ local function createWindow()
     rebuild()
   end)
 
+  -- Second line: the item name and the dates.
+  local okSearch, nameBox = pcall(CreateFrame, "EditBox", nil, content, "SearchBoxTemplate")
+  if not okSearch then
+    nameBox = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+  end
+  frame.nameBox = nameBox
+  nameBox:SetSize(220, 20)
+  nameBox:SetPoint("TOPLEFT", 22, -90)
+  nameBox:SetAutoFocus(false)
+  if nameBox.Instructions then
+    nameBox.Instructions:SetText("Search by item name")
+  end
+  nameBox:HookScript("OnTextChanged", function(self)
+    local text = ((self:GetText() or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""))
+    if text ~= filterName then
+      filterName = text
+      offset = 0
+      rebuild()
+    end
+  end)
+  nameBox:HookScript("OnEscapePressed", function(self)
+    self:ClearFocus()
+  end)
+
+  frame.daysButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+  frame.daysButton:SetSize(160, 22)
+  frame.daysButton:SetPoint("TOPRIGHT", -18, -88)
+  frame.daysButton:SetScript("OnClick", function()
+    local nextDays
+    if not filterDays then
+      nextDays = DAY_CHOICES[1]
+    else
+      for i, days in ipairs(DAY_CHOICES) do
+        if days == filterDays then
+          nextDays = DAY_CHOICES[i + 1]
+        end
+      end
+    end
+    filterDays = nextDays
+    offset = 0
+    rebuild()
+  end)
+
   local header = CreateFrame("Frame", nil, content)
   header:SetHeight(ROW_HEIGHT)
-  header:SetPoint("TOPLEFT", 14, -88)
+  header:SetPoint("TOPLEFT", 14, -114)
   header:SetPoint("RIGHT", content, "RIGHT", -14, 0)
   addColumns(header, "GameFontNormalSmall", true)
 

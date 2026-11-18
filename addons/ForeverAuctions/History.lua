@@ -4,9 +4,9 @@ local _, ns = ...
 -- high and average of the stored daily lows.
 
 local FRAME_NAME = "ForeverAuctionsHistoryFrame"
-local WIDTH, HEIGHT = 820, 500
+local WIDTH, HEIGHT = 820, 526
 local ROW_HEIGHT = 20
-local LIST_TOP = 86 -- from the top of the window to the first row
+local LIST_TOP = 112 -- from the top of the window to the first row
 local LIST_BOTTOM = 30
 local LIST_HEIGHT = HEIGHT - LIST_TOP - LIST_BOTTOM
 local SCROLL_GUTTER = 22
@@ -40,7 +40,66 @@ local sortKey, sortDescending = "seen", true
 local filter = ""
 local dirty = false -- names arrived since the last redraw
 local dealsOnly = false
-local dealsButton
+local dealsButton, filterText, minBox, maxBox
+local showFilterMenu
+
+-- The filters of the window, besides the name search and the deals. Nil is "any".
+-- class, subclass: item class and subclass IDs. quality: the lowest quality shown.
+-- minPrice, maxPrice: copper. seenWithin: seconds. watched: only items with a price alert.
+local filters = {}
+local FILTER_KEYS = { class = "number", subclass = "number", quality = "number", minPrice = "number", maxPrice = "number", seenWithin = "number", watched = "boolean" }
+local types = {} -- [itemID] = { class, subclass, className, subclassName }, from the client's item data
+local QUALITIES = { 0, 1, 2, 3, 4, 5 }
+local QUALITY_NAMES = { [0] = "Poor", "Common", "Uncommon", "Rare", "Epic", "Legendary" }
+local SEEN_CHOICES = { { 3600, "the last hour" }, { 86400, "the last day" }, { 7 * 86400, "the last 7 days" }, { 30 * 86400, "the last 30 days" } }
+
+local function qualityName(quality)
+  local text = _G["ITEM_QUALITY" .. quality .. "_DESC"]
+  return type(text) == "string" and text or QUALITY_NAMES[quality] or tostring(quality)
+end
+
+-- Class and subclass of an item. The client has them for every item without loading it.
+local function typeOf(itemID)
+  local known = types[itemID]
+  if known then
+    return known
+  end
+  local get = C_Item and C_Item.GetItemInfoInstant
+  if not get then
+    return nil
+  end
+  local _, className, subclassName, _, _, class, subclass = get(itemID)
+  if type(class) ~= "number" then
+    return nil
+  end
+  known = {
+    class = class, subclass = type(subclass) == "number" and subclass or 0,
+    className = type(className) == "string" and className ~= "" and className or ("Class " .. class),
+    subclassName = type(subclassName) == "string" and subclassName ~= "" and subclassName or nil,
+  }
+  types[itemID] = known
+  return known
+end
+
+local function anyFilter()
+  return next(filters) ~= nil
+end
+
+-- "1g 50s" as a player types it, which ns.ParseMoney reads back.
+local function plainMoney(copper)
+  local parts = {}
+  local gold, silver, rest = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+  if gold > 0 then
+    parts[#parts + 1] = gold .. "g"
+  end
+  if silver > 0 then
+    parts[#parts + 1] = silver .. "s"
+  end
+  if rest > 0 or #parts == 0 then
+    parts[#parts + 1] = rest .. "c"
+  end
+  return table.concat(parts, " ")
+end
 
 -- A deal: the latest price is at most the "deal" percentage of the average of at least two days.
 local function isDeal(row)
@@ -104,6 +163,31 @@ local function matches(row)
   if dealsOnly and not isDeal(row) then
     return false
   end
+  if filters.minPrice and row.price < filters.minPrice then
+    return false
+  end
+  if filters.maxPrice and row.price > filters.maxPrice then
+    return false
+  end
+  if filters.seenWithin and row.seen < time() - filters.seenWithin then
+    return false
+  end
+  if filters.watched and not ns.WatchTarget(row.id) then
+    return false
+  end
+  if filters.class then
+    local kind = typeOf(row.id)
+    if not kind or kind.class ~= filters.class or (filters.subclass and kind.subclass ~= filters.subclass) then
+      return false
+    end
+  end
+  if filters.quality then
+    -- The quality is known once the client has loaded the item; until then the row waits.
+    local known = info[row.id]
+    if not (known and type(known.quality) == "number" and known.quality >= filters.quality) then
+      return false
+    end
+  end
   if filter == "" then
     return true
   end
@@ -135,7 +219,82 @@ local function rebuild(keepPosition)
   if dealsButton then
     dealsButton:SetText(dealsOnly and "Show all items" or "Show deals only")
   end
+  if filterText then
+    filterText:SetText(ns.HistoryFilterSummary())
+  end
   dirty = false
+end
+
+-- The active filters in words, or "".
+function ns.HistoryFilterSummary()
+  local parts = {}
+  if filters.class then
+    local name
+    for _, kind in pairs(types) do
+      if kind.class == filters.class and (not filters.subclass or kind.subclass == filters.subclass) then
+        name = filters.subclass and kind.subclassName or kind.className
+        break
+      end
+    end
+    parts[#parts + 1] = name or "one item type"
+  end
+  if filters.quality then
+    parts[#parts + 1] = qualityName(filters.quality) .. " or better"
+  end
+  if filters.seenWithin then
+    for _, choice in ipairs(SEEN_CHOICES) do
+      if choice[1] == filters.seenWithin then
+        parts[#parts + 1] = "seen in " .. choice[2]
+      end
+    end
+  end
+  if filters.watched then
+    parts[#parts + 1] = "with a price alert"
+  end
+  if #parts == 0 then
+    return ""
+  end
+  return "Only: " .. table.concat(parts, ", ")
+end
+
+-- Sets one filter of the price window. Nil (or false for "watched") removes it.
+function ns.SetHistoryFilter(key, value)
+  local kind = FILTER_KEYS[key]
+  if not kind then
+    return
+  end
+  if type(value) ~= kind or value == false then
+    value = nil
+  end
+  filters[key] = value
+  if key == "class" then
+    filters.subclass = nil
+  end
+  if key == "minPrice" or key == "maxPrice" then
+    local box = key == "minPrice" and minBox or maxBox
+    if box and ns.ParseMoney(box:GetText()) ~= value then
+      box:SetText(value and plainMoney(value) or "")
+    end
+  end
+  rebuild(false)
+end
+
+function ns.ClearHistoryFilters()
+  wipe(filters)
+  if minBox then
+    minBox:SetText("")
+    maxBox:SetText("")
+  end
+  rebuild(false)
+end
+
+-- The item IDs that the window shows now, in their order.
+function ns.HistoryShown()
+  local ids = {}
+  for i, row in ipairs(shown) do
+    ids[i] = row.id
+  end
+  return ids
 end
 
 local function updateHeaders()
@@ -233,6 +392,108 @@ local function showRowMenu(owner, item)
         ns.Print("price alert set at " .. ns.Money(below) .. ". For a different price: /fah watch [item link] 5g.")
       end)
     end
+  end)
+end
+
+-- The classes and subclasses of the stored items, sorted by name: { { class, name, subs = { { subclass, name } } } }.
+local function storedTypes()
+  local classes, byClass = {}, {}
+  for _, row in ipairs(allRows) do
+    local kind = typeOf(row.id)
+    if kind then
+      local entry = byClass[kind.class]
+      if not entry then
+        entry = { class = kind.class, name = kind.className, subs = {}, seen = {} }
+        byClass[kind.class] = entry
+        classes[#classes + 1] = entry
+      end
+      if kind.subclassName and not entry.seen[kind.subclass] then
+        entry.seen[kind.subclass] = true
+        entry.subs[#entry.subs + 1] = { subclass = kind.subclass, name = kind.subclassName }
+      end
+    end
+  end
+  local function byName(a, b)
+    return a.name < b.name
+  end
+  table.sort(classes, byName)
+  for _, entry in ipairs(classes) do
+    table.sort(entry.subs, byName)
+  end
+  return classes
+end
+
+-- The Filters button: item type, quality, age and price alerts. The price range is in the boxes below.
+function showFilterMenu(owner)
+  if not (MenuUtil and MenuUtil.CreateContextMenu) then
+    ns.Print("this game client has no menus for addons. The price boxes still filter.")
+    return
+  end
+  MenuUtil.CreateContextMenu(owner, function(_, root)
+    root:CreateTitle("Item type")
+    root:CreateRadio("All types", function()
+      return filters.class == nil
+    end, function()
+      ns.SetHistoryFilter("class", nil)
+    end)
+    for _, entry in ipairs(storedTypes()) do
+      local classRadio = root:CreateRadio(entry.name, function()
+        return filters.class == entry.class
+      end, function()
+        ns.SetHistoryFilter("class", entry.class)
+      end)
+      if #entry.subs > 1 then
+        classRadio:CreateRadio("All " .. entry.name, function()
+          return filters.class == entry.class and filters.subclass == nil
+        end, function()
+          ns.SetHistoryFilter("class", entry.class)
+        end)
+        for _, sub in ipairs(entry.subs) do
+          classRadio:CreateRadio(sub.name, function()
+            return filters.class == entry.class and filters.subclass == sub.subclass
+          end, function()
+            ns.SetHistoryFilter("class", entry.class)
+            ns.SetHistoryFilter("subclass", sub.subclass)
+          end)
+        end
+      end
+    end
+    root:CreateDivider()
+    local quality = root:CreateButton("Quality")
+    quality:CreateRadio("Any quality", function()
+      return filters.quality == nil
+    end, function()
+      ns.SetHistoryFilter("quality", nil)
+    end)
+    for _, q in ipairs(QUALITIES) do
+      quality:CreateRadio(qualityName(q) .. (q < 5 and " or better" or ""), function()
+        return filters.quality == q
+      end, function()
+        ns.SetHistoryFilter("quality", q)
+      end)
+    end
+    local seen = root:CreateButton("Last seen")
+    seen:CreateRadio("Any time", function()
+      return filters.seenWithin == nil
+    end, function()
+      ns.SetHistoryFilter("seenWithin", nil)
+    end)
+    for _, choice in ipairs(SEEN_CHOICES) do
+      seen:CreateRadio("In " .. choice[2], function()
+        return filters.seenWithin == choice[1]
+      end, function()
+        ns.SetHistoryFilter("seenWithin", choice[1])
+      end)
+    end
+    root:CreateCheckbox("Only items with a price alert", function()
+      return filters.watched == true
+    end, function()
+      ns.SetHistoryFilter("watched", not filters.watched)
+    end)
+    root:CreateDivider()
+    root:CreateButton("Clear all filters", function()
+      ns.ClearHistoryFilters()
+    end)
   end)
 end
 
@@ -562,6 +823,74 @@ local function createWindow()
     GameTooltip:Hide()
   end)
 
+  local filterButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+  filterButton:SetSize(100, 22)
+  filterButton:SetPoint("LEFT", dealsButton, "RIGHT", 8, 0)
+  filterButton:SetText("Filters")
+  filterButton:SetScript("OnClick", function(self)
+    showFilterMenu(self)
+  end)
+
+  local clearButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+  clearButton:SetSize(110, 22)
+  clearButton:SetPoint("LEFT", filterButton, "RIGHT", 8, 0)
+  clearButton:SetText("Clear filters")
+  clearButton:SetScript("OnClick", function()
+    ns.ClearHistoryFilters()
+  end)
+
+  -- Second line: the price range, and the other filters in words.
+  local priceLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+  priceLabel:SetPoint("TOPLEFT", 18, -66)
+  priceLabel:SetText("Price from")
+  local function priceBox(key)
+    local box = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+    box:SetSize(80, 20)
+    box:SetAutoFocus(false)
+    box:SetMaxLetters(20)
+    box:HookScript("OnTextChanged", function(self)
+      local text = self:GetText() or ""
+      local value = ns.ParseMoney(text)
+      if text:gsub("%s", "") ~= "" and not value then
+        self:SetTextColor(1, 0.3, 0.3) -- not a price: the filter stays as it was
+        return
+      end
+      self:SetTextColor(1, 1, 1)
+      if value ~= filters[key] then
+        ns.SetHistoryFilter(key, value)
+      end
+    end)
+    box:HookScript("OnEscapePressed", function(self)
+      self:ClearFocus()
+    end)
+    box:HookScript("OnEnterPressed", function(self)
+      self:ClearFocus()
+    end)
+    box:HookScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")
+      GameTooltip:SetText(key == "minPrice" and "Lowest price" or "Highest price", 1, 1, 1)
+      GameTooltip:AddLine("For example 50s, 1g 20s or 5g. Empty: no limit.", nil, nil, nil, true)
+      GameTooltip:Show()
+    end)
+    box:HookScript("OnLeave", function()
+      GameTooltip:Hide()
+    end)
+    return box
+  end
+  minBox = priceBox("minPrice")
+  minBox:SetPoint("LEFT", priceLabel, "RIGHT", 12, 0)
+  local toLabel = content:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+  toLabel:SetPoint("LEFT", minBox, "RIGHT", 6, 0)
+  toLabel:SetText("to")
+  maxBox = priceBox("maxPrice")
+  maxBox:SetPoint("LEFT", toLabel, "RIGHT", 12, 0)
+
+  filterText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  filterText:SetPoint("LEFT", maxBox, "RIGHT", 16, 0)
+  filterText:SetPoint("RIGHT", content, "RIGHT", -18, 0)
+  filterText:SetJustifyH("LEFT")
+  filterText:SetWordWrap(false)
+
   countText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   countText:SetPoint("BOTTOMLEFT", 16, 10)
 
@@ -609,7 +938,7 @@ local function createWindow()
     if not dirty then
       return
     end
-    if sortKey == "name" or filter ~= "" then
+    if sortKey == "name" or filter ~= "" or filters.quality then
       rebuild(true)
     else
       dirty = false
