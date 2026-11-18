@@ -38,6 +38,39 @@ local function build()
   check("zoneHighlight", "Light up the zone under the pointer", "The zone under the pointer lights up, as on the map of the game.")
   check("terrainDetail", "Terrain when zoomed in", "Zoomed in on a zone, the map shows the terrain itself, as the minimap does, and zooms in much further.")
 
+  check("questAreas", "Quest areas", "The area of each quest objective is shaded on the map, under the pins.")
+  check("revealAll", "Land you have not explored", "The map shows all the land of a zone, also where you have not been. Off: only the land you have explored, as on the map of the game.")
+  check("revealBright", "That land as bright as the rest", "The land where you have not been is as bright as the land where you have been. Off: it is a little darker.")
+
+  page:Header("Forever Atlas map: the window")
+  local function percent(key, label, hint)
+    page:Slider({
+      label = label,
+      hint = hint,
+      min = ns.limits[key][1],
+      max = ns.limits[key][2],
+      step = 5,
+      get = function()
+        return ns.GetOption(key)
+      end,
+      set = function(value)
+        ns.SetOption(key, value)
+      end,
+      format = function(value)
+        return value .. "%"
+      end,
+    })
+  end
+  percent("mapOpacity", "Opacity of the map window", "Lower: the game shows through the map. You can move your character while the map is open.")
+  percent("mapScale", "Size of the map window", "The scale of the whole window. Drag its bottom right corner to change its shape; the map keeps its place and size.")
+
+  page:Header("Minimap")
+  local owner = ns.MinimapOwner and ns.MinimapOwner()
+  local because = owner and (" " .. owner .. " shapes the minimap, so this does nothing now.") or ""
+  check("minimapSquare", "Square minimap", "A square minimap, which shows more of the land in its corners." .. because)
+  percent("minimapScale", "Size of the minimap", "Makes the minimap and the buttons around it larger." .. because)
+  check("minimapCoords", "Coordinates under the minimap", "Your coordinates under the minimap." .. because)
+
   page:Header("World map of the game")
   check("coords", "Coordinates on the world map", "Player and cursor coordinates in the corner of the world map.")
   check("pins", "Visited-area pins", "A pin on the world map for each area this character has visited.")
@@ -86,8 +119,13 @@ local function build()
   page:Buttons({
     {
       label = "Reset frame positions",
-      hint = "Puts the coordinate read-out and the waypoint arrow back where they were at first.",
-      click = ns.ResetFrames,
+      hint = "Puts the coordinate read-out, the waypoint arrow and the map window back where they were at first.",
+      click = function()
+        ns.ResetFrames()
+        if ns.ResetMapWindow then
+          ns.ResetMapWindow()
+        end
+      end,
     },
     {
       label = "Remove all waypoints",

@@ -54,6 +54,17 @@ local TERRAIN_MOST = 1500 -- no terrain for a map that needs more images than th
 local TERRAIN_PAST = 0.5 -- the terrain goes on this far past each edge of the map, as a part of the map
 local CROSS_SLACK = 0.05 -- the middle of the window goes this far past the edge before the next zone is looked for
 
+-- The options of the map window. Opacity and scale are in percent.
+ns.defaults.mapOpacity = 100
+ns.defaults.mapScale = 100
+ns.limits.mapOpacity = { 30, 100 }
+ns.limits.mapScale = { 50, 150 }
+ns.defaults.revealAll = true -- the land where the character has not been is drawn too
+ns.defaults.revealBright = false -- and as bright as the land where the character has been
+ns.defaults.questAreas = true -- the area of each quest objective, under the pins
+local WINDOW_LEAST_WIDE, WINDOW_LEAST_HIGH = 480, 360
+local QUEST_FILL, QUEST_BORDER = "Interface\\WorldMap\\UI-QuestBlob-Inside", "Interface\\WorldMap\\UI-QuestBlob-Outside"
+
 local REFRESH_SECONDS = 2 -- the pins are read again this often: group members move
 local HOVER_REACH = 4 -- a pin shows its tooltip this far outside its picture
 
@@ -481,7 +492,7 @@ local function drawExplored(mapID, frame, list, used, tileWidth, tileHeight, ori
             local texture = textureAt(frame, list, used, "BORDER", 0)
             -- Land where the character has not been: under the land that is uncovered, and darker.
             texture:SetDrawLayer("BORDER", part.unexplored and -1 or (part.isDrawOnTopLayer and 1 or 0))
-            local shade = part.unexplored and UNEXPLORED_SHADE or 1
+            local shade = part.unexplored and not ns.GetOption("revealBright") and UNEXPLORED_SHADE or 1
             texture:SetVertexColor(shade, shade, shade)
             texture:ClearAllPoints()
             texture:SetPoint("TOPLEFT", canvas, "TOPLEFT", originX + (part.offsetX + tileWidth * (column - 1)) * scaleX,
@@ -642,7 +653,58 @@ local function rebuildLabels()
   end
 end
 
+-- The areas of the objectives of the quests in the log, under the pins: the shapes that the
+-- game's own map draws (Blizzard_SharedMapDataProviders/QuestBlobDataProvider.lua), from a frame
+-- of the game that draws them for a map. False where this client cannot make that frame.
+local questBlob
+local function drawQuestAreas()
+  view.questAreas = 0
+  if questBlob == nil then
+    local ok, frame = pcall(CreateFrame, "QuestPOIFrame", nil, canvas)
+    if not (ok and frame and frame.DrawBlob and frame.SetMapID and frame.DrawNone) then
+      questBlob = false
+      return
+    end
+    questBlob = frame
+    frame:SetAllPoints(canvas)
+    -- Over the art and the terrain, under the zone that lights up and the pins.
+    frame:SetFrameLevel(canvas:GetFrameLevel() + 14)
+    -- The values of the game's own quest areas; an alpha here goes from 0 to 255.
+    for method, value in pairs({ SetFillTexture = QUEST_FILL, SetBorderTexture = QUEST_BORDER, SetFillAlpha = 128, SetBorderAlpha = 192, SetBorderScalar = 1 }) do
+      if frame[method] then
+        pcall(frame[method], frame, value)
+      end
+    end
+    frame:EnableMouse(false)
+  end
+  if not questBlob then
+    return
+  end
+  questBlob:DrawNone()
+  if not (view.mapID and ns.GetOption("questAreas")) then
+    questBlob:Hide()
+    return
+  end
+  questBlob:SetMapID(view.mapID)
+  questBlob:Show()
+  local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, view.mapID)
+  for _, quest in ipairs(ok and type(quests) == "table" and quests or {}) do
+    local questID = type(quest) == "table" and quest.questID
+    -- A quest that is ready to turn in has no area left: its pin is where to go.
+    if ns.Usable(questID) and not C_QuestLog.IsComplete(questID) then
+      local drawn = pcall(questBlob.DrawBlob, questBlob, questID, true)
+      if drawn then
+        view.questAreas = view.questAreas + 1
+      end
+    end
+  end
+end
+
 local function rebuildPins()
+  local okAreas, errAreas = pcall(drawQuestAreas)
+  if not okAreas then
+    report("the quest areas", errAreas)
+  end
   if hovered then
     GameTooltip:Hide()
     hovered = nil
@@ -963,14 +1025,16 @@ local function drawNeighbours()
         local originX, originY = rect.x0 * view.width, rect.y0 * view.height
         local scaleX = (rect.x1 - rect.x0) * view.width / info.layerWidth
         local scaleY = (rect.y1 - rect.y0) * view.height / info.layerHeight
-        usedOverlays = drawExplored(rect.mapID, neighbourFrame, neighbourOverlays, usedOverlays, info.tileWidth, info.tileHeight, originX, originY, scaleX, scaleY, true)
+        usedOverlays = drawExplored(rect.mapID, neighbourFrame, neighbourOverlays, usedOverlays, info.tileWidth, info.tileHeight, originX, originY, scaleX, scaleY,
+          ns.GetOption("revealAll"))
         view.neighbours[#view.neighbours + 1] = rect
       end
     end
     -- The zone shown is drawn the same way where the land of it is known: all its land over
     -- the painting of the continent, without its own sheet of paper and the frame of that.
-    -- So nothing changes on the screen when the map goes to the next zone.
-    if view.surround and revealFor(view.mapID) then
+    -- So nothing changes on the screen when the map goes to the next zone. Without the option
+    -- revealAll the land is not all known, so the zone keeps its sheet.
+    if view.surround and ns.GetOption("revealAll") and revealFor(view.mapID) then
       view.stitched = true
       local used = drawExplored(view.mapID, exploredFrame, overlays, 0, view.tileWidth, view.tileHeight, 0, 0, 1, 1, true)
       for index = used + 1, #overlays do
@@ -1251,6 +1315,21 @@ local function showMenu(owner)
     check("Names of the zones", "zoneNames")
     check("Light up the zone under the pointer", "zoneHighlight")
     check("Terrain when zoomed in", "terrainDetail")
+    check("Quest areas", "questAreas")
+    check("Land you have not explored", "revealAll")
+    check("That land as bright as the rest", "revealBright")
+    local function percent(label, key, values)
+      local sub = root:CreateButton(label)
+      for _, value in ipairs(values) do
+        sub:CreateRadio(value .. "%", function()
+          return ns.GetOption(key) == value
+        end, function()
+          ns.SetOption(key, value)
+        end)
+      end
+    end
+    percent("Opacity of the window", "mapOpacity", { 100, 85, 70, 55, 40 })
+    percent("Size of the window", "mapScale", { 60, 75, 90, 100, 115, 130, 150 })
   end)
 end
 
@@ -1271,18 +1350,84 @@ local function smallButton(text, width, tip, onClick)
   return button
 end
 
+-- The opacity and the scale of the window, from the options.
+local function applyWindowLook()
+  if not window then
+    return
+  end
+  local opacity, scale = ns.GetOption("mapOpacity"), ns.GetOption("mapScale")
+  window:SetAlpha((ns.Usable(opacity) and opacity or 100) / 100)
+  window:SetScale((ns.Usable(scale) and scale or 100) / 100)
+end
+
+-- The place and the size of the window, kept in ForeverAtlasDB.frames.map for the next time.
+local function saveWindow()
+  local point, _, relative, x, y = window:GetPoint(1)
+  local width, height = window:GetWidth(), window:GetHeight()
+  if type(ForeverAtlasDB) == "table" and type(ForeverAtlasDB.frames) == "table" and point and ns.Usable(x) and ns.Usable(y)
+    and ns.Usable(width) and ns.Usable(height) then
+    ForeverAtlasDB.frames.map = { point, relative, x, y, width, height }
+  end
+end
+
+local function restoreWindow()
+  local saved = type(ForeverAtlasDB) == "table" and type(ForeverAtlasDB.frames) == "table" and ForeverAtlasDB.frames.map
+  window:ClearAllPoints()
+  if type(saved) == "table" and type(saved[1]) == "string" and ns.Usable(saved[3]) and ns.Usable(saved[4])
+    and ns.Usable(saved[5]) and ns.Usable(saved[6]) then
+    window:SetSize(math.max(WINDOW_LEAST_WIDE, saved[5]), math.max(WINDOW_LEAST_HIGH, saved[6]))
+    window:SetPoint(saved[1], UIParent, type(saved[2]) == "string" and saved[2] or saved[1], saved[3], saved[4])
+  else
+    window:SetSize(math.max(640, UIParent:GetWidth() * 0.72), math.max(480, UIParent:GetHeight() * 0.8))
+    window:SetPoint("CENTER")
+  end
+end
+
+-- Back to the first place and size (the button "Reset frame positions" of the settings).
+function ns.ResetMapWindow()
+  if type(ForeverAtlasDB) == "table" and type(ForeverAtlasDB.frames) == "table" then
+    ForeverAtlasDB.frames.map = nil
+  end
+  if window then
+    restoreWindow()
+  end
+end
+
 local function create()
   window = CreateFrame("Frame", "ForeverAtlasMap", UIParent)
   window:SetFrameStrata("HIGH")
-  window:SetSize(math.max(640, UIParent:GetWidth() * 0.72), math.max(480, UIParent:GetHeight() * 0.8))
-  window:SetPoint("CENTER")
+  restoreWindow()
   window:SetMovable(true)
+  window:SetResizable(true)
+  if window.SetResizeBounds then
+    window:SetResizeBounds(WINDOW_LEAST_WIDE, WINDOW_LEAST_HIGH)
+  end
   window:SetClampedToScreen(true)
   window:EnableMouse(true)
   window:RegisterForDrag("LeftButton")
   window:SetScript("OnDragStart", window.StartMoving)
-  window:SetScript("OnDragStop", window.StopMovingOrSizing)
+  window:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    saveWindow()
+  end)
   window:Hide()
+  applyWindowLook()
+  -- The corner to change the size of the window.
+  local grip = CreateFrame("Button", nil, window)
+  grip:SetSize(16, 16)
+  grip:SetPoint("BOTTOMRIGHT", -2, 2)
+  grip:SetFrameLevel(window:GetFrameLevel() + 30)
+  grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+  grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+  grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+  grip:SetScript("OnMouseDown", function()
+    window:StartSizing("BOTTOMRIGHT")
+  end)
+  grip:SetScript("OnMouseUp", function()
+    window:StopMovingOrSizing()
+    saveWindow()
+  end)
+  window.grip = grip
   tinsert(UISpecialFrames, "ForeverAtlasMap") -- Escape closes the map
 
   local back = window:CreateTexture(nil, "BACKGROUND")
@@ -1352,7 +1497,7 @@ local function create()
   window.info = window:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   window.info:SetPoint("BOTTOMLEFT", 10, 8)
   local hint = window:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-  hint:SetPoint("BOTTOMRIGHT", -10, 8)
+  hint:SetPoint("BOTTOMRIGHT", -22, 8)
   hint:SetText("Wheel: zoom    Drag: move    Click: open a zone    Right-click: zoom out    Alt-click: note")
 
   viewport:SetScript("OnMouseWheel", function(_, delta)
@@ -1490,6 +1635,8 @@ function ns.PrintMapStatus()
   end
   table.sort(parts)
   print(string.format("  pins: %d (%s); zone names: %d", #pins, #parts > 0 and table.concat(parts, ", ") or "none", #labels))
+  print(string.format("  quest areas: %s; window opacity %s%%, size %s%%", questBlob == false and "this client cannot draw them"
+    or not ns.GetOption("questAreas") and "off" or tostring(view.questAreas or 0), tostring(ns.GetOption("mapOpacity")), tostring(ns.GetOption("mapScale"))))
   -- Each kind of pin: what the icon of its first pin asked for, what the game shows for it, and
   -- how many of its pins are outside the window. A missing atlas falls back to a picture file;
   -- a file the game does not have shows nothing or a green square.
@@ -1781,8 +1928,20 @@ end
 ns.OnOption(function(key)
   if key == "mapKey" then
     bindKeys()
-  elseif key == "notes" or key == "pins" or key == "zoneNames" or key:find("^show_") then
+  elseif key == "notes" or key == "pins" or key == "zoneNames" or key == "questAreas" or key:find("^show_") then
     ns.RefreshMapPins()
+  elseif key == "mapOpacity" or key == "mapScale" then
+    applyWindowLook()
+  elseif key == "revealAll" or key == "revealBright" then
+    -- The land of the zone shown and of the zones around it, drawn again.
+    if window and view.mapID and exploredFrame then
+      local used = drawExplored(view.mapID, exploredFrame, overlays, 0, view.tileWidth, view.tileHeight, 0, 0, 1, 1)
+      for index = used + 1, #overlays do
+        overlays[index]:Hide()
+      end
+      loadNeighbours()
+      dirty = true
+    end
   elseif key == "terrainDetail" then
     if window and view.mapID then
       view.terrain = loadTerrain(view.mapID)

@@ -2,7 +2,7 @@
 ## Title: Forever Atlas
 ## Notes: A map window with smooth zoom in the place of the world map, coordinates on the map and on screen, waypoints with a direction arrow, map notes, and pins for every area you have visited.
 ## Author: Christian Presley
-## Version: 0.5.10
+## Version: 0.5.11
 ## Category: Map
 ## SavedVariables: ForeverAtlasDB
 ## SavedVariablesPerCharacter: ForeverAtlasCharDB
@@ -20,6 +20,7 @@ MapKinds.lua
 TerrainData.lua
 RevealData.lua
 Map.lua
+Minimap.lua
 SettingsKit.lua
 Settings.lua
 Commands.lua

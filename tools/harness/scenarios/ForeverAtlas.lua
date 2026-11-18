@@ -231,7 +231,8 @@ expect(count("flight") == 1, "and back with the option on")
 -- The menu of the button "Show" has a checkbox for each kind.
 H.menus = {}
 H.click(ForeverAtlasMap.show, "LeftButton", false)
-expect(#H.menus == 1 and #H.menus[1] == #ns.MAP_KINDS + 5, "the menu has a checkbox for each kind and five more, got " .. tostring(H.menus[1] and #H.menus[1]))
+-- The title and seven more checkboxes, and the choices of the two lists of percents (opacity: 5, size: 7).
+expect(#H.menus == 1 and #H.menus[1] == #ns.MAP_KINDS + 8 + 12, "the menu has a checkbox for each kind, eight more and the two lists of percents, got " .. tostring(H.menus[1] and #H.menus[1]))
 H.menus = {}
 -- In a party: the member. As a ghost: the corpse.
 T.world.group = "party"
@@ -617,4 +618,69 @@ do
   ns.ForgetNpcs()
   expect(ns.CountNpcs() == 0 and count("npcs") == 0, "after forgetting them none is left")
   ForeverAtlasMap:Hide()
+end
+
+-- The map window: opacity, scale, a size and a place kept for the next time; the land that is
+-- not explored; the areas of the quest objectives; the minimap.
+do
+  ns.ShowMap(37)
+  local window = ForeverAtlasMap
+  ns.SetOption("mapOpacity", 55)
+  ns.SetOption("mapScale", 130)
+  expect(math.abs(window:GetAlpha() - 0.55) < 0.001 and math.abs(window:GetScale() - 1.3) < 0.001, "the options set the opacity and the scale of the map window")
+  ns.SetOption("mapOpacity", 10)
+  expect(ns.GetOption("mapOpacity") == 30, "the opacity of the window has a least value, got " .. tostring(ns.GetOption("mapOpacity")))
+  ns.SetOption("mapOpacity", 100)
+  ns.SetOption("mapScale", 100)
+  expect(window.grip ~= nil and window.grip:IsShown(), "the window can change its size from its corner")
+  H.run(window.grip, "OnMouseDown", "LeftButton")
+  window:SetSize(900, 600)
+  H.run(window.grip, "OnMouseUp", "LeftButton")
+  local saved = ForeverAtlasDB.frames.map
+  expect(type(saved) == "table" and saved[5] == 900 and saved[6] == 600, "the size of the window is kept")
+  ns.ResetMapWindow()
+  expect(ForeverAtlasDB.frames.map == nil and window:GetWidth() ~= 900, "the window goes back to its first size")
+
+  -- The land that is not explored: on, off, and as bright as the rest.
+  ns.ShowMap(52)
+  local _, _, stitched = ns.MapNeighbours()
+  ns.SetOption("revealAll", false)
+  local _, _, after = ns.MapNeighbours()
+  expect(after == false, "without the land that is not explored a zone keeps its own sheet")
+  ns.SetOption("revealAll", true)
+  local _, _, again = ns.MapNeighbours()
+  expect(again == stitched, "with it the zone is drawn as before")
+  ns.SetOption("revealBright", true)
+  ns.SetOption("revealBright", false)
+
+  -- The areas of the quest objectives.
+  ns.ShowMap(37)
+  ns.RefreshMapPins()
+  T.slash("/fatlas", "status")
+  expect(T.printed("quest areas: "), "/fatlas status says how many quest areas are drawn")
+  local drawn = ns.MapView().questAreas
+  expect(type(drawn) == "number", "the quest areas are counted, got " .. tostring(drawn))
+  ns.SetOption("questAreas", false)
+  expect(ns.MapView().questAreas == 0, "with the option off no quest area is drawn")
+  ns.SetOption("questAreas", true)
+  ForeverAtlasMap:Hide()
+
+  -- The minimap: nothing changes until an option is on, and everything goes back.
+  local state = ns.MinimapState()
+  expect(not state.square and not state.scale and state.coords == nil, "with the options off the minimap is not touched")
+  ns.SetOption("minimapSquare", true)
+  ns.SetOption("minimapScale", 140)
+  ns.SetOption("minimapCoords", true)
+  state = ns.MinimapState()
+  if state.owner then
+    expect(not state.square, "another addon that shapes the minimap keeps it")
+  else
+    expect(state.square and state.scale and GetMinimapShape and GetMinimapShape() == "SQUARE", "a square, larger minimap tells other addons its shape")
+    expect(type(state.coords) == "string" and state.coords:find("^%d+%.%d, %d+%.%d$"), "the coordinates show under the minimap, got " .. tostring(state.coords))
+  end
+  ns.SetOption("minimapSquare", false)
+  ns.SetOption("minimapScale", 100)
+  ns.SetOption("minimapCoords", false)
+  state = ns.MinimapState()
+  expect(not state.square and not state.scale and state.coords == nil and GetMinimapShape == nil, "turned off, the minimap is given back")
 end
