@@ -949,12 +949,16 @@ end
 -- for a button (AddRightEdgeFrame), a number below zero.
 do
   local tracker = QuestObjectiveTracker
-  -- OBJECTIVE_TRACKER_COLOR of the game: the header of a block and a line, each with the
-  -- style under the pointer as `reverse`.
+  -- OBJECTIVE_TRACKER_COLOR of the game (Blizzard_ObjectiveTrackerShared.lua): the header of a
+  -- block and a line, each with the style under the pointer as `reverse`, and the line of a
+  -- quest that is ready, which has no other style. The game's file gives 0.8 and 0.6; the
+  -- other numbers are colours of the client by name (OBJECTIVE_TRACKER_BLOCK_HEADER_COLOR,
+  -- NORMAL_FONT_COLOR, HIGHLIGHT_FONT_COLOR), which no file of the game holds.
   local NORMAL, NORMAL_HIGHLIGHT = { r = 0.8, g = 0.8, b = 0.8 }, { r = 1, g = 1, b = 1 }
   local HEADER, HEADER_HIGHLIGHT = { r = 0.75, g = 0.61, b = 0 }, { r = 1, g = 0.82, b = 0 }
   NORMAL.reverse, NORMAL_HIGHLIGHT.reverse = NORMAL_HIGHLIGHT, NORMAL
   HEADER.reverse, HEADER_HIGHLIGHT.reverse = HEADER_HIGHLIGHT, HEADER
+  local COMPLETE = { r = 0.6, g = 0.6, b = 0.6 }
   local TEXT_HEIGHT = 12
 
   -- ObjectiveTrackerBlockMixin:SetStringText
@@ -1016,7 +1020,7 @@ do
     return block
   end
   -- ObjectiveTrackerBlockMixin:GetLine and AddObjective.
-  local function addObjective(block, objectiveKey, text)
+  local function addObjective(block, objectiveKey, text, colorStyle)
     local line = block.usedLines[objectiveKey]
     if not line then
       line = CreateFrame("Frame", nil, block, tracker.lineTemplate)
@@ -1031,7 +1035,7 @@ do
     line:SetPoint("RIGHT", block.rightEdgeOffset, 0)
     line:SetHeight(TEXT_HEIGHT)
     line:Show()
-    setStringText(line.Text, text, NORMAL, block.isHighlighted)
+    setStringText(line.Text, text, colorStyle, block.isHighlighted)
     block.height = block.height + tracker.lineSpacing + TEXT_HEIGHT
   end
 
@@ -1063,7 +1067,9 @@ do
         block.HeaderText:SetPoint("RIGHT", block.rightEdgeOffset, 0)
         block.height = setStringText(block.HeaderText, entry.title, HEADER, block.isHighlighted)
         if C_QuestLog.IsComplete(questID) then
-          addObjective(block, "QuestComplete", "Ready for turn-in")
+          -- QuestObjectiveTrackerMixin:UpdateSingle, for a quest without a text of its own
+          -- for this: the key "QuestComplete", QUEST_WATCH_QUEST_READY, the colour "Complete".
+          addObjective(block, "QuestComplete", "Ready for turn-in", COMPLETE)
         else
           for index, objective in ipairs(C_QuestLog.GetQuestObjectives(questID)) do
             if not objective.finished then
