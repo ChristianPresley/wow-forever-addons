@@ -31,7 +31,7 @@ function ns.UndercutAuctions()
       active = active + 1
       local entry = type(mine) == "number" and mine > 0 and ns.Lookup(itemID)
       if entry and entry.price < mine then
-        undercut[#undercut + 1] = { itemID = itemID, link = info.itemLink, mine = mine, low = entry.price, seen = entry.seen }
+        undercut[#undercut + 1] = { itemID = itemID, link = info.itemLink, mine = mine, low = entry.price, seen = entry.seen, auctionID = info.auctionID }
       end
     end
   end

@@ -18,6 +18,9 @@ ns.DEFAULTS = {
   dealPercent = 70, -- an item is a deal at this percentage of its average price, or lower
   ledger = true, -- record sales and purchases from the auction house mail
   ledgerDays = 60, -- days that the ledger keeps a sale or a purchase
+  mailButton = true, -- the "Open auction mail" button at the mailbox
+  craftCost = true, -- crafting cost and profit in tooltips and the price window
+  actionsPanel = true, -- the panel with quick buy, the post queue and cancelling, beside the auction house
 }
 
 -- Lowest and highest value of the number options that have a range.

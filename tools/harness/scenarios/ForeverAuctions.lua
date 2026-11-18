@@ -173,6 +173,122 @@ if fillButton then
   H.click(fillButton, "LeftButton", false)
   expect(H.count("price filled") == before + 1 and H.did[#H.did][2] == 144, "a click writes 144 into the price field, got " .. tostring(H.did[#H.did][2]))
 end
+-- The functions that need a click of the player (buy, post, cancel) and the mail and profession
+-- functions are not in the stand-in: this scenario stands in for them and notes each call.
+local calls = {}
+local function note(name)
+  return function(...)
+    calls[#calls + 1] = { name, ... }
+  end
+end
+local function called(name)
+  local n, last = 0, nil
+  for _, call in ipairs(calls) do
+    if call[1] == name then
+      n, last = n + 1, call
+    end
+  end
+  return n, last
+end
+
+-- Cancel undercut: the own auction at 160 is above the stored 140.
+C_AuctionHouse.CanCancelAuction = function() return true end
+C_AuctionHouse.CancelAuction = note("cancel")
+expect(ns.CancelNextUndercut() == true and select(2, called("cancel"))[2] == 1, "the undercut auction (ID 1) is cancelled")
+
+-- Quick buy: a price alert at 150 takes the 20 Linen Cloth at 145 of the other seller, not the own 5 at 160.
+C_AuctionHouse.StartCommoditiesPurchase = note("start purchase")
+C_AuctionHouse.ConfirmCommoditiesPurchase = note("confirm purchase")
+C_AuctionHouse.CancelCommoditiesPurchase = note("cancel purchase")
+ns.SetWatch(2589, 150)
+T.fire("COMMODITY_SEARCH_RESULTS_UPDATED", 2589)
+local quantity, total = ns.QuickBuyOffer(2589)
+expect(quantity == 20 and total == 2900, "quick buy offers 20 for 2900, got " .. tostring(quantity) .. " for " .. tostring(total))
+ns.QuickBuyClick()
+expect(called("start purchase") == 1 and ns.QuickBuyState() == "waiting", "the first click asks the game for the final price")
+T.fire("COMMODITY_PRICE_UPDATED", 145, 2900)
+expect(ns.QuickBuyState() == "confirm", "the final price at the target waits for a second click")
+expect(called("confirm purchase") == 0, "nothing is bought before the second click")
+ns.QuickBuyClick()
+expect(called("confirm purchase") == 1 and select(2, called("confirm purchase"))[3] == 20, "the second click buys the 20")
+T.fire("COMMODITY_PURCHASE_SUCCEEDED")
+expect(ns.QuickBuyState() == "idle" and T.printed("bought 20"), "the purchase is reported")
+ns.QuickBuyClick()
+T.fire("COMMODITY_PRICE_UPDATED", 180, 3600)
+expect(ns.QuickBuyState() == "idle" and called("cancel purchase") == 1 and called("confirm purchase") == 1,
+  "a final price above the target cancels the purchase")
+ns.SetWatch(2589, nil)
+
+-- Crafting cost: a Bolt of Linen Cloth (2996) from 2 Linen Cloth.
+C_TradeSkillUI = C_TradeSkillUI or {}
+C_TradeSkillUI.GetRecipeInfo = function(recipeID) return { recipeID = recipeID, learned = recipeID == 2963 } end
+C_TradeSkillUI.GetRecipeSchematic = function(recipeID)
+  return { recipeID = recipeID, outputItemID = 2996, quantityMin = 1, quantityMax = 1, reagentSlotSchematics = {
+    { reagentType = 1, required = true, quantityRequired = 2, reagents = { { itemID = 2589 } } },
+    { reagentType = 0, required = false, quantityRequired = 1, reagents = { { itemID = 769 } } },
+  } }
+end
+-- The profession window says which recipe the player selects; a recipe not learned is left out.
+EventRegistry:TriggerEvent("ProfessionsRecipeListMixin.Event.OnRecipeSelected", { recipeID = 9999 })
+expect(ns.CraftCost(2996) == nil, "a recipe that is not learned is not stored")
+EventRegistry:TriggerEvent("ProfessionsRecipeListMixin.Event.OnRecipeSelected", { recipeID = 2963 })
+ns.Record(2996, 400)
+local lowLinen = ns.Lookup(2589).price
+local cost, complete = ns.CraftCost(2996)
+expect(cost == 2 * lowLinen and complete, "the bolt costs two Linen Cloth, the optional reagent is left out, got " .. tostring(cost))
+expect(ns.CraftProfit(2996) == 380 - 2 * lowLinen, "the profit is 95% of 400 minus the reagents, got " .. tostring(ns.CraftProfit(2996)))
+expect(ns.CraftCost(769) == nil, "an item without a known recipe has no crafting cost")
+
+-- Post queue: the Linen Cloth of two stacks is one post of 32; the Boar Meat is the second.
+C_AuctionHouse.GetItemCommodityStatus = function() return 2 end
+C_AuctionHouse.IsSellItemValid = function() return true end
+C_AuctionHouse.MakeItemKey = function(itemID) return { itemID = itemID, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0 } end
+C_AuctionHouse.SendSearchQuery = note("search")
+C_AuctionHouse.PostCommodity = function(...)
+  note("post")(...)
+  return false
+end
+C_AuctionHouse.PostItem = note("post item")
+expect(ns.BuildPostQueue() == 2, "two items of the bags have a price and can be posted, got " .. tostring(#ns.PostQueue()))
+local queue = ns.PostQueue()
+expect(queue[1].itemID == 2589 and queue[1].quantity == 32, "Linen Cloth is one entry of 32")
+ns.PostClick()
+expect(called("search") == 1 and called("post") == 0, "the first click searches, it does not post")
+T.fire("COMMODITY_SEARCH_RESULTS_UPDATED", 2589)
+local _, _, postState, postPrice = ns.PostQueue()
+expect(postState == "ready" and postPrice == 144, "the post price is the undercut of the lowest other seller (144), got " .. tostring(postPrice))
+ns.PostClick()
+local _, postCall = called("post")
+expect(postCall and postCall[3] == 2 and postCall[4] == 32 and postCall[5] == 144, "the second click posts 32 at 144 for 24 hours")
+T.fire("AUCTION_HOUSE_AUCTION_CREATED", 7)
+expect(select(2, ns.PostQueue()) == 2, "after the post the queue goes to the next item")
+ns.PostSkip()
+expect(select(2, ns.PostQueue()) == 3, "Skip leaves an item")
+
+-- Open auction mail: the ledger reads the invoice, then the gold is taken.
+MailFrame:Show()
+T.fire("MAIL_SHOW")
+T.advance(1)
+ns.OpenAuctionMail()
+T.advance(2)
+expect(H.count("take inbox money") == 1 and H.count("loot mail") == 0, "the gold of the auction mail is taken")
+expect(#ns.Ledger() == 1 and not ns.MailRunning(), "the sale is in the ledger once, and the opening is done")
+T.slash("/fah", "mail")
+T.advance(2)
+
+-- Export and import of the prices.
+local text, exported = ns.ExportPrices()
+expect(text:sub(1, 5) == "FAH1:" and exported >= 3 and text:find("2996,400,"), "the export holds every stored price")
+expect(ns.ImportPrices("hello") == nil, "a text that is not an export is refused")
+expect(ns.ImportPrices("FAH1:1,2,x") == nil, "a damaged export is refused")
+wipe(ns.Prices())
+local read, changed = ns.ImportPrices(text)
+expect(read == exported and changed == exported and ns.Lookup(2996).price == 400, "the import brings every price back")
+local _, changedAgain = ns.ImportPrices(text)
+expect(changedAgain == 0, "an import of the same prices changes nothing")
+T.slash("/fah", "export")
+T.slash("/fah", "import")
+
 -- /fah clear deletes the stored prices only with "yes".
 T.slash("/fah", "clear")
 expect(ns.Lookup(2589) ~= nil and T.printed("Type /fah clear yes"), "/fah clear alone deletes nothing and says how to delete")

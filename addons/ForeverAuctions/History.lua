@@ -4,7 +4,7 @@ local _, ns = ...
 -- high and average of the stored daily lows.
 
 local FRAME_NAME = "ForeverAuctionsHistoryFrame"
-local WIDTH, HEIGHT = 820, 526
+local WIDTH, HEIGHT = 932, 526
 local ROW_HEIGHT = 20
 local LIST_TOP = 112 -- from the top of the window to the first row
 local LIST_BOTTOM = 30
@@ -25,6 +25,7 @@ local COLUMNS = {
   { key = "high", label = "High", width = MONEY_WIDTH, descending = true },
   { key = "avg", label = "Average", width = MONEY_WIDTH, descending = true },
   { key = "pct", label = "Of avg", width = 60, descending = false },
+  { key = "profit", label = "Craft profit", width = MONEY_WIDTH, descending = true },
 }
 local DEAL_MIN_DAYS = 2 -- an average of one day says nothing about a deal
 
@@ -348,6 +349,7 @@ local function reload()
         id = itemID, price = entry.price, seen = entry.seen or 0, low = low, high = high, avg = average,
         days = days,
         pct = average > 0 and math.floor(entry.price / average * 100 + 0.5) or 100,
+        profit = ns.GetOption("craftCost") and ns.CraftProfit(itemID) or nil,
       }
       if not info[itemID] then
         queue[#queue + 1] = itemID
@@ -585,6 +587,13 @@ local function setupRow(row, item)
   row.low:SetText(ns.Money(item.low))
   row.high:SetText(ns.Money(item.high))
   row.avg:SetText(ns.Money(item.avg))
+  if item.profit then
+    row.profit:SetText((item.profit < 0 and "-" or "") .. ns.Money(math.abs(item.profit)))
+    row.profit:SetTextColor(item.profit >= 0 and 0.3 or 0.9, item.profit >= 0 and 0.9 or 0.4, 0.3)
+  else
+    row.profit:SetText("-")
+    row.profit:SetTextColor(0.6, 0.6, 0.6)
+  end
 end
 
 -- The game's scroll box draws only the rows in view and reuses their frames. Nil if this client lacks a part of it.

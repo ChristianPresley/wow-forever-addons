@@ -69,6 +69,18 @@ local function addLines(tooltip, itemID)
     end
     added = true
   end
+  local cost, complete = showAuction and ns.GetOption("craftCost") and ns.CraftCost(itemID)
+  if cost then
+    local profit = ns.CraftProfit(itemID)
+    if profit then
+      tooltip:AddDoubleLine("Crafting cost", ns.Money(cost), 0.6, 0.6, 0.6, 1, 1, 1)
+      tooltip:AddDoubleLine(profit >= 0 and "Crafting profit" or "Crafting loss", ns.Money(math.abs(profit)),
+        0.6, 0.6, 0.6, profit >= 0 and 0.3 or 1, profit >= 0 and 0.9 or 0.4, 0.3)
+    else
+      tooltip:AddDoubleLine(complete and "Crafting cost" or "Crafting cost (some reagents have no price)", ns.Money(cost), 0.6, 0.6, 0.6, 1, 1, 1)
+    end
+    added = true
+  end
   local target = showAuction and ns.GetOption("priceAlerts") and ns.WatchTarget(itemID)
   if target then
     tooltip:AddDoubleLine("Price alert at", ns.Money(target), 0.4, 0.8, 1, 1, 1, 1)

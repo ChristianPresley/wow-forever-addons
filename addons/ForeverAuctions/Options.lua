@@ -176,6 +176,46 @@ local function buildBuying()
     },
   })
 
+  buying:Header("Actions panel")
+  buying:Check({
+    label = "Quick buy, post queue and cancelling beside the auction house",
+    hint = "A panel below the shopping list. Each button does one step per click: buy a commodity up to its target price, post the items of your bags at an undercut, or cancel an undercut auction.",
+    get = function()
+      return ns.GetOption("actionsPanel")
+    end,
+    set = function(value)
+      ns.SetOption("actionsPanel", value)
+    end,
+  })
+  buying:Check({
+    label = "Crafting cost and profit",
+    hint = "Select a recipe in a profession window and the addon notes its reagents. Tooltips and the price window then show the cost of the reagents and the profit at the auction house.",
+    get = function()
+      return ns.GetOption("craftCost")
+    end,
+    set = function(value)
+      ns.SetOption("craftCost", value)
+    end,
+  })
+
+  buying:Header("Share prices")
+  buying:Buttons({
+    {
+      label = "Export prices",
+      hint = "Shows the stored prices of this realm and faction as text to copy. /fah export does the same.",
+      click = function()
+        ns.ShowExport()
+      end,
+    },
+    {
+      label = "Import prices",
+      hint = "Reads the text of an export. A newer price replaces the stored one. /fah import does the same.",
+      click = function()
+        ns.ShowImport()
+      end,
+    },
+  })
+
   buying:Header("Bags")
   buying:Buttons({
     {
@@ -201,6 +241,16 @@ local function buildLedger()
     end,
     set = function(value)
       ns.SetOption("ledger", value)
+    end,
+  })
+  ledgerPage:Check({
+    label = "\"Open auction mail\" button at the mailbox",
+    hint = "Takes the gold and items of every auction house mail, one after the other. The ledger records each sale and purchase first. Other mail stays. /fah mail does the same.",
+    get = function()
+      return ns.GetOption("mailButton")
+    end,
+    set = function(value)
+      ns.SetOption("mailButton", value)
     end,
   })
   ledgerPage:Slider({

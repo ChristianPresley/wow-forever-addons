@@ -15,6 +15,10 @@ local function help()
   print("  /fah record - turn the recording of sales and purchases on or off. /fah ledgerdays [number] sets the days kept")
   print("  /fah dealpercent [number] - set the percentage of the average that makes a deal")
   print("  /fah panel, /fah alerts, /fah undercutcheck - turn the shopping list panel, the price alerts or the undercut message on or off")
+  print("  /fah export, /fah import - copy the stored prices as text to another character, or read such a text")
+  print("  /fah mail - take the gold and items of all auction house mail (at a mailbox)")
+  print("  /fah craft - turn the crafting cost and profit on or off. Select recipes in a profession window so they are known")
+  print("  /fah actions - turn the panel with quick buy, the post queue and cancelling on or off")
   print("  /fah stats - show how many prices are stored for this realm")
   print("  /fah tooltip - turn the tooltip auction price on or off")
   print("  /fah vendor - turn the tooltip vendor price on or off")
@@ -62,6 +66,9 @@ local TOGGLES = {
   alerts = { key = "priceAlerts", name = "price alerts" },
   undercutcheck = { key = "undercutCheck", name = "message about your undercut auctions" },
   record = { key = "ledger", name = "recording of sales and purchases" },
+  craft = { key = "craftCost", name = "crafting cost and profit" },
+  actions = { key = "actionsPanel", name = "actions panel" },
+  mailbutton = { key = "mailButton", name = "\"Open auction mail\" button" },
 }
 
 -- /fah ledgerdays 90
@@ -184,6 +191,12 @@ SlashCmdList["FOREVERAUCTIONS"] = function(input)
     else
       ns.ToggleLedger()
     end
+  elseif command == "export" then
+    ns.ShowExport()
+  elseif command == "import" then
+    ns.ShowImport()
+  elseif command == "mail" then
+    ns.OpenAuctionMail()
   elseif command == "ledgerdays" then
     ledgerDays(rest)
   elseif command == "dealpercent" then

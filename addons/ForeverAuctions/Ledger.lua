@@ -488,6 +488,19 @@ end)
 
 local pending = false
 
+-- Reads the invoices now, before a mail is taken (Mail.lua). Returns the number of new lines.
+function ns.ReadLedgerMail()
+  if not (ForeverAuctionsDB and ns.GetOption("ledger")) then
+    return 0
+  end
+  local ok, added = pcall(readInbox)
+  if ok and added > 0 then
+    ns.RefreshLedger()
+    return added
+  end
+  return 0
+end
+
 local function onMail()
   pending = false
   if not (ForeverAuctionsDB and ns.GetOption("ledger")) then
