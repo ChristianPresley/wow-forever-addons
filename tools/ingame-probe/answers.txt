@@ -1,5 +1,7 @@
 # What the game client answered to tools/ingame-probe/ForeverProbe (/foreverprobe).
-# Client 1.60.1, build 70938, interface 16001, 2026-11-16. One line for each case.
+# Client 1.60.1, build 70959, interface 16001, 2026-11-17. One line for each case: the first
+# line of what the game printed. The cases "secret, out of a fight" are of /foreverprobe with no
+# target; the cases "secret, in a fight" are of a fight with an NPC outside an instance.
 # The text after "error" is the game's own; only "<name> = error" is compared.
 SetPoint with a lower-case point = ok: TOPLEFT, <Frame>, TOPLEFT, 0, 0
 CreateAnimation with a lower-case type = ok: Alpha
@@ -17,9 +19,9 @@ IsObjectType('ItemButton') and ('Button') of an ItemButton = ok: false, true
 SetAlpha(2), then GetAlpha = ok: 1
 SetAllPoints with the name of a frame = ok: 2, <Frame>, TOPLEFT, 0, 0
 SetAllPoints(true) = ok
-SetParent with the name of a frame = error: Interface/AddOns/ForeverProbe/Core.lua:122: bad argument #1 to 'SetParent' (Attempt to find 'this' in non-table object (used '.' instead of ':' ?) - Usage: self:SetParent([parent]))
-Two frames anchored to each other = error: Interface/AddOns/ForeverProbe/Core.lua:127: Action[SetPoint] failed because[Cannot anchor to a region dependent on it]: attempted from: Frame:SetPoint.
-A frame anchored to itself = error: Interface/AddOns/ForeverProbe/Core.lua:131: Action[SetPoint] failed because[Cannot anchor to itself]: attempted from: Frame:SetPoint.
+SetParent with the name of a frame = error: Interface/AddOns/ForeverProbe/Core.lua:254: bad argument #1 to 'SetParent' (Attempt to find 'this' in non-table object (used '.' instead of ':' ?) - Usage: self:SetParent([parent]))
+Two frames anchored to each other = error: Interface/AddOns/ForeverProbe/Core.lua:259: Action[SetPoint] failed because[Cannot anchor to a region dependent on it]: attempted from: Frame:SetPoint.
+A frame anchored to itself = error: Interface/AddOns/ForeverProbe/Core.lua:263: Action[SetPoint] failed because[Cannot anchor to itself]: attempted from: Frame:SetPoint.
 SetFrameStrata('WORLD') = ok
 SetOwner with ANCHOR_CURSOR_LEFT = ok
 SetScript with a script that the frame does not have = error: Frame:SetScript(): Cannot assign script handler for 'onclick' (script type not supported by this object)
@@ -29,3 +31,65 @@ The same point set twice: GetNumPoints = ok: 1
 GetText of a font string and of a button without a text = ok
 A tooltip after SetOwner and AddLine: IsShown = ok: false
 Click of a disabled button: calls of OnClick = ok: 0
+AbbreviateNumbers without rules: 0.123456, 345.678901, 1234.56789, 12345.6789, 2567890.123 = ok: 0.123456, 345.678901, 1.2K, 12K, 2.5M
+CreateAbbreviateConfig with a breakpoint of 0 = error: CreateAbbreviateConfig(): Invalid Breakpoint - must be greater than zero and finite
+AbbreviateNumbers with a config with a breakpoint of 0: the same five numbers = error: CreateAbbreviateConfig(): Invalid Breakpoint - must be greater than zero and finite
+AbbreviateNumbers with breakpointData with a breakpoint of 0: the same five numbers = ok: 0, 345, 1.23K, 12.3K, 2.56M
+string.format('%.2f') and '..' of a text from AbbreviateNumbers = ok: 345.68, 1.2K!
+The CVar showQuestObjectivesInLog: its default, its value now = ok: 1, 1
+secret, out of a fight: the target = ok: none
+secret, out of a fight: UnitHealth('player') = ok: secret
+secret, out of a fight: UnitHealth('target') = ok: secret
+secret, out of a fight: UnitHealthMax('player') = ok: plain
+secret, out of a fight: UnitHealthMax('target') = ok: secret
+secret, out of a fight: UnitName('player') = ok: plain plain
+secret, out of a fight: UnitName('target') = ok: nil nil
+secret, out of a fight: UnitGUID('target') = ok: nil
+secret, out of a fight: UnitClass('target') = ok: nothing
+secret, out of a fight: UnitPower('player') = ok: secret
+secret, out of a fight: UnitArmor('player') = ok: plain plain plain plain
+secret, out of a fight: GetCritChance() = ok: plain
+secret, out of a fight: UnitThreatSituation('player') = ok: nil
+secret, out of a fight: UnitThreatSituation('player', 'target') = ok: nil
+secret, out of a fight: UnitCastingInfo('target') = ok: nothing
+secret, out of a fight: UnitIsUnit('player', 'target') = ok: plain
+secret, out of a fight: UnitInRange('player') = ok: secret secret
+secret, out of a fight: the first buff of the player: name, duration, spellId = ok: plain plain plain
+secret, out of a fight: C_Spell.GetSpellCooldown(6603): startTime, duration = ok: plain plain
+secret, out of a fight: a secret number == 1 = error: Interface/AddOns/ForeverProbe/Core.lua:116: attempt to compare local 'health' (a secret number value, while execution tainted by 'ForeverProbe')
+secret, out of a fight: a secret number ~= nil = ok: plain
+secret, out of a fight: a secret number as a table key = error: Interface/AddOns/ForeverProbe/Core.lua:120: attempted to perform indexed assignment on a table that cannot be indexed with secret keys
+secret, out of a fight: type of a secret number = ok: number
+secret, out of a fight: tostring of a secret number = ok: secret
+secret, out of a fight: string.format('%d') of a secret number = ok: secret
+secret, out of a fight: a secret number .. '' = ok: secret
+secret, out of a fight: AbbreviateNumbers of a secret number = ok: secret
+secret, out of a fight: if with a secret boolean = error: Interface/AddOns/ForeverProbe/Core.lua:135: attempt to perform boolean test on local 'inRange' (a secret boolean value, while execution tainted by 'ForeverProbe')
+secret, in a fight: the target = ok: an NPC
+secret, in a fight: UnitHealth('player') = ok: secret
+secret, in a fight: UnitHealth('target') = ok: secret
+secret, in a fight: UnitHealthMax('player') = ok: plain
+secret, in a fight: UnitHealthMax('target') = ok: secret
+secret, in a fight: UnitName('player') = ok: plain plain
+secret, in a fight: UnitName('target') = ok: plain nil
+secret, in a fight: UnitGUID('target') = ok: plain
+secret, in a fight: UnitClass('target') = ok: plain plain plain
+secret, in a fight: UnitPower('player') = ok: secret
+secret, in a fight: UnitArmor('player') = ok: secret secret secret secret
+secret, in a fight: GetCritChance() = ok: secret
+secret, in a fight: UnitThreatSituation('player') = ok: plain
+secret, in a fight: UnitThreatSituation('player', 'target') = ok: plain
+secret, in a fight: UnitCastingInfo('target') = ok: nothing
+secret, in a fight: UnitIsUnit('player', 'target') = ok: plain
+secret, in a fight: UnitInRange('player') = ok: secret secret
+secret, in a fight: the first buff of the player: name, duration, spellId = error: GetAuraDataByIndex(): Auras cannot be accessed when secret while tainted by 'ForeverProbe'
+secret, in a fight: C_Spell.GetSpellCooldown(6603): startTime, duration = ok: secret secret
+secret, in a fight: a secret number == 1 = error: Interface/AddOns/ForeverProbe/Core.lua:116: attempt to compare local 'health' (a secret number value, while execution tainted by 'ForeverProbe')
+secret, in a fight: a secret number ~= nil = ok: plain
+secret, in a fight: a secret number as a table key = error: Interface/AddOns/ForeverProbe/Core.lua:120: attempted to perform indexed assignment on a table that cannot be indexed with secret keys
+secret, in a fight: type of a secret number = ok: number
+secret, in a fight: tostring of a secret number = ok: secret
+secret, in a fight: string.format('%d') of a secret number = ok: secret
+secret, in a fight: a secret number .. '' = ok: secret
+secret, in a fight: AbbreviateNumbers of a secret number = ok: secret
+secret, in a fight: if with a secret boolean = error: Interface/AddOns/ForeverProbe/Core.lua:135: attempt to perform boolean test on local 'inRange' (a secret boolean value, while execution tainted by 'ForeverProbe')

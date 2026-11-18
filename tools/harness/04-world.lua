@@ -64,20 +64,30 @@ H.itemLink = itemLink
 -- The character and the group
 
 local GROUP_UNITS = { party1 = true, raid1 = true, raid2 = true }
+-- The NPC of the world (H.world.npc): the unit "npc" that the player talks to, and in a fight
+-- the player's target too. Out of a fight the player has no target.
+local function isNpc(unit)
+  return H.world.npc ~= nil and (unit == "npc" or (unit == "target" and H.world.secret == true))
+end
 local function unitExists(unit)
-  return unit == "player" or (H.world.group ~= nil and GROUP_UNITS[unit] == true) or (unit == "npc" and H.world.npc ~= nil)
+  return unit == "player" or (H.world.group ~= nil and GROUP_UNITS[unit] == true) or isNpc(unit)
 end
 setGlobal("UnitExists", unitExists)
 -- UnitDocumentation.lua: the name can be secret for a unit that is not the player's or in the
 -- group, where the game hides who a unit is. Here: the NPC, in a fight.
+-- The game client (tools/ingame-probe/answers.txt): two values for the player, the name and
+-- the realm; the name and nil for an NPC; nil and nil for a unit that is not there.
 setGlobal("UnitName", function(unit)
-  if unit == "player" or (unit == "raid1" and H.world.group == "raid") then
+  if unit == "player" then
+    return "Tester", "TestRealm"
+  elseif unit == "raid1" and H.world.group == "raid" then
     return "Tester", nil
   elseif H.world.group and (unit == "party1" or unit == "raid2") then
     return "Friend", nil
-  elseif unit == "npc" and H.world.npc then
+  elseif isNpc(unit) then
     return hidden(H.world.npc), nil
   end
+  return nil, nil
 end)
 H.allowNil("UnitName", "The game gives no name for a unit that does not exist, and no realm for a unit of the player's own realm: Blizzard_FriendsFrame/Mainline/FriendsFrame.lua tests the realm with `if server and`.")
 setGlobal("GetRealmName", function() return "TestRealm" end)
@@ -95,7 +105,34 @@ setGlobal("UnitFactionGroup", function(unit)
   end
 end)
 H.allowNil("UnitFactionGroup", "The game gives no faction for a unit that does not exist or has none: Blizzard_Calendar/Mainline/Blizzard_Calendar.lua tests the result with `if ( factionGroup and`.")
-setGlobal("UnitGUID", function(unit) return unitExists(unit) and "Player-1-00000001" or nil end)
+setGlobal("UnitGUID", function(unit)
+  if isNpc(unit) then
+    return "Creature-0-1-0-0-240-0000000001"
+  end
+  return unitExists(unit) and "Player-1-00000001" or nil
+end)
+-- The game client (tools/ingame-probe/answers.txt): out of a fight nil, in a fight a plain
+-- number for the player, alone and with its target.
+setGlobal("UnitThreatSituation", function(unit)
+  if H.world.secret and unit == "player" then
+    return 0
+  end
+  return nil
+end)
+-- Nobody casts a spell in this world: the game client gives nothing then (answers.txt).
+setGlobal("UnitCastingInfo", function() end)
+H.allowNil("UnitCastingInfo", "The game client gives nothing for a unit that casts no spell: tools/ingame-probe/answers.txt, the case UnitCastingInfo('target').")
+-- The player has one buff. The game client (answers.txt): out of a fight its fields are plain;
+-- in a fight the call is an error for addon code, with this text.
+set("C_UnitAuras", "GetAuraDataByIndex", function(unit, index, filter)
+  if unit ~= "player" or index ~= 1 or (filter ~= nil and not filter:find("HELPFUL", 1, true)) then
+    return nil
+  end
+  if H.world.secret then
+    fail("GetAuraDataByIndex(): Auras cannot be accessed when secret while tainted by an addon")
+  end
+  return { name = "Well Fed", icon = 136000, applications = 0, duration = 1800, expirationTime = H.now + 900, spellId = 19705, isHelpful = true, isHarmful = false, auraInstanceID = 1 }
+end)
 setGlobal("UnitAffectingCombat", function() return H.world.secret end)
 setGlobal("InCombatLockdown", function() return H.world.secret end)
 setGlobal("UnitIsDeadOrGhost", function() return H.world.dead == true end)
@@ -139,9 +176,12 @@ setGlobal("CanMerchantRepair", function() return true end, "Blizzard_UIPanels_Ga
 
 -- Settings of the game. H.world.cvars has the values; a name that is not there is not a CVar.
 -- showQuestObjectivesInLog: the quest log shows the objectives under each quest. No file of the
--- game gives its default (the probe asks); the quest log of the stand-in has the lines, so it
--- is on here. A scenario can set it to "0".
+-- game gives its default; the game client says "1" (tools/ingame-probe/answers.txt). A
+-- scenario can set it to "0".
 H.world.cvars = { damageMeterEnabled = "1", combinedBags = "1", showQuestObjectivesInLog = "1" }
+-- The defaults are the values of a new character, which the world starts with.
+local CVAR_DEFAULTS = { damageMeterEnabled = "1", combinedBags = "1", showQuestObjectivesInLog = "1" }
+set("C_CVar", "GetCVarDefault", function(name) return CVAR_DEFAULTS[name] end)
 set("C_CVar", "GetCVar", function(name) return H.world.cvars[name] end)
 set("C_CVar", "SetCVar", function(name, value)
   H.world.cvars[name] = realTostring(value)
@@ -221,7 +261,7 @@ end)
 set("C_Map", "GetPlayerMapPosition", function(_, unit)
   if unit == "player" then
     return CreateVector2D(0.42, 0.65)
-  elseif unitExists(unit) and unit ~= "npc" then
+  elseif unitExists(unit) and not isNpc(unit) then
     return CreateVector2D(0.48, 0.69)
   end
 end)
@@ -895,6 +935,170 @@ function QuestLogQuests_Update()
   QuestScrollFrame.headerFramePool.active = headers
   QuestScrollFrame.objectiveFramePool.active = objectives
   QuestScrollFrame.Contents.buttonPool.active = pois
+end
+
+-- Lays out the quest tracker, as ObjectiveTrackerModuleMixin:Update does
+-- (Blizzard_ObjectiveTracker/Blizzard_ObjectiveTrackerModule.lua and
+-- Blizzard_ObjectiveTrackerBlock.lua): one block for each watched quest, in the order of the
+-- quest log. The functions of the game are named beside each part.
+--   module: firstBlock, lastBlock; block: id, parentModule, nextBlock, usedLines,
+--   rightEdgeOffset, HeaderText and HeaderButton (of the template), height.
+-- A text gets its colour only when its style changes (SetStringText), so a colour that an
+-- addon gave a text stays until the style changes or the pointer leaves the header.
+-- H.world.trackerRightEdge[questID]: the room that the game takes at the right of the block
+-- for a button (AddRightEdgeFrame), a number below zero.
+do
+  local tracker = QuestObjectiveTracker
+  -- OBJECTIVE_TRACKER_COLOR of the game: the header of a block and a line, each with the
+  -- style under the pointer as `reverse`.
+  local NORMAL, NORMAL_HIGHLIGHT = { r = 0.8, g = 0.8, b = 0.8 }, { r = 1, g = 1, b = 1 }
+  local HEADER, HEADER_HIGHLIGHT = { r = 0.75, g = 0.61, b = 0 }, { r = 1, g = 0.82, b = 0 }
+  NORMAL.reverse, NORMAL_HIGHLIGHT.reverse = NORMAL_HIGHLIGHT, NORMAL
+  HEADER.reverse, HEADER_HIGHLIGHT.reverse = HEADER_HIGHLIGHT, HEADER
+  local TEXT_HEIGHT = 12
+
+  -- ObjectiveTrackerBlockMixin:SetStringText
+  local function setStringText(fontString, text, colorStyle, useHighlight)
+    fontString:SetText(text)
+    colorStyle = colorStyle or NORMAL
+    if useHighlight and colorStyle.reverse then
+      colorStyle = colorStyle.reverse
+    end
+    if fontString.colorStyle ~= colorStyle then
+      fontString:SetTextColor(colorStyle.r, colorStyle.g, colorStyle.b)
+      fontString.colorStyle = colorStyle
+    end
+    return TEXT_HEIGHT
+  end
+  -- ObjectiveTrackerBlockMixin:UpdateHighlight: the header and each line get the colours of
+  -- the game again, with the pointer on the header and without it.
+  local function updateHighlight(block)
+    local headerColor = block.isHighlighted and HEADER_HIGHLIGHT or HEADER
+    block.HeaderText:SetTextColor(headerColor.r, headerColor.g, headerColor.b)
+    block.HeaderText.colorStyle = headerColor
+    for _, line in pairs(block.usedLines) do
+      local colorStyle = line.Text.colorStyle.reverse
+      if colorStyle then
+        line.Text:SetTextColor(colorStyle.r, colorStyle.g, colorStyle.b)
+        line.Text.colorStyle = colorStyle
+      end
+    end
+  end
+  -- ObjectiveTrackerModuleMixin:GetBlock, and ObjectiveTrackerBlockMixin:Init for a new one.
+  local function getBlock(questID)
+    local block = H.trackerBlocks[questID]
+    if not block then
+      block = CreateFrame("Frame", nil, tracker.ContentsFrame, tracker.blockTemplate)
+      block.parentModule = tracker
+      block.usedLines = {}
+      block.rightEdgeOffset = 0
+      -- OnHeaderEnter and OnHeaderLeave, which the header button of the template calls.
+      block.HeaderButton:SetAllPoints(block.HeaderText)
+      block.HeaderButton:SetScript("OnEnter", function()
+        block.isHighlighted = true
+        updateHighlight(block)
+      end)
+      block.HeaderButton:SetScript("OnLeave", function()
+        block.isHighlighted = false
+        updateHighlight(block)
+      end)
+      H.trackerBlocks[questID] = block
+      H.gameFrameSet[block], H.gameFrameSet[block.HeaderButton] = true, true
+    end
+    block.id = questID
+    -- ObjectiveTrackerBlockMixin:Reset
+    block.nextBlock = nil
+    block.rightEdgeOffset = 0
+    block.height = 0
+    for _, line in pairs(block.usedLines) do
+      line.used = nil
+    end
+    return block
+  end
+  -- ObjectiveTrackerBlockMixin:GetLine and AddObjective.
+  local function addObjective(block, objectiveKey, text)
+    local line = block.usedLines[objectiveKey]
+    if not line then
+      line = CreateFrame("Frame", nil, block, tracker.lineTemplate)
+      line.objectiveKey = objectiveKey
+      line.parentBlock = block
+      block.usedLines[objectiveKey] = line
+      H.gameFrameSet[line] = true
+    end
+    line.used = true
+    line:ClearAllPoints()
+    line:SetPoint("TOPLEFT", block, "TOPLEFT", 0, -(block.height + tracker.lineSpacing))
+    line:SetPoint("RIGHT", block.rightEdgeOffset, 0)
+    line:SetHeight(TEXT_HEIGHT)
+    line:Show()
+    setStringText(line.Text, text, NORMAL, block.isHighlighted)
+    block.height = block.height + tracker.lineSpacing + TEXT_HEIGHT
+  end
+
+  function tracker:Update()
+    H.trackerLayouts = H.trackerLayouts + 1
+    -- BeginLayout
+    self.firstBlock, self.lastBlock = nil, nil
+    local used = {}
+    for _, entry in ipairs(QUEST_LOG) do
+      local questID = entry.questID
+      if not entry.isHeader and H.watched[questID] then
+        local block = getBlock(questID)
+        used[block] = true
+        -- AnchorBlock: under the block before it, the first one under the contents frame.
+        block:ClearAllPoints()
+        if self.lastBlock then
+          block:SetPoint("TOP", self.lastBlock, "BOTTOM", 0, self.fromBlockOffsetY)
+        else
+          block:SetPoint("TOP", self.ContentsFrame, "TOP", 0, self.fromHeaderOffsetY)
+        end
+        block:SetPoint("LEFT", self.blockOffsetX, 0)
+        block:SetPoint("RIGHT")
+        -- The button of a quest with an item to use: AddRightEdgeFrame, before the header.
+        local rightEdge = H.world.trackerRightEdge and H.world.trackerRightEdge[questID]
+        if rightEdge then
+          block.rightEdgeOffset = block.rightEdgeOffset + rightEdge
+        end
+        -- SetHeader
+        block.HeaderText:SetPoint("RIGHT", block.rightEdgeOffset, 0)
+        block.height = setStringText(block.HeaderText, entry.title, HEADER, block.isHighlighted)
+        if C_QuestLog.IsComplete(questID) then
+          addObjective(block, "QuestComplete", "Ready for turn-in")
+        else
+          for index, objective in ipairs(C_QuestLog.GetQuestObjectives(questID)) do
+            if not objective.finished then
+              addObjective(block, index, objective.text)
+            end
+          end
+        end
+        -- FreeUnusedLines
+        for key, line in pairs(block.usedLines) do
+          if not line.used then
+            line:Hide()
+            block.usedLines[key] = nil
+          end
+        end
+        block:SetHeight(block.height)
+        block:Show()
+        -- InternalAddBlock
+        if self.lastBlock then
+          self.lastBlock.nextBlock = block
+        end
+        self.lastBlock = block
+        if not self.firstBlock then
+          self.firstBlock = block
+        end
+      end
+    end
+    -- EndLayout: a block of a quest that is not watched any more is free.
+    for questID, block in pairs(H.trackerBlocks) do
+      if not used[block] then
+        block:Hide()
+        block.nextBlock = nil
+        H.trackerBlocks[questID] = nil
+      end
+    end
+  end
 end
 
 -- Quest givers. C_GossipInfo is in the documentation; the functions of the quest window are not.

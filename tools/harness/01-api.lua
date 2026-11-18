@@ -99,8 +99,14 @@ H.pack = pack
 -- Arithmetic, comparison of order, indexing and a call fail; joining with a text gives a secret
 -- text; `type` gives the type of the hidden value, as in the game.
 --
--- What Lua 5.1 cannot catch: `==` and `~=` with a secret value, a secret value as a table key,
--- and a test of a secret boolean. The driver looks for secret table keys after each phase.
+-- What the game client does (tools/ingame-probe/answers.txt): `==` with a secret value, a
+-- secret value as a table key and a test of a secret boolean (`if value then`) are errors;
+-- `~= nil` gives a plain result without an error; `type` gives the type of the hidden value;
+-- `tostring`, `string.format`, `..` and AbbreviateNumbers give a secret text.
+--
+-- What Lua 5.1 cannot catch, so that the stand-in lets it pass: `==` with a secret value, a
+-- secret value as a table key, and a test of a secret boolean. The driver looks for secret
+-- table keys in the tables of the addon after each phase.
 
 local secrets = setmetatable({}, { __mode = "k" })
 H.secrets = secrets
@@ -249,12 +255,11 @@ local function checkBreakpoints(list, where, always)
     if entry.significandDivisor <= 0 or entry.fractionDivisor <= 0 then
       fail(where .. ": breakpoint " .. index .. " has a divisor that is not above zero")
     end
-    -- CreateAbbreviateConfig refuses a breakpoint of zero, with this text: seen on client
-    -- 1.60.1 on 2026-11-17 (the user's screenshot of "/fmeter status", told by the Forever
-    -- Meter session). The same rules as breakpointData of AbbreviateNumbers worked there, and
-    -- only that the texts had two decimals at most was seen, not the texts. So for
-    -- breakpointData the stand-in takes them, and with H.world.strictAbbreviate it is a client
-    -- that refuses them, so an addon that counts on it is tested both ways.
+    -- CreateAbbreviateConfig refuses a breakpoint of zero, with this text, and breakpointData
+    -- of AbbreviateNumbers takes the same rules: 0.123456 is "0" and 345.678901 is "345" with
+    -- them (the game client, tools/ingame-probe/answers.txt). H.world.strictAbbreviate is from
+    -- before that answer: with it the stand-in is a client that refuses them for breakpointData
+    -- too. The game client is not such a client.
     local positive = entry.breakpoint > 0 and entry.breakpoint < math.huge
     if always and not positive then
       fail(where .. "(): Invalid Breakpoint - must be greater than zero and finite")
@@ -291,9 +296,10 @@ function AbbreviateNumbers(value, options)
     end
   end
   local text = realTostring(number)
-  -- No source says what the game does with a number below every breakpoint. With
-  -- H.world.abbreviateWhole the stand-in is a client that gives a whole number there (the
-  -- game's own damage meter shows such numbers with no rules of its own), for Forever Meter.
+  -- A number below every breakpoint stays as it is: without rules 0.123456 is "0.123456" and
+  -- 345.678901 is "345.678901" (the game client, tools/ingame-probe/answers.txt).
+  -- H.world.abbreviateWhole is from before that answer: with it the stand-in is a client that
+  -- gives a whole number there. The game client is not such a client.
   if H.world and H.world.abbreviateWhole then
     text = realTostring(math.floor(number))
   end
@@ -473,7 +479,19 @@ H.checkArguments = checkArguments
 -- What no source says: whether a value that is secret in a fight for a unit is secret for that
 -- unit out of a fight too. The texts about units name the unit and not the state. The stand-in
 -- takes the narrow reading, a fight and the unit, so that everything secret here is secret in
--- the game under either reading. tools/ingame-probe asks the game client (the cases "secret:").
+-- the game under either reading, but where the game client answered. tools/ingame-probe asked
+-- it (the cases "secret, out of a fight:" and "secret, in a fight:" of answers.txt, a fight
+-- with an NPC outside an instance). Its answers:
+--   - UnitHealth and UnitInRange are secret at all times, also out of a fight.
+--   - UnitHealthMax is secret at all times for a unit that is not the player's, also for a
+--     target that is not there, and plain for the player in a fight.
+--   - UnitPower of the player is secret at all times.
+--   - UnitArmor and GetCritChance are secret in a fight and plain out of it.
+--   - UnitThreatSituation of the player is plain in a fight.
+--   - The start and the duration of a cooldown are secret in a fight and plain out of it.
+--   - The name, the GUID and the class of the NPC that the player fights are plain. Here they
+--     stay secret in a fight: the world has no instance and no encounter, where the game hides
+--     them, so the fight stands for those too. The stand-in is the stricter one in this.
 
 local function inFight()
   return H.world.secret == true
@@ -499,6 +517,12 @@ end
 local function fightAndNotOfPlayers(...)
   return inFight() and not ofPlayers(unitOf(...))
 end
+local function notOfPlayers(...)
+  return not ofPlayers(unitOf(...))
+end
+local function always()
+  return true
+end
 
 local RULES = {
   -- "produce secret values when combat, encounter, challenge mode, or PvP match addon
@@ -512,9 +536,20 @@ local RULES = {
   SecretWhenUnitIdentityRestricted = fightAndNotOfPlayers,
   -- "under regular unit identity secrecy rules, except in PvP when the queried unit is a player".
   SecretWhenUnitNameIdentityRestricted = fightAndNotOfPlayers,
-  -- "when the unit isn't player-controlled".
-  SecretWhenUnitHealthMaxRestricted = fightAndNotOfPlayers,
+  -- "when the unit isn't player-controlled". The game client: at all times, also out of a
+  -- fight and for a target that is not there.
+  SecretWhenUnitHealthMaxRestricted = notOfPlayers,
+  -- The same text. The game client was not asked about it: the narrow reading.
   SecretWhenUnitPowerMaxRestricted = fightAndNotOfPlayers,
+  -- "for power types not explicitly flagged as being never secret": no source lists those
+  -- power types. The game client: UnitPower('player') is secret in a fight and out of it.
+  SecretWhenUnitPowerRestricted = always,
+  -- "when access to unit stats would generally produce secret values". The game client:
+  -- UnitArmor and GetCritChance are secret in a fight and plain out of it.
+  SecretWhenUnitStatsRestricted = fightOnly,
+  -- "generally not secret" for some pairs of units, with no rule for the others. The game
+  -- client: plain in a fight for the player, alone and with its target.
+  SecretWhenUnitThreatStateRestricted = never,
   -- "based on aura secrecy, except for unit tokens under the player's direct control".
   SecretWhenUnitPossessionRestricted = function(...)
     local unit = unitOf(...)
@@ -543,9 +578,6 @@ local RULES = {
 -- Restrictions without a rule: the result stays plain, also in a fight. Each one has the reason.
 -- An addon that calculates with such a value passes here and can fail in the game.
 local UNKNOWN = {
-  SecretWhenUnitStatsRestricted = "The text is \"when access to unit stats would generally produce secret values\": it does not say when that is.",
-  SecretWhenUnitPowerRestricted = "The text is \"for power types not explicitly flagged as being never secret\": no source lists those power types.",
-  SecretWhenUnitThreatStateRestricted = "The text is \"generally not secret\" for some pairs of units: it gives no rule for the others.",
   SecretWhenUnitThreatValuesRestricted = "The text is \"generally not secret\" for some pairs of units: it gives no rule for the others.",
   SecretWhenEncounterEvent = "SecretPredicatesDocumentation.lua has no text for it, and the world has no encounter.",
   SecretWhenAnchoringSecret = "A property of a region that was anchored with a secret value: the stand-in does not follow where a value of a region came from.",
@@ -559,7 +591,10 @@ H.secretRules, H.secretUnknown = RULES, UNKNOWN
 -- restriction: C is SecretWhenInCombat ("when combat addon restrictions are in effect"); S is
 -- SecretReturns, for which the documentation names no condition. C_Secrets.HasSecretRestrictions
 -- calls every such mark "potentially returning secrets", so S is secret in the fight, which is
--- sure, and plain out of it, which no source settles (the probe asks).
+-- sure, and plain out of it, which no source settles. The game client answered for two such
+-- functions, and both are secret out of a fight too: SECRET_AT_ALL_TIMES has them. The others
+-- with S were not asked.
+local SECRET_AT_ALL_TIMES = { UnitHealth = true, UnitInRange = true }
 local function secretNow(names, spec, ...)
   if spec and (spec.secretAlways or spec.secretInCombat) and inFight() then
     return true
@@ -678,7 +713,7 @@ end
 local function concealResults(key, spec, n, out, ...)
   conceal(spec.returns, key and snapshot.neverSecret[key], function(index)
     return key and snapshot.innerTypes[key .. "@" .. index]
-  end, secretNow(key and snapshot.secretWhen[key], spec, ...), n, out)
+  end, (key and SECRET_AT_ALL_TIMES[key]) or secretNow(key and snapshot.secretWhen[key], spec, ...), n, out)
 end
 
 -- The same for the arguments of an event that the driver sends. An event with SecretPayloads

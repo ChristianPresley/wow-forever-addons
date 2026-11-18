@@ -140,6 +140,26 @@ QuestScrollFrame.headerFramePool = newPool()
 QuestScrollFrame.Contents.buttonPool = newPool()
 H.questLogFrames = {} -- the buttons are made once and used again, as the pools of the game do
 
+-- The quest tracker at the right of the screen (Blizzard_ObjectiveTracker). The frame is in
+-- Blizzard_QuestObjectiveTracker.xml: <Frame name="QuestObjectiveTracker"
+-- mixin="QuestObjectiveTrackerMixin" inherits="ObjectiveTrackerModuleTemplate"/>. The template
+-- gives it Header and ContentsFrame. The game puts it into the tracker of the screen; here it
+-- hangs on UIParent. Its numbers are the settings of Blizzard_ObjectiveTrackerModule.lua.
+-- QuestObjectiveTracker:Update, in part 4, lays out one block for each watched quest.
+QuestObjectiveTracker = CreateFrame("Frame", "QuestObjectiveTracker", UIParent, "ObjectiveTrackerModuleTemplate")
+QuestObjectiveTracker:SetSize(260, 200)
+QuestObjectiveTracker:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -40, -200)
+QuestObjectiveTracker.ContentsFrame:SetAllPoints()
+QuestObjectiveTracker.blockTemplate = "ObjectiveTrackerBlockTemplate"
+QuestObjectiveTracker.lineTemplate = "ObjectiveTrackerLineTemplate"
+QuestObjectiveTracker.headerHeight = 25
+QuestObjectiveTracker.fromHeaderOffsetY = -10
+QuestObjectiveTracker.blockOffsetX = 20
+QuestObjectiveTracker.fromBlockOffsetY = -10
+QuestObjectiveTracker.lineSpacing = 4
+H.trackerBlocks = {} -- [quest ID] = the block; made once and used again, as the game does
+H.trackerLayouts = 0
+
 -- The auction house (Blizzard_AuctionHouseUI). The game loads it when the auction house opens:
 -- until the driver calls H.openAuctionHouse, AuctionHouseFrame is nil, as at login in the game.
 H.auctionSearches = {}

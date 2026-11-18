@@ -4,11 +4,12 @@
 --           saved = { "ForeverQuestsDB", ... }, savedSource = "ForeverQuestsDB = {...}" or nil,
 --           scenario = "Lua source" or nil }
 --
--- Returns { failures, caught, absent, saved, counts, coverage }
+-- Returns { failures, caught, absent, saved, counts, coverage, printed }
 --   failures: errors that reached the game. In the game each one is a Lua error on the screen.
 --   caught:   errors that a pcall of the addon caught. The addon goes on, but a part of it did
 --             not do its work. Some are meant (a test for a part of the game that is absent).
 --   absent:   names that the addon looked for and that are not there.
+--   printed:  each line that the addon printed to the chat, in order.
 
 local H, addon = ...
 local realPcall, realType, realTostring = pcall, H.realType, H.realTostring
@@ -510,6 +511,8 @@ local function useEverything(suffix)
   enter("game windows")
   -- The game builds its quest log: the hooks of the addon run after it.
   call("QuestLogQuests_Update", QuestLogQuests_Update)
+  -- The game lays out its quest tracker: the hooks of the addon run after it.
+  call("QuestObjectiveTracker:Update", QuestObjectiveTracker.Update, QuestObjectiveTracker)
   -- A click on the world map, without and with the Alt key.
   for _, alt in ipairs({ false, true }) do
     H.world.alt = alt
@@ -869,4 +872,4 @@ counts.frames = #H.frames - H.gameFrames
 H.debug.sethook()
 setmetatable(_G, nil)
 table.sort(absent)
-return { failures = failures, caught = caught, absent = absent, saved = saved, counts = counts, coverage = coverage() }
+return { failures = failures, caught = caught, absent = absent, saved = saved, counts = counts, coverage = coverage(), printed = H.printed }

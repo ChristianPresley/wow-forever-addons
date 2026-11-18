@@ -247,13 +247,23 @@ The stand-in follows these sources. Where two disagree, the game client wins, th
 
 The source is named beside the code.
 
-Where these sources say nothing, the game client itself was asked. `tools/ingame-probe/ForeverProbe` is a small addon with one case for each such question: copy the folder to `Interface/AddOns`, log in and type `/foreverprobe`, then `/reload`. It prints one line for each case and saves the lines in `ForeverProbeDB`. `tools/ingame-probe/answers.txt` has what client 1.60.1.70938 answered, and the test `the_stand_in_answers_the_probe_as_the_game_client_did` fails when the stand-in answers otherwise. From the answers:
+Where these sources say nothing, the game client itself was asked. `tools/ingame-probe/ForeverProbe` is a small addon with one case for each such question: copy the folder to `Interface/AddOns`, log in and type `/foreverprobe`, then `/reload`. It prints one line for each case and saves the lines in `ForeverProbeDB`. `tools/ingame-probe/answers.txt` has what client 1.60.1.70959 answered, and the test `the_stand_in_answers_the_probe_as_the_game_client_did` fails when the stand-in answers otherwise. The cases that the stand-in cannot or does not answer as the game are on the list `STAND_IN_ANSWERS_OTHERWISE` beside that test, each with the reason. From the answers:
 
 - A point, a draw layer, a strata, a justify value and an animation type are taken in any letter case.
 - A status bar and a slider bring a value into the range, also when `SetMinMaxValues` makes the range smaller than the value; a slider then calls `OnValueChanged`. A slider that obeys its step goes to a step in `SetValue`.
 - `SetAllPoints(true)` and the strata `WORLD` give no error.
+- `AbbreviateNumbers` leaves a number below 1000 as it is, with all its decimals. `CreateAbbreviateConfig` refuses a breakpoint of 0; `breakpointData` takes one, and then 345.678901 is `345`.
+- The default of the CVar `showQuestObjectivesInLog` is `1`.
 
-The probe also asks about secret values: which results are secret out of a fight and in one, and what the game does with `==`, a table key and `tostring` of a secret number. It runs these cases with `/foreverprobe`, and once more by itself two seconds after a fight starts: target an enemy NPC, attack it, wait for the line "cases of the fight are saved", then `/reload`. The answers are in `ForeverProbeDB.lines` and `ForeverProbeDB.fight`.
+The probe also asks about secret values: which results are secret out of a fight and in one, and what the game does with `==`, a table key and `tostring` of a secret number. It runs these cases with `/foreverprobe`, and once more by itself two seconds after a fight starts: target an enemy NPC, attack it, wait for the line "cases of the fight are saved", then `/reload`. The answers are in `ForeverProbeDB.lines` and `ForeverProbeDB.fight` (`WTF/Account/<account>/SavedVariables/ForeverProbe.lua`). From the answers, for a fight with an NPC outside an instance:
+
+- `UnitHealth` and `UnitInRange` are secret at all times, also out of a fight. So are `UnitPower` of the player and `UnitHealthMax` of a unit that is not the player's.
+- `UnitArmor`, `GetCritChance` and the start and duration of a cooldown are secret in a fight and plain out of it.
+- `UnitHealthMax` and `UnitThreatSituation` of the player are plain in a fight. So are the name, the GUID and the class of the NPC; the stand-in keeps those three secret in its fight, which stands for an encounter too.
+- `C_UnitAuras.GetAuraDataByIndex` is an error for addon code in a fight.
+- `==` with a secret value, a secret value as a table key and `if` on a secret boolean are errors. `~= nil` is not one, and gives a plain result. `type` gives the type of the hidden value; `tostring`, `string.format`, `..` and `AbbreviateNumbers` give a secret text.
+
+Not asked yet: a target out of a fight, and `UnitCastingInfo` of a unit that casts.
 
 Run the probe again after a patch of the game, and put the new answers in `answers.txt`. Add a case to the probe for each new question that no source settles.
 
@@ -264,10 +274,10 @@ After a patch that adds a restriction to the documentation, the test fails with 
 - Taint other than a replaced function: an action that the game refuses because addon code touched a protected value or a frame of the game.
 - What the game really returns. The stand-in returns a value of the documented kind, or the small world above.
 - A function that the documentation does not list and the stand-in does not have. The game's own code calls about 580 such `C_` functions (`C_PetJournal`, `C_TradeSkillUI`, `C_LFGList` and others). An addon that calls one fails the test until the function is added with the file that proves it.
-- Secret results under a restriction that the documentation does not explain. The list `UNKNOWN` in `tools/harness/01-api.lua` has each one with the reason: the unit statistics (`UnitArmor`, `GetCritChance` and about 60 more), `UnitPower`, the threat functions, and the values of widgets that were set from a secret value. These give plain values, also in the fight.
-- Secret results outside a fight. The stand-in makes a value secret in the fight only. The documentation does not say if the health of a unit or the name of an NPC is secret out of a fight too. The probe asks (the cases "secret, out of a fight").
+- Secret results under a restriction that the documentation does not explain. The list `UNKNOWN` in `tools/harness/01-api.lua` has each one with the reason: the threat values (`UnitDetailedThreatSituation`), the events of an encounter, and the values of widgets that were set from a secret value. These give plain values, also in the fight.
+- Secret results outside a fight, but for the functions that the game client was asked about (`UnitHealth`, `UnitInRange`, `UnitPower`, `UnitHealthMax`). For every other function the stand-in makes a value secret in the fight only, and the documentation does not say if it is secret out of a fight too. Add a case to the probe for a function that an addon calculates with.
 - Encounters, keystone dungeons, PvP matches and restricted maps. The world has none, so what is secret only there (chat messages in an instance) is plain.
-- `==` and `~=` with a secret value, and a test of a secret boolean. The game fails there; Lua 5.1 gives the stand-in no way to see it. Test with `issecretvalue` first, before the type and before a comparison.
+- `==` with a secret value, and a test of a secret boolean. The game client fails there (the probe); Lua 5.1 gives the stand-in no way to see it. Test with `issecretvalue` first, before the type and before a comparison.
 - Code that the test does not reach. `--coverage` shows it.
 
 ### In the game

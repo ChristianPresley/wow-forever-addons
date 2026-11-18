@@ -129,6 +129,9 @@ pub struct Outcome {
     pub absent: Vec<String>,
     /// The saved variables after the run, as Lua source.
     pub saved: String,
+    /// Each line that the addon printed to the chat, in order. The probe test reads it.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub printed: Vec<String>,
     /// What the run used: files, frames, events, commands, scripts, menu actions.
     pub summary: String,
     pub coverage: Vec<FileCoverage>,
@@ -247,6 +250,7 @@ pub fn run_addon(addon: &Addon, snapshot: &serde_json::Value, saved: Option<&str
             caught: strings(&result, "caught")?,
             absent: strings(&result, "absent")?,
             saved: result.get("saved")?,
+            printed: strings(&result, "printed")?,
             summary: format!(
                 "{} files, {} frames, {} events, {} commands, {} scripts, {} menu actions, {} checks",
                 count("files"),
@@ -661,20 +665,37 @@ mod tests {
     #[test]
     fn a_result_is_secret_where_the_documentation_says_so() {
         // A function that nobody wrote by hand, with SecretReturns (UnitDocumentation.lua): its
-        // number can be shown in a fight, and not calculated with.
+        // number can be shown, and not calculated with. The game client gives the health as a
+        // secret value out of a fight too (tools/ingame-probe/answers.txt).
         let health = r#"
             local f = CreateFrame("Frame")
             local bar = CreateFrame("StatusBar", nil, f)
             f:SetScript("OnUpdate", function()
-              local health = UnitHealth("player")
+              local health = FUNCTION
               bar:SetValue(health)
               USE
             end)
         "#;
-        assert!(check(&health.replace("USE", "")).0.is_empty());
-        fails_in_the_fight_only(&health.replace("USE", "local half = health / 2"));
-        let (failures, _) = check(&health.replace("USE", "if not issecretvalue(health) then local half = health / 2 end"));
+        let of_player = health.replace("FUNCTION", "UnitHealth('player')");
+        assert!(check(&of_player.replace("USE", "")).0.is_empty());
+        let (failures, _) = check(&of_player.replace("USE", "local half = health / 2"));
+        assert!(failures.iter().any(|failure| failure.contains("[frames]") && failure.contains("secret value")), "the health is secret out of a fight too: {failures:?}");
+        let (failures, _) = check(&of_player.replace("USE", "if not issecretvalue(health) then local half = health / 2 end"));
         assert!(failures.is_empty(), "{failures:?}");
+        // What else the game client answered. At all times: the power of the player, and the
+        // largest health of a unit that is not the player's. In a fight only: the statistics.
+        for function in ["UnitPower('player')", "UnitHealthMax('target')"] {
+            let (failures, _) = check(&health.replace("FUNCTION", function).replace("USE", "local half = health / 2"));
+            assert!(failures.iter().any(|failure| failure.contains("[frames]") && failure.contains("secret value")), "{function}: {failures:?}");
+        }
+        for function in ["UnitArmor('player')", "GetCritChance()"] {
+            fails_in_the_fight_only(&health.replace("FUNCTION", function).replace("USE", "local half = health / 2"));
+        }
+        // Plain in the fight too: the largest health of the player, and its threat.
+        for function in ["UnitHealthMax('player')", "UnitThreatSituation('player') or 0"] {
+            let (failures, _) = check(&health.replace("FUNCTION", function).replace("USE", "local half = health / 2"));
+            assert!(failures.is_empty(), "{function}: {failures:?}");
+        }
 
         // A hand-written function with a named restriction: SecretWhenUnitIdentityRestricted is
         // for a unit that no player controls. The NPC is there in the fight; the player's own
@@ -1192,7 +1213,7 @@ mod tests {
     }
 
     /// The stand-in answers the probe as the game client did. `tools/ingame-probe/answers.txt`
-    /// has what client 1.60.1.70938 printed for `/foreverprobe`. For a case that fails in the
+    /// has what client 1.60.1.70959 printed for `/foreverprobe`. For a case that fails in the
     /// game, the stand-in must fail too; the text of the error is the game's own and is not
     /// compared.
     #[test]
@@ -1207,8 +1228,14 @@ mod tests {
         with_ui_names(&mut snapshot).unwrap();
         let outcome = run_addon(&addons[0], &snapshot, None).unwrap();
         assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+        // The driver types /foreverprobe out of a fight and in one, and the probe prints each
+        // line: the printed lines have the answers of both states.
+        const PRINTED: &str = "|cff66ccffForever Probe|r ";
+        let answered: Vec<&str> = outcome.printed.iter().filter_map(|line| line.strip_prefix(PRINTED)).collect();
         let mut differences = Vec::new();
+        let mut stale = Vec::new();
         let mut cases = 0;
+        let mut excepted = 0;
         for line in include_str!("../ingame-probe/answers.txt").lines().filter(|line| !line.starts_with('#') && !line.trim().is_empty()) {
             cases += 1;
             // "<name> = error: <text of the game>" or "<name> = ok: <values>"
@@ -1216,15 +1243,98 @@ mod tests {
                 Some(at) => &line[..at + " = error".len()],
                 None => line,
             };
-            // The saved variables have each line as a quoted text.
-            let found = if wanted == line { outcome.saved.contains(&format!("\"{wanted}\"")) } else { outcome.saved.contains(&format!("\"{wanted}")) };
-            if !found {
+            let found = if wanted == line { answered.contains(&wanted) } else { answered.iter().any(|answer| answer.starts_with(wanted)) };
+            let name = line.split(" = ").next().unwrap();
+            if STAND_IN_ANSWERS_OTHERWISE.iter().any(|(case, _)| *case == name) {
+                excepted += 1;
+                // An exception that is not one any more is taken off the list.
+                if found {
+                    stale.push(name.to_string());
+                }
+            } else if !found {
                 differences.push(wanted.to_string());
             }
         }
-        assert!(cases >= 28, "{cases} cases in answers.txt");
-        assert!(differences.is_empty(), "the game client answered these, and the stand-in did not:\n{}\n\nthe stand-in's answers:\n{}", differences.join("\n"), outcome.saved);
+        assert!(cases >= 90, "{cases} cases in answers.txt");
+        assert_eq!(excepted, STAND_IN_ANSWERS_OTHERWISE.len(), "a case of STAND_IN_ANSWERS_OTHERWISE is not in answers.txt");
+        assert!(stale.is_empty(), "the stand-in answers these as the game client now: take them off STAND_IN_ANSWERS_OTHERWISE:\n{}", stale.join("\n"));
+        assert!(differences.is_empty(), "the game client answered these, and the stand-in did not:\n{}\n\nthe stand-in's answers:\n{}", differences.join("\n"), answered.join("\n"));
     }
+
+    /// The quest tracker of the game (Blizzard_ObjectiveTracker): `QuestObjectiveTracker` is
+    /// there at login, the driver lays it out, and a hook on `Update` finds one block for each
+    /// watched quest with the parts of the game's block.
+    #[test]
+    fn the_quest_tracker_has_a_block_for_each_watched_quest() {
+        let (failures, _) = check(
+            r#"
+            local tracker = QuestObjectiveTracker
+            assert(tracker:GetObjectType() == "Frame" and tracker.ContentsFrame and tracker.Header, "the parts of the template")
+            assert(tracker.fromHeaderOffsetY == -10 and tracker.fromBlockOffsetY == -10 and tracker.blockOffsetX == 20, "the settings of the module")
+            local layouts = 0
+            hooksecurefunc(tracker, "Update", function(self)
+              layouts = layouts + 1
+              local block, before = self.firstBlock, nil
+              local count = 0
+              while block do
+                count = count + 1
+                assert(type(block.id) == "number" and C_QuestLog.GetQuestWatchType(block.id) ~= nil, "a block is of a watched quest")
+                assert(block.parentModule == self and block.rightEdgeOffset == 0, "the fields of a block")
+                assert(block.HeaderText:GetText() == C_QuestLog.GetTitleForQuestID(block.id), "the header has the name of the quest")
+                assert(block.HeaderText.colorStyle.r == 0.75 and block.HeaderButton:GetObjectType() == "Button", "the header")
+                local point, relative, relativePoint, _, y = block:GetPoint(1)
+                if before then
+                  assert(point == "TOP" and relative == before and relativePoint == "BOTTOM" and y == self.fromBlockOffsetY, "a block hangs under the one before it")
+                else
+                  assert(point == "TOP" and relative == self.ContentsFrame and relativePoint == "TOP" and y == self.fromHeaderOffsetY, "the first block hangs under the contents frame")
+                end
+                local lines = 0
+                for _, line in pairs(block.usedLines) do
+                  lines = lines + 1
+                  assert(line.parentBlock == block and line.Text:GetText() ~= nil and line.Text.colorStyle.r == 0.8, "a line of a block")
+                end
+                assert(lines > 0, "a quest has a line")
+                before, block = block, block.nextBlock
+              end
+              assert(count == C_QuestLog.GetNumQuestWatches(), "one block for each watched quest, got " .. count)
+              assert(self.lastBlock == before, "the last block")
+            end)
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("PLAYER_LOGOUT")
+            f:SetScript("OnEvent", function()
+              assert(layouts > 0, "the game laid out its tracker")
+              -- A text keeps a colour of the addon over a layout, and gets the colour of the
+              -- game again when the pointer leaves the header.
+              local block = tracker.firstBlock
+              block.HeaderText:SetTextColor(1, 1, 1)
+              tracker:Update()
+              assert(block.HeaderText:GetTextColor() == 1, "the game sets a colour only when the style changes")
+              block.HeaderButton:GetScript("OnLeave")(block.HeaderButton)
+              assert(block.HeaderText:GetTextColor() == 0.75, "the colour of the game after the pointer leaves")
+              -- A quest that is not watched any more has no block.
+              C_QuestLog.RemoveQuestWatch(block.id)
+              tracker:Update()
+              assert(tracker.firstBlock ~= block and not block:IsShown(), "the block of a quest that is not watched is gone")
+            end)
+            "#,
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    /// The cases of `answers.txt` that the stand-in answers otherwise than the game client, each
+    /// with the reason. The test above fails for any other difference, and for a case here that
+    /// the stand-in answers as the game.
+    const STAND_IN_ANSWERS_OTHERWISE: [(&str, &str); 9] = [
+        ("secret, out of a fight: a secret number == 1", "An error in the game. Lua 5.1 has no metamethod for == between a userdata and a number."),
+        ("secret, in a fight: a secret number == 1", "The same."),
+        ("secret, out of a fight: a secret number as a table key", "An error in the game. Lua 5.1 cannot refuse a key of a plain table; the driver looks for secret keys in the tables of the addon after each phase."),
+        ("secret, in a fight: a secret number as a table key", "The same."),
+        ("secret, out of a fight: if with a secret boolean", "An error in the game. Lua 5.1 has no metamethod for a truth test."),
+        ("secret, in a fight: if with a secret boolean", "The same."),
+        ("secret, in a fight: UnitName('target')", "Plain in the game for the NPC of a fight outside an instance. The fight of the stand-in stands for an encounter too, where the game hides who a unit is: the stricter answer."),
+        ("secret, in a fight: UnitGUID('target')", "The same as for UnitName('target')."),
+        ("secret, in a fight: UnitClass('target')", "The same as for UnitName('target')."),
+    ];
     /// The stand-in against the game's own UI files (`tools/api/forever-ui.json`): every frame
     /// type and animation type of the game is a widget kind, every script that an XML file of
     /// the game puts on a kind is a script of that kind, every hand-written template is a
