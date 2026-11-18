@@ -213,6 +213,28 @@ function ForeverCompass.UntrackQuest(questID)
   return true
 end
 
+-- Makes a tracker point to the map pin (the caller sets the pin, with C_Map.SetUserWaypoint): the
+-- tracker that points to it already, else the first tracker that is off. Returns the number of the
+-- tracker, or nil and why not.
+function ForeverCompass.TrackMapPin()
+  if not ForeverCompassDB then
+    return nil, "the compass is not loaded yet"
+  end
+  for index = 1, ns.COUNT do
+    if ns.GetCompass(index, "enabled") and ns.GetCompass(index, "kind") == "mapPin" then
+      return index
+    end
+  end
+  for free = 1, ns.COUNT do
+    if not ns.GetCompass(free, "enabled") then
+      ns.SetCompass(free, "kind", "mapPin")
+      ns.SetCompass(free, "enabled", true)
+      return free
+    end
+  end
+  return nil, "all " .. ns.COUNT .. " trackers of the compass are in use"
+end
+
 -- A quest that left the log (turned in or abandoned) gives its tracker back: else the tracker
 -- would point to nothing and stay in use.
 local questWatcher = CreateFrame("Frame")
