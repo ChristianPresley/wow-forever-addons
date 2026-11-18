@@ -59,3 +59,16 @@ jobs:
           # that is not there yet.
           gh release upload marketplace dist/marketplace/*.zip --clobber
           gh release upload marketplace dist/marketplace/index.json --clobber
+      - name: Remove the packages that the index no longer names
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # After the new index is up, so a manager that read the old index a moment ago
+          # can still find its packages until then. Only ZIP files, and never one that the
+          # new index names.
+          jq -r '.addons[].download.url' dist/marketplace/index.json | sort > named.txt
+          gh release view marketplace --json assets --jq '.assets[].name' | grep '\.zip$' | sort > uploaded.txt
+          comm -23 uploaded.txt named.txt | while read -r package; do
+            echo "Removing $package"
+            gh release delete-asset marketplace "$package" --yes
+          done
