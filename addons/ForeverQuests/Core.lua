@@ -61,6 +61,11 @@ ns.OPTIONS = {
     hint = "Track the quests of your zone and untrack the others. Your own tracking comes back when you turn this off.",
   },
   {
+    key = "trackerLook", command = "tracker", label = "the look and order of the quest log on the tracker", default = true,
+    text = "Tracker: the look and order of the quest log",
+    hint = "On the quest tracker at the right of the screen: a ready quest is a green row, a quest that makes progress goes to the top and glows, and each quest has the compass symbol of Forever Compass.",
+  },
+  {
     key = "completeFanfare", command = "fanfare", label = "quest complete banner", default = true,
     text = "Quest complete: banner and mark",
     hint = "A banner on the screen when a quest is ready to turn in; click it to see where. In the quest log the quest goes to the top of its zone with a COMPLETED mark.",

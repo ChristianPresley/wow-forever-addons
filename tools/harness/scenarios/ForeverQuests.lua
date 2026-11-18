@@ -373,3 +373,154 @@ expect(not ns.IsGlowing(logButton(176)), "the glow ends after a few seconds")
 T.slash("/fq", "demo")
 expect(ns.FanfareQuest() ~= nil and T.printed("demo: open the quest log"), "/fq demo shows the banner and says what to look at")
 H.click(ForeverQuestsFanfare, "RightButton", false)
+
+-- The quest tracker at the right of the screen (QuestObjectiveTracker of the stand-in, 04-world.lua):
+-- one block for each watched quest, in the order of the quest log: quest 176, then quest 40.
+T.world.completed = nil
+local tracker = QuestObjectiveTracker
+-- What a block hangs under, by its point TOP.
+local function under(block)
+  for index = 1, block:GetNumPoints() do
+    local point, relative, relativePoint, _, y = block:GetPoint(index)
+    if point == "TOP" then
+      return relative, relativePoint, y
+    end
+  end
+end
+local function textColour(region)
+  local red, green, blue = region:GetTextColor()
+  return string.format("%.2f %.2f %.2f", red, green, blue)
+end
+local WHITE, GAME_LINE = "1.00 1.00 1.00", "0.80 0.80 0.80"
+expect(ns.GetOption("trackerLook") == true, "the look of the quest log on the tracker is on at first")
+ns.SetOption("popProgress", false)
+ns.SetOption("sortAlpha", false)
+local watched40 = H.watched[40]
+C_QuestLog.AddQuestWatch(40)
+tracker:Update()
+local block176, block40 = H.trackerBlocks[176], H.trackerBlocks[40]
+expect(block176 ~= nil and block40 ~= nil and tracker.firstBlock == block176 and block176.nextBlock == block40, "the game has quest 176 above quest 40 on the tracker")
+expect(ns.TrackerMark(block40) ~= nil and ns.TrackerMark(block176) ~= nil, "after a layout of the tracker by the game each quest has the parts of the addon")
+-- A ready quest is a green row in white, another quest keeps the colours of the game.
+local mark40, mark176 = ns.TrackerMark(block40), ns.TrackerMark(block176)
+local key40, line40 = next(block40.usedLines)
+local key176, line176 = next(block176.usedLines)
+expect(mark40.on and mark40.back:IsShown() and select(2, mark40.back:GetPoint(1)) == block40, "the ready quest (40) has the green background on its block of the tracker")
+expect(textColour(block40.HeaderText) == WHITE and textColour(line40.Text) == WHITE, "the name of the ready quest and its line are white on the tracker, got " .. textColour(block40.HeaderText))
+expect(not mark176.on and not mark176.back:IsShown() and textColour(block176.HeaderText) ~= WHITE and textColour(line176.Text) == GAME_LINE, "the quest that is not ready has no green and the colours of the game")
+-- The game gives the texts their colours again when the pointer comes onto the name of the quest
+-- and when it leaves.
+H.run(block40.HeaderButton, "OnEnter")
+expect(textColour(block40.HeaderText) == WHITE and textColour(line40.Text) == WHITE, "with the pointer on the ready quest its texts are white")
+H.run(block40.HeaderButton, "OnLeave")
+expect(textColour(block40.HeaderText) == WHITE and textColour(line40.Text) == WHITE, "after the pointer leaves the ready quest its texts are white again")
+H.run(block176.HeaderButton, "OnEnter")
+H.run(block176.HeaderButton, "OnLeave")
+expect(textColour(block176.HeaderText) ~= WHITE and textColour(line176.Text) == GAME_LINE, "and the texts of the other quest are not made white")
+-- Without a new order the blocks stay where the game put them.
+expect(under(block176) == tracker.ContentsFrame and under(block40) == block176, "with no order of the addon the quests are in the order of the game")
+-- The game uses a line again for another quest, and sets the colour of a text only when its
+-- style changes: a white line that goes to a quest that is not ready gets the game's colour back.
+block40.usedLines[key40], block176.usedLines[key176] = line176, line40
+tracker:Update()
+expect(textColour(line40.Text) == GAME_LINE and textColour(line176.Text) == WHITE, "a white line that the game gives to a quest that is not ready has the game's colour again, got " .. textColour(line40.Text))
+-- The compass symbol, in the lower right corner of the quest. Forever Compass is the one from above.
+expect(mark40.compass:IsShown() and mark176.compass:IsShown() and select(1, mark40.compass:GetPoint(1)) == "BOTTOMRIGHT" and select(2, mark40.compass:GetPoint(1)) == block40, "with Forever Compass each quest of the tracker has the compass symbol in its lower right corner")
+local function trackerCompassLook(compass)
+  local red, green, blue, alpha = compass.symbol:GetVertexColor()
+  return red == 0.4 and green == 0.8 and blue == 1 and alpha == 1 and "bright" or (red == 0.8 and alpha == 0.6 and "grey" or "other")
+end
+expect(onCompass[176] == nil and trackerCompassLook(mark176.compass) == "grey", "a quest that is not on the compass has a grey symbol on the tracker")
+H.click(mark176.compass, "LeftButton", false)
+expect(onCompass[176] == 3 and trackerCompassLook(mark176.compass) == "bright", "a click on the symbol of the tracker puts the quest on the compass, got " .. trackerCompassLook(mark176.compass))
+expect(H.watched[176] == true, "the compass symbol of the tracker does not change the tracking of the game")
+-- The symbol of the same quest in the quest log is bright too, and a click there shows on the tracker.
+QuestMapFrame:Show()
+QuestLogQuests_Update()
+local logCompass = ns.CompletedMark(logButton(176)).compass
+expect(logCompass.onCompass == true, "the quest that the tracker put on the compass has a bright symbol in the quest log too")
+H.click(logCompass, "LeftButton", false)
+expect(onCompass[176] == nil and trackerCompassLook(mark176.compass) == "grey", "a click in the quest log takes the quest off the compass, and the symbol of the tracker is grey again")
+-- A quest with an item button at its right end: the symbol is to the left of the button.
+T.world.trackerRightEdge = { [176] = -28 }
+tracker:Update()
+expect(select(4, mark176.compass:GetPoint(1)) == -24 and select(4, mark40.compass:GetPoint(1)) == 4, "the symbol leaves the room of the item button of the quest free, got " .. tostring(select(4, mark176.compass:GetPoint(1))))
+T.world.trackerRightEdge = nil
+
+-- The order, as in the quest log: the quest that made progress (176, earlier in this scenario)
+-- first, then the ready quest (40), then the rest. The stand-in has two quests, so a third one
+-- that did neither, and the game's note of a quest that it completed for the player (a block
+-- with a text as its id), are put above them here, after a layout by the game.
+local popUp = CreateFrame("Frame", nil, tracker.ContentsFrame)
+popUp:SetHeight(40)
+popUp.id = "40COMPLETE"
+local block999 = CreateFrame("Frame", nil, tracker.ContentsFrame, "ObjectiveTrackerBlockTemplate")
+block999:SetHeight(12)
+block999.id, block999.usedLines, block999.rightEdgeOffset = 999, {}, 0
+block999.HeaderText:SetText("A quest without progress")
+block999.HeaderText.colorStyle = block176.HeaderText.colorStyle
+H.gameFrameSet[popUp], H.gameFrameSet[block999], H.gameFrameSet[block999.HeaderButton] = true, true, true
+tracker:Update()
+local list = { popUp, block999, block176, block40 }
+tracker.firstBlock = popUp
+for index, block in ipairs(list) do
+  block.nextBlock = list[index + 1]
+  block:ClearAllPoints()
+  if index == 1 then
+    block:SetPoint("TOP", tracker.ContentsFrame, "TOP", 0, tracker.fromHeaderOffsetY)
+  else
+    block:SetPoint("TOP", list[index - 1], "BOTTOM", 0, tracker.fromBlockOffsetY)
+  end
+  block:SetPoint("LEFT", tracker.blockOffsetX, 0)
+  block:SetPoint("RIGHT")
+  block:Show()
+end
+ns.RefreshTracker()
+expect(ns.TrackerMark(popUp) == nil and ns.TrackerMark(block999) ~= nil, "a block of the tracker that is not a quest gets nothing, a third quest gets the parts of the addon")
+expect(under(block999) == popUp and under(block176) == block999 and under(block40) == block176, "with no order of the addon the four blocks are where the game put them")
+expect(ns.ProgressAt(176) ~= nil and ns.ProgressAt(40) == nil and ns.ProgressAt(999) == nil, "of the three quests only quest 176 made progress")
+local layoutsBefore = H.trackerLayouts
+ns.SetOption("popProgress", true)
+expect(H.trackerLayouts == layoutsBefore and under(popUp) == tracker.ContentsFrame and under(block176) == popUp and under(block40) == block176 and under(block999) == block40, "on the tracker the quest that made progress is first, then the ready quest, then the rest, without a new layout by the game")
+expect(select(2, under(block176)) == "BOTTOM" and select(3, under(block176)) == tracker.fromBlockOffsetY and select(2, under(popUp)) == "TOP" and select(3, under(popUp)) == tracker.fromHeaderOffsetY, "the blocks keep the distances of the game")
+popUp:Hide()
+block999:Hide()
+block999.nextBlock = nil
+tracker:Update()
+expect(under(block176) == tracker.ContentsFrame and under(block40) == block176, "after a layout by the game with its two quests, quest 176 is first")
+-- A quest that makes progress glows on the tracker.
+T.advance(2)
+local progressBefore = ns.ProgressAt(176)
+H.questProgress = H.questProgress + 1
+T.fire("QUEST_LOG_UPDATE")
+T.advance(1)
+expect(ns.ProgressAt(176) ~= progressBefore, "quest 176 made progress again")
+expect(ns.IsGlowing(block176) and not ns.IsGlowing(block40), "the quest that made progress glows on the tracker, the other quest does not")
+T.advance(8)
+expect(not ns.IsGlowing(block176), "the glow on the tracker ends after a few seconds")
+-- By name: "A Fishy Peril" before "Wanted: Hogger". The order stays after a new layout by the
+-- game, and the game's order comes back without one.
+ns.SetOption("popProgress", false)
+layoutsBefore = H.trackerLayouts
+ns.SetOption("sortAlpha", true)
+expect(H.trackerLayouts == layoutsBefore and under(block40) == tracker.ContentsFrame and under(block176) == block40, "sorted by name, quest 40 is first on the tracker")
+tracker:Update()
+expect(under(block40) == tracker.ContentsFrame and under(block176) == block40, "after a new layout by the game the order of the addon is set again")
+layoutsBefore = H.trackerLayouts
+ns.SetOption("sortAlpha", false)
+expect(H.trackerLayouts == layoutsBefore and under(block176) == tracker.ContentsFrame and under(block40) == block176, "with both orders off the quests are in the order of the game again")
+-- With the option off the tracker is the game's again.
+ns.SetOption("sortAlpha", true)
+ns.SetOption("trackerLook", false)
+expect(not mark40.back:IsShown() and not mark40.compass:IsShown() and not mark176.compass:IsShown(), "with the option off the quests of the tracker have no green and no compass symbol")
+expect(textColour(block40.HeaderText) ~= WHITE and textColour(select(2, next(block40.usedLines)).Text) == GAME_LINE, "and the texts have the colours of the game")
+expect(under(block176) == tracker.ContentsFrame and under(block40) == block176, "and the quests are in the order of the game")
+T.slash("/fq", "tracker")
+expect(ns.GetOption("trackerLook") == true and mark40.back:IsShown() and T.printed("on the tracker"), "/fq tracker turns it on again")
+ns.SetOption("sortAlpha", false)
+ns.SetOption("popProgress", true)
+if not watched40 then
+  C_QuestLog.RemoveQuestWatch(40)
+end
+tracker:Update()
+QuestMapFrame:Hide()

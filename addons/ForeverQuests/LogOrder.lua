@@ -28,6 +28,15 @@ function ns.OnQuestProgress(questID)
   if ns.GetOption("popProgress") and ns.RefreshQuestLog then
     ns.RefreshQuestLog()
   end
+  if ns.RefreshTracker then
+    ns.RefreshTracker() -- Tracker.lua
+  end
+end
+
+-- The time of the last progress of the quest, or nil.
+function ns.ProgressAt(questID)
+  local entry = progressed[questID]
+  return entry and entry.at or nil
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -76,25 +85,29 @@ end
 
 -- Shows the glow on the button of a quest that made progress, and hides an old glow of the button
 -- (the game uses a button again for a different quest).
-local function updateGlow(button, enabled, visible)
-  local entry = enabled and button.questID and progressed[button.questID]
+-- The quest log and the tracker each have their own start of the glow (startKey): the tracker
+-- is on the screen at most times, the quest log is not.
+local function updateGlow(button, questID, enabled, visible, startKey)
+  startKey = startKey or "shineStart"
+  local entry = enabled and questID and progressed[questID]
   local now = GetTime()
-  if entry and not entry.shineStart and visible then
-    entry.shineStart = now -- the player sees the quest now for the first time since the progress
+  if entry and not entry[startKey] and visible then
+    entry[startKey] = now -- the player sees the quest now for the first time since the progress
   end
   local glow = glows[button]
-  if entry and entry.shineStart and now < entry.shineStart + SHINE_SECONDS then
+  if entry and entry[startKey] and now < entry[startKey] + SHINE_SECONDS then
     if not glow then
       glow = createGlow(button)
       glows[button] = glow
     end
-    glow.startTime = entry.shineStart
+    glow.startTime = entry[startKey]
     glow:Show()
     onGlowUpdate(glow)
   elseif glow then
     glow:Hide()
   end
 end
+ns.UpdateGlow = updateGlow -- Tracker.lua
 
 -- True if the button of the quest log glows now.
 function ns.IsGlowing(button)
@@ -114,6 +127,7 @@ local function isComplete(questID)
   local ok, complete = pcall(C_QuestLog.IsComplete, questID)
   return ok and complete and true or false
 end
+ns.IsReady = isComplete -- Tracker.lua
 
 -- Every quest of the quest log:
 --   the tracking symbol is at the right end of the title, where the game has the box that
@@ -148,6 +162,11 @@ local function compassApi()
     return api
   end
   return nil
+end
+
+-- True if Forever Compass is loaded.
+function ns.HasCompass()
+  return compassApi() ~= nil
 end
 
 -- The tracker of the compass that points to the quest, or nil.
@@ -234,6 +253,7 @@ local function showOnCompass(compass)
     compass.symbol:SetVertexColor(0.8, 0.8, 0.8, 0.6)
   end
 end
+ns.ShowOnCompass = showOnCompass -- Tracker.lua
 
 local function fontString(region)
   return type(region) == "table" and type(region.SetTextColor) == "function" and region or nil
@@ -335,6 +355,9 @@ local function createMark(button)
     if self.questID then
       ns.ToggleCompass(self.questID)
       showOnCompass(self)
+      if ns.RefreshTracker then
+        ns.RefreshTracker() -- the same symbol on the tracker
+      end
     end
   end)
   compass:SetScript("OnEnter", function(self)
@@ -517,7 +540,7 @@ function ns.ArrangeLog()
     if button.questID and type(button.layoutIndex) == "number" then
       buttons[#buttons + 1] = button
     end
-    updateGlow(button, pop, visible)
+    updateGlow(button, button.questID, pop, visible)
     updateBadge(button, ready)
   end
   if not (pop or alpha) then
