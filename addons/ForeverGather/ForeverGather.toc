@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: Forever Gather
+## Notes: Remembers where you gather herbs, ore, fish and treasure, and shows those places on the world map and the minimap.
+## Author: Christian Presley
+## Version: 0.1.0
+## Category: Map
+## SavedVariables: ForeverGatherDB
+## OptionalDeps: ForeverAtlas
+## X-Website: https://github.com/ChristianPresley/wow-forever-addons
+
+Core.lua
+Nodes.lua
+WorldPins.lua
+MinimapPins.lua
+SettingsKit.lua
+Settings.lua
+Commands.lua
