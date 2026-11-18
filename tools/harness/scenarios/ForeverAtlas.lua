@@ -195,6 +195,20 @@ expect(count("areaPOIs") == 2 and count("graveyards") == 1 and count("links") ==
 expect(count("rares") == 2 and count("mapPin") == 1, "two rare markers and the map pin of the player")
 expect(count("group") == 0 and count("corpse") == 0, "no group member and no corpse when alone and alive")
 expect(count("atlas") >= 2, "the note and the waypoint of the addon are on the map too")
+-- Another addon adds pins through the public table ForeverAtlasAPI; they show on this map at once.
+expect(type(ForeverAtlasAPI) == "table" and ForeverAtlasAPI.version == 1, "the public table ForeverAtlasAPI is there")
+local before = count("atlas")
+local herbOn = true
+ForeverAtlasAPI.AddPinProvider(function(mapID, add)
+  if mapID == 37 and herbOn then
+    add(33, 44, { look = { texture = "Interface\\Icons\\INV_Misc_Herb_07" }, size = 14, tooltip = function(tooltip) tooltip:AddLine("Peacebloom") end })
+  end
+end)
+expect(count("atlas") == before + 1 and pinNamed("atlas", 0.33), "a pin of another addon is on the map, got " .. count("atlas") - before)
+herbOn = false
+ForeverAtlasAPI.RefreshPins()
+expect(count("atlas") == before, "and is gone after RefreshPins when the addon drops it")
+expect(not pcall(ForeverAtlasAPI.AddPinProvider, "not a function"), "AddPinProvider refuses what is not a function")
 -- The icon is the game's: an atlas where the game names one, else a part of the sheet of map icons.
 expect(pinNamed("questTurnIns").data.look.atlas == "UI-QuestPoi-QuestBangTurnIn" and pinNamed("questGivers").data.look.atlas == "QuestNormal", "quest pins have the icons of the game's map")
 expect(pinNamed("flight").data.look.atlas == "TaxiNode_Alliance", "a flight master has the icon that the game names for it")

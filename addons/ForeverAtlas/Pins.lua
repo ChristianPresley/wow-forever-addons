@@ -248,3 +248,24 @@ end
 ns.OnLogin(function()
   ns.WhenMapReady(build)
 end)
+
+-- For other addons: pins on the world map and on the Forever Atlas map, the same as the pins of
+-- this addon. An addon that lists ForeverAtlas in OptionalDeps finds this table when it loads.
+--   ForeverAtlasAPI.AddPinProvider(fn): fn(mapID, add) calls add(x, y, data) for each pin, with
+--     x, y from 0 to 100 on that map and data = { look = { atlas =, texture =, coords =
+--     { left, right, top, bottom }, color = { r, g, b } }, size = n, tooltip = fn(tooltip),
+--     click = fn(button) }. A pin without click takes no mouse input.
+--   ForeverAtlasAPI.RefreshPins(): the providers are asked again (their pins changed).
+ForeverAtlasAPI = {
+  version = 1,
+  AddPinProvider = function(fn)
+    if type(fn) ~= "function" then
+      error("ForeverAtlasAPI.AddPinProvider: expected a function", 2)
+    end
+    ns.AddPinProvider(fn)
+    ns.RefreshPins()
+  end,
+  RefreshPins = function()
+    ns.RefreshPins()
+  end,
+}
