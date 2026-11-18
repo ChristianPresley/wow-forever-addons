@@ -513,7 +513,9 @@ expect(H.trackerLayouts == layoutsBefore and under(block176) == tracker.Contents
 ns.SetOption("sortAlpha", true)
 ns.SetOption("trackerLook", false)
 expect(not mark40.back:IsShown() and not mark40.compass:IsShown() and not mark176.compass:IsShown(), "with the option off the quests of the tracker have no green and no compass symbol")
-expect(textColour(block40.HeaderText) ~= WHITE and textColour(select(2, next(block40.usedLines)).Text) == GAME_LINE, "and the texts have the colours of the game")
+-- The game gives the "Ready for turn-in" line of a ready quest its grey for a finished line.
+local READY_LINE = "0.60 0.60 0.60"
+expect(textColour(block40.HeaderText) ~= WHITE and textColour(select(2, next(block40.usedLines)).Text) == READY_LINE, "and the texts have the colours of the game, got " .. textColour(select(2, next(block40.usedLines)).Text))
 expect(under(block176) == tracker.ContentsFrame and under(block40) == block176, "and the quests are in the order of the game")
 T.slash("/fq", "tracker")
 expect(ns.GetOption("trackerLook") == true and mark40.back:IsShown() and T.printed("on the tracker"), "/fq tracker turns it on again")
