@@ -1,6 +1,7 @@
 local _, ns = ...
 
--- "Current zone only", for the quest log (option zoneLog) and for the tracker (option zoneTracker).
+-- "Current zone only", for the quest log (option zoneLog) and for the tracker (option zoneTracker),
+-- and "Hide grey quests" for the quest log (option hideGrey).
 --
 -- A quest belongs to the current zone when its header in the quest log has the name of the zone
 -- (the game sorts quests under zone names), or when it has an objective on the map of the zone.
@@ -47,6 +48,7 @@ end
 --   inZone[questID] = true for each quest of the current zone
 --   zoneHeaders[questLogIndex] = true for each header with a quest of the current zone
 --   quests = list of the quest IDs in the log
+--   headerOf[questID] = questLogIndex of the header the quest is under
 local function scan()
   local names, mapID = currentZone()
   local onMap = {}
@@ -61,7 +63,7 @@ local function scan()
     end
   end
 
-  local inZone, zoneHeaders, quests = {}, {}, {}
+  local inZone, zoneHeaders, quests, headerOf = {}, {}, {}, {}
   local headerIndex, headerInZone
   for i = 1, C_QuestLog.GetNumQuestLogEntries() do
     local info = C_QuestLog.GetInfo(i)
@@ -70,6 +72,7 @@ local function scan()
       headerInZone = names[key(info.title) or ""] or false
     elseif info and info.questID and not info.isHidden and not info.isTask then
       quests[#quests + 1] = info.questID
+      headerOf[info.questID] = headerIndex
       if headerInZone or onMap[info.questID] then
         inZone[info.questID] = true
         if headerIndex then
@@ -78,8 +81,21 @@ local function scan()
       end
     end
   end
-  return inZone, zoneHeaders, quests
+  return inZone, zoneHeaders, quests, headerOf
 end
+
+-- True for a quest that the game shows in grey: far below the level of the player, with little
+-- experience. The game gives the same answer that colours the name of the quest in its log
+-- (Blizzard_UIPanels_Game/Mainline/QuestMapFrame.lua, QuestLogQuests_AddQuestButton).
+local function isGrey(questID)
+  local trivial = Enum and Enum.RelativeContentDifficulty and Enum.RelativeContentDifficulty.Trivial
+  if trivial == nil or not (C_PlayerInfo and C_PlayerInfo.GetContentDifficultyQuestForPlayer) then
+    return false
+  end
+  local ok, difficulty = pcall(C_PlayerInfo.GetContentDifficultyQuestForPlayer, questID)
+  return ok and not ns.IsSecret(difficulty) and difficulty == trivial
+end
+ns.IsGreyQuest = isGrey
 
 ---------------------------------------------------------------------------------------------------
 -- Quest log
@@ -111,20 +127,40 @@ local function filterLog()
   if not (scroll and scroll.titleFramePool and scroll.titleFramePool.EnumerateActive) then
     return false
   end
-  -- A search shows every match, whatever its zone.
-  if not ns.GetOption("zoneLog") or searching() then
+  -- A search shows every match, whatever its zone or level.
+  local zoneOn, greyOn = ns.GetOption("zoneLog"), ns.GetOption("hideGrey")
+  if not (zoneOn or greyOn) or searching() then
     showEmptyNote(false)
     return false
   end
 
-  local inZone, zoneHeaders = scan()
+  local inZone, _, quests, headerOf = scan()
+  -- A grey quest that is ready stays: the player can still turn it in.
+  local function keep(questID)
+    if zoneOn and not inZone[questID] then
+      return false
+    end
+    return not (greyOn and isGrey(questID) and not ns.IsReady(questID))
+  end
+  -- A header stays when one of its quests stays. With the zone filter off, a header whose quests
+  -- the game does not list (a collapsed header) stays too.
+  local keptHeaders, listedHeaders = {}, {}
+  for _, questID in ipairs(quests) do
+    local header = headerOf[questID]
+    if header then
+      listedHeaders[header] = true
+      if keep(questID) then
+        keptHeaders[header] = true
+      end
+    end
+  end
   local hidden = {}
   local total, shown = 0, 0
   for button in scroll.titleFramePool:EnumerateActive() do
     local questID = button.questID
     if questID then
       total = total + 1
-      if inZone[questID] then
+      if keep(questID) then
         shown = shown + 1
       else
         hidden[questID] = true
@@ -154,14 +190,15 @@ local function filterLog()
   local headersHidden = false
   if scroll.headerFramePool and scroll.headerFramePool.EnumerateActive then
     for header in scroll.headerFramePool:EnumerateActive() do
-      if header.questLogIndex and not zoneHeaders[header.questLogIndex] then
+      local index = header.questLogIndex
+      if index and not keptHeaders[index] and (zoneOn or listedHeaders[index]) then
         header:Hide()
         headersHidden = true
       end
     end
   end
   -- A collapsed zone header has no quest buttons but is still there to open.
-  showEmptyNote(shown == 0 and next(zoneHeaders) == nil)
+  showEmptyNote(zoneOn and shown == 0 and next(keptHeaders) == nil)
   -- The layout leaves out hidden frames, so the list closes up.
   return total > shown or headersHidden
 end
@@ -194,6 +231,11 @@ local function addMenuItem()
       return ns.GetOption("zoneLog")
     end, function()
       ns.SetOption("zoneLog", not ns.GetOption("zoneLog"))
+    end)
+    root:CreateCheckbox("Hide grey quests", function()
+      return ns.GetOption("hideGrey")
+    end, function()
+      ns.SetOption("hideGrey", not ns.GetOption("hideGrey"))
     end)
   end)
 end
@@ -287,20 +329,20 @@ local pending = false
 local function update()
   pending = false
   pcall(applyTracker)
-  if ns.GetOption("zoneLog") then
+  if ns.GetOption("zoneLog") or ns.GetOption("hideGrey") then
     refreshLog()
   end
 end
 
 local function schedule(delay)
-  if not pending and (ns.GetOption("zoneLog") or ns.GetOption("zoneTracker")) then
+  if not pending and (ns.GetOption("zoneLog") or ns.GetOption("zoneTracker") or ns.GetOption("hideGrey")) then
     pending = true
     C_Timer.After(delay, update)
   end
 end
 
 ns.OnOptionChanged(function(option, value)
-  if option == "zoneLog" then
+  if option == "zoneLog" or option == "hideGrey" then
     refreshLog()
   elseif option == "zoneTracker" then
     if value then

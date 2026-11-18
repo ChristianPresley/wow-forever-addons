@@ -4,8 +4,8 @@ local _, ns = ...
 
 local SECTIONS = {
   { "Automation", { "autoAccept", "autoTurnIn" } },
-  { "Alerts", { "announce", "sound", "completeFanfare" } },
-  { "Quest log and tracker", { "popProgress", "sortAlpha", "zoneLog", "zoneTracker", "trackerLook", "questItems" } },
+  { "Alerts", { "announce", "sound", "completeFanfare", "abandonWarning" } },
+  { "Quest log and tracker", { "popProgress", "sortAlpha", "zoneLog", "hideGrey", "zoneTracker", "trackerLook", "questItems", "questChain" } },
   { "Party and rewards", { "partyProgress", "rewardHelper" } },
 }
 

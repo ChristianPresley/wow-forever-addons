@@ -526,3 +526,86 @@ if not watched40 then
 end
 tracker:Update()
 QuestMapFrame:Hide()
+
+-- Abandon: the message says what progress goes with the quest.
+expect(ns.GetOption("abandonWarning") == true, "the abandon warning is on at first")
+local warning176 = ns.AbandonWarning(176)
+expect(warning176 ~= nil and warning176:find("Wanted: Hogger", 1, true) and warning176:find("Hogger slain: " .. H.questProgress .. "/8", 1, true), "abandoning quest 176 names the quest and the progress of its objective, got " .. tostring(warning176))
+H.world.questItems = true
+warning176 = ns.AbandonWarning(176)
+expect(warning176:find("Gnoll Paw: 3/8", 1, true) and warning176:find("8/8 Linen Cloth", 1, true), "each objective with progress is in the message")
+H.world.questItems = nil
+local warning40 = ns.AbandonWarning(40)
+expect(warning40 ~= nil and warning40:find("A Fishy Peril is ready to turn in", 1, true), "a ready quest says that it is ready, and that its rewards are lost")
+local savedProgress = H.questProgress
+H.questProgress = 0
+expect(ns.AbandonWarning(176) == nil, "a quest with no progress gives no message")
+H.questProgress = savedProgress
+expect(ns.AbandonWarning(nil) == nil and ns.AbandonWarning(12345) ~= false, "a call with no quest gives no message and no error")
+T.slash("/fq", "abandon")
+expect(ns.GetOption("abandonWarning") == false, "/fq abandon turns the warning off")
+T.slash("/fq", "abandon")
+expect(ns.GetOption("abandonWarning") == true, "and on again")
+
+-- Hide grey quests: an option, off at first, that a search of the log does not change.
+expect(ns.GetOption("hideGrey") == false, "grey quests are shown at first")
+T.slash("/fq", "grey")
+expect(ns.GetOption("hideGrey") == true, "/fq grey hides grey quests")
+QuestMapFrame:Show()
+QuestLogQuests_Update()
+expect(logButton(176):IsShown() and logButton(40):IsShown() and not ns.IsGreyQuest(176), "quests that are not grey stay in the quest log")
+local TRIVIAL = Enum.RelativeContentDifficulty.Trivial
+T.world.questDifficulty = { [176] = TRIVIAL, [40] = TRIVIAL }
+QuestLogQuests_Update()
+expect(ns.IsGreyQuest(176) and not logButton(176):IsShown(), "a grey quest is hidden from the quest log")
+expect(logButton(40):IsShown(), "a grey quest that is ready to turn in stays")
+local headerShown = false
+for header in QuestScrollFrame.headerFramePool:EnumerateActive() do
+  headerShown = headerShown or header:IsShown()
+end
+expect(headerShown, "the zone header stays while one of its quests is in the log")
+QuestScrollFrame.SearchBox:SetText("Hogger")
+QuestLogQuests_Update()
+expect(logButton(176):IsShown(), "a search in the quest log shows a grey quest")
+QuestScrollFrame.SearchBox:SetText("")
+T.world.questDifficulty = nil
+-- The game's question when the player abandons a quest: the addon adds its message after it.
+ns.SetOption("hideGrey", false)
+QuestMapQuestOptions_AbandonQuest(176)
+expect(H.abandonAsked == 176 and T.printed("abandon Wanted: Hogger and you lose"), "when the player abandons a quest with progress, the chat says what is lost")
+ns.SetOption("abandonWarning", false)
+local before = T.printed("abandon A Fishy Peril")
+QuestMapQuestOptions_AbandonQuest(40)
+expect(not before and not T.printed("A Fishy Peril is ready to turn in. Abandon"), "with the option off there is no message")
+ns.SetOption("abandonWarning", true)
+ns.SetOption("hideGrey", true)
+T.slash("/fq", "grey")
+expect(ns.GetOption("hideGrey") == false, "/fq grey shows them again")
+QuestMapFrame:Hide()
+-- The chain of a quest beside its details: quest 176 is the second of three, the first is done.
+expect(ns.GetOption("questChain") == true and ns.QuestChain(176) == nil, "the chain panel is on at first, and a quest in no chain has none")
+T.world.questLines = { [5] = { name = "The Hogger chain", quests = { 60, 176, 47 } } }
+T.world.completedQuests = { [60] = true }
+T.world.questItems = true
+QuestMapFrame:Show()
+QuestMapFrame.DetailsFrame:Show()
+QuestMapFrame_OpenToQuestDetails(176)
+local chainLines = ns.QuestChainLines(176)
+expect(chainLines ~= nil and chainLines[1] == "The Hogger chain: step 2 of 3", "the chain has its name and the place of the quest in it, got " .. tostring(chainLines and chainLines[1]))
+expect(chainLines[2] == "+ a quest you have not seen" and chainLines[3] == "> Wanted: Hogger" and chainLines[4] == "- a quest you have not seen", "the steps: the first done, this one, one still to come, got " .. table.concat(chainLines, " | "))
+expect(ns.QuestChain(176).steps[1].state == "done" and ns.QuestChain(176).steps[3].state == "later", "the state of each step")
+expect(ForeverQuestsChain ~= nil and ForeverQuestsChain:IsVisible() and ForeverQuestsChain:GetParent() == QuestMapFrame.DetailsFrame, "the chain panel shows beside the details and hides with them")
+expect(select(2, ForeverQuestsChain:GetPoint(1)) == ForeverQuestsItems, "with the item panel shown, the chain panel is under it")
+QuestMapFrame_OpenToQuestDetails(40)
+expect(not ForeverQuestsChain:IsShown(), "a quest in no chain shows no chain panel")
+-- A step that is in the quest log.
+T.world.questLines = { [5] = { name = "Two quests", quests = { 40, 176 } } }
+QuestMapFrame_OpenToQuestDetails(40)
+expect(ns.QuestChain(40).steps[2].state == "log" and ForeverQuestsChain:IsShown(), "a step in the quest log has its own state, got " .. tostring(ns.QuestChain(40).steps[2].state))
+T.slash("/fq", "chain")
+expect(ns.GetOption("questChain") == false and not ForeverQuestsChain:IsShown(), "/fq chain hides the chain")
+T.slash("/fq", "chain")
+expect(ns.GetOption("questChain") == true and ForeverQuestsChain:IsShown(), "and shows it again")
+T.world.questLines, T.world.completedQuests, T.world.questItems = nil, nil, nil
+QuestMapFrame.DetailsFrame:Hide()
+QuestMapFrame:Hide()

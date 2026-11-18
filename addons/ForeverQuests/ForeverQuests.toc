@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Forever Quests
-## Notes: Quest-ready alerts with a QUEST COMPLETE banner, optional automatic accept and turn-in, a current-zone filter, progressed quests first in the quest log with a glow, sorting by name, the same look and order on the quest tracker, the items of a quest beside its details, party progress, reward sell prices and quest experience totals.
+## Notes: Quest-ready alerts with a QUEST COMPLETE banner, optional automatic accept and turn-in, a current-zone filter, progressed quests first in the quest log with a glow, sorting by name, a filter for grey quests, a warning of the progress an abandoned quest loses, the same look and order on the quest tracker, the items and the chain of a quest beside its details, party progress, reward sell prices and quest experience totals.
 ## Author: Christian Presley
-## Version: 0.5.11
+## Version: 0.5.12
 ## Category: Quests
 ## OptionalDeps: ForeverCompass
 ## SavedVariables: ForeverQuestsDB
@@ -17,7 +17,9 @@ Rewards.lua
 ZoneFilter.lua
 LogOrder.lua
 Tracker.lua
+Abandon.lua
 Items.lua
+Chains.lua
 Fanfare.lua
 SettingsKit.lua
 Settings.lua

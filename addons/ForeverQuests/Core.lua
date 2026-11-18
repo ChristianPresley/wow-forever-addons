@@ -56,6 +56,11 @@ ns.OPTIONS = {
     hint = "Hide the quests of other zones in the quest log. Also in the settings menu of the quest log.",
   },
   {
+    key = "hideGrey", command = "grey", label = "grey quests hidden in the quest log", default = false,
+    text = "Quest log: hide grey quests",
+    hint = "Hide the quests that the game shows in grey, far below your level. A grey quest that is ready to turn in stays. Also in the settings menu of the quest log.",
+  },
+  {
     key = "zoneTracker", command = "zonetracker", label = "current zone only in the tracker", default = false,
     text = "Tracker: current zone only",
     hint = "Track the quests of your zone and untrack the others. Your own tracking comes back when you turn this off.",
@@ -69,6 +74,16 @@ ns.OPTIONS = {
     key = "completeFanfare", command = "fanfare", label = "quest complete banner", default = true,
     text = "Quest complete: banner and mark",
     hint = "A banner on the screen when a quest is ready to turn in; click it to see where. In the quest log the quest goes to the top of its zone with a COMPLETED mark.",
+  },
+  {
+    key = "questChain", command = "chain", label = "the quest chain beside the quest details", default = true,
+    text = "Quest log: the chain of the quest",
+    hint = "Beside the details of a quest that is part of a chain: the name of the chain and its steps, done, this one, or still to come.",
+  },
+  {
+    key = "abandonWarning", command = "abandon", label = "progress warning when you abandon a quest", default = true,
+    text = "Abandon: say what progress is lost",
+    hint = "When you abandon a quest, a chat message lists the objectives you have made progress on, and says so if the quest is ready to turn in.",
   },
   {
     key = "questItems", command = "items", label = "quest items beside the quest details", default = true,
