@@ -10,6 +10,9 @@ local _, ns = ...
 -- picture of an old icon file for a client that lacks the atlas.
 
 local POI_ICONS = "Interface/Minimap/POIIcons"
+-- A round yellow dot: the fallback of a place without an icon of its own. (A sheet of icons such
+-- as ObjectIcons, or Tracking\None, would draw the wrong picture.)
+local DOT = "Interface\\Common\\Indicator-Yellow"
 
 -- x, y (0 to 1) of a position object of the game, or nil.
 local function xy(position)
@@ -76,8 +79,9 @@ end
 ---------------------------------------------------------------------------------------------------
 -- Quests
 
-local TURN_IN = { atlas = "QuestTurnin", texture = "Interface\\GossipFrame\\ActiveQuestIcon" }
-local OBJECTIVE = { atlas = "QuestObjective", texture = "Interface\\GossipFrame\\IncompleteQuestIcon" }
+-- The atlases that OpenMap uses on this client.
+local TURN_IN = { atlas = "UI-QuestPoi-QuestBangTurnIn", texture = "Interface\\GossipFrame\\ActiveQuestIcon" }
+local OBJECTIVE = { atlas = "Quest-In-Progress-Icon-yellow", texture = "Interface\\GossipFrame\\IncompleteQuestIcon" }
 
 -- The quests of the quest log with a place on this map: ready to turn in, or not yet.
 local function logQuests(wantReady)
@@ -271,7 +275,7 @@ local function areaPOIs(mapID, add)
       local x, y = xy(info.position)
       if x then
         add(x * 100, y * 100, {
-          look = poiLook(info, "Interface\\Minimap\\Tracking\\None"),
+          look = poiLook(info, DOT),
           size = 22,
           tooltip = lines(text(info.name, "Place"), text(info.description, nil)),
         })
@@ -321,7 +325,7 @@ local function rares(mapID, add)
       if x then
         local isTreasure = treasure ~= nil and info.type == treasure
         add(x * 100, y * 100, {
-          look = poiLook(info, "Interface\\Minimap\\ObjectIconsAtlas"),
+          look = poiLook(info, isTreasure and "Interface\\Icons\\INV_Box_01" or "Interface\\TargetingFrame\\UI-TargetingFrame-Skull"),
           size = 24,
           tooltip = lines(text(info.name, isTreasure and "Treasure" or "Rare"), isTreasure and "Treasure" or "Rare enemy, treasure or event"),
         })
@@ -344,7 +348,7 @@ local function guardPlace(mapID, add)
   local x, y = xy(ok and type(info) == "table" and info.position or nil)
   if x then
     add(x * 100, y * 100, {
-      look = poiLook(info, "Interface\\Minimap\\Tracking\\None"),
+      look = poiLook(info, DOT),
       size = 26,
       tooltip = lines(text(info.name, "Place"), "A guard showed you this place"),
     })
@@ -374,7 +378,7 @@ local function events(mapID, add)
     if x then
       local name, description = text(info.name, "Event"), text(info.description, nil)
       add(x * 100, y * 100, {
-        look = poiLook(info, "Interface\\Minimap\\Tracking\\None"),
+        look = poiLook(info, DOT),
         size = 24,
         -- The time that is left is read when the tooltip shows, not when the pin is made.
         tooltip = function(tooltip)
@@ -502,7 +506,7 @@ local function otherPlaces(mapID, add)
         local x, y = xy(okInfo and type(info) == "table" and info.position or nil)
         if x then
           add(x * 100, y * 100, {
-            look = poiLook(info, "Interface\\Minimap\\Tracking\\None"),
+            look = poiLook(info, DOT),
             size = 22,
             tooltip = lines(text(info.name, source[2]), source[2], text(info.description, nil)),
           })
@@ -516,7 +520,7 @@ local function otherPlaces(mapID, add)
       local x, y = xy(type(info) == "table" and info.position or nil)
       if x then
         add(x * 100, y * 100, {
-          look = poiLook(info, "Interface\\Minimap\\Tracking\\None"),
+          look = poiLook(info, DOT),
           size = 22,
           tooltip = lines(text(info.name, source[2]), source[2]),
         })
@@ -554,18 +558,19 @@ end
 -- with x, y from 0 to 100. They are for all characters.
 
 -- The roles, the most telling one first: an NPC with more than one has the icon of the first.
--- The icon is an atlas of the game where the client has it, else a dot of the colour.
+-- The icon is a picture file of the game, not an atlas: the minimap tracking icons where there is
+-- one (as OpenMap draws them on this client), else the icon of the gossip window.
 local ROLES = {
-  { "inn", "Innkeeper", "Innkeeper", { 1, 0.6, 0.6 } },
-  { "bank", "Banker", "Banker", { 1, 0.7, 0.2 } },
-  { "auction", "Auctioneer", "Auctioneer", { 0.9, 0.6, 1 } },
-  { "mailbox", "Mailbox", "Mailbox", { 1, 1, 0.6 } },
-  { "stable", "Stable master", "StableMaster", { 0.7, 0.5, 0.3 } },
-  { "trainer", "Trainer", "Profession", { 0.5, 1, 0.5 } },
-  { "repair", "Repairer", "Repair", { 0.8, 0.8, 0.8 } },
-  { "vendor", "Vendor", nil, { 1, 0.85, 0.3 } },
-  { "quests", "Quests", nil, { 1, 1, 0 } },
-  { "talk", "Talks to you", nil, { 0.6, 0.8, 1 } },
+  { "inn", "Innkeeper", "Interface\\Minimap\\Tracking\\Innkeeper" },
+  { "bank", "Banker", "Interface\\Minimap\\Tracking\\Banker" },
+  { "auction", "Auctioneer", "Interface\\Minimap\\Tracking\\Auctioneer" },
+  { "mailbox", "Mailbox", "Interface\\Minimap\\Tracking\\Mailbox" },
+  { "stable", "Stable master", "Interface\\Minimap\\Tracking\\StableMaster" },
+  { "trainer", "Trainer", "Interface\\Minimap\\Tracking\\Profession" },
+  { "repair", "Repairer", "Interface\\Minimap\\Tracking\\Repair" },
+  { "vendor", "Vendor", "Interface\\GossipFrame\\VendorGossipIcon" },
+  { "quests", "Quests", "Interface\\GossipFrame\\AvailableQuestIcon" },
+  { "talk", "Talks to you", "Interface\\GossipFrame\\GossipGossipIcon" },
 }
 local ROLE = {}
 for _, role in ipairs(ROLES) do
@@ -573,12 +578,11 @@ for _, role in ipairs(ROLES) do
 end
 
 local function roleLook(role)
-  return { atlas = role[3], fallbackAtlas = "WhiteCircle-RaidBlips", texture = "Interface\\Buttons\\WHITE8X8", fallbackColor = role[4] }
+  return { texture = role[3] }
 end
 
--- The size of the icon of a role: an icon of the game, or the dot.
-local function roleSize(role)
-  return role[3] and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(role[3]) and 18 or 10
+local function roleSize()
+  return 16
 end
 
 -- Two things without a name (mailboxes) nearer than this, in hundredths of the map, are one.
@@ -748,9 +752,9 @@ ns.MAP_KINDS = {
   { key = "areaPOIs", name = "Towns and landmarks", find = areaPOIs },
   { key = "learned", name = "Vendors, mailboxes and trainers (Forever Compass)", find = learnedPlaces },
   { key = "npcs", name = "Vendors, trainers and other NPCs you have used", find = metNpcs },
-  { key = "graveyards", name = "Graveyards", find = poiList(function() return C_DeathInfo and C_DeathInfo.GetGraveyardsForMap end, "Interface\\Minimap\\Tracking\\None", "Graveyard") },
-  { key = "dungeons", name = "Dungeon entrances", find = poiList(function() return C_EncounterJournal and C_EncounterJournal.GetDungeonEntrancesForMap end, "Interface\\Minimap\\Tracking\\None", "Dungeon entrance") },
-  { key = "links", name = "Ways to other maps", find = poiList(function() return C_Map.GetMapLinksForMap end, "Interface\\Minimap\\Tracking\\None", "Way to another map") },
+  { key = "graveyards", name = "Graveyards", find = poiList(function() return C_DeathInfo and C_DeathInfo.GetGraveyardsForMap end, DOT, "Graveyard") },
+  { key = "dungeons", name = "Dungeon entrances", find = poiList(function() return C_EncounterJournal and C_EncounterJournal.GetDungeonEntrancesForMap end, DOT, "Dungeon entrance") },
+  { key = "links", name = "Ways to other maps", find = poiList(function() return C_Map.GetMapLinksForMap end, DOT, "Way to another map") },
   { key = "flight", name = "Flight masters", find = flightMasters },
   { key = "bosses", name = "Dungeon bosses", find = bosses },
   { key = "events", name = "Events", find = events },

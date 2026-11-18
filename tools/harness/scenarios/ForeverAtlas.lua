@@ -196,7 +196,7 @@ expect(count("rares") == 2 and count("mapPin") == 1, "two rare markers and the m
 expect(count("group") == 0 and count("corpse") == 0, "no group member and no corpse when alone and alive")
 expect(count("atlas") >= 2, "the note and the waypoint of the addon are on the map too")
 -- The icon is the game's: an atlas where the game names one, else a part of the sheet of map icons.
-expect(pinNamed("questTurnIns").data.look.atlas == "QuestTurnin" and pinNamed("questGivers").data.look.atlas == "QuestNormal", "quest pins have the icons of the game's map")
+expect(pinNamed("questTurnIns").data.look.atlas == "UI-QuestPoi-QuestBangTurnIn" and pinNamed("questGivers").data.look.atlas == "QuestNormal", "quest pins have the icons of the game's map")
 expect(pinNamed("flight").data.look.atlas == "TaxiNode_Alliance", "a flight master has the icon that the game names for it")
 local town = pinNamed("areaPOIs", 0.42)
 expect(town.data.look.texture == "Interface/Minimap/POIIcons" and town.data.look.coords[1] == 0.5 and town.data.look.coords[2] == 0.6, "a point of interest without an atlas has its part of the sheet of map icons")

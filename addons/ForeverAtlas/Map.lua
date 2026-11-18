@@ -1490,6 +1490,41 @@ function ns.PrintMapStatus()
   end
   table.sort(parts)
   print(string.format("  pins: %d (%s); zone names: %d", #pins, #parts > 0 and table.concat(parts, ", ") or "none", #labels))
+  -- Each kind of pin: what the icon of its first pin asked for, what the game shows for it, and
+  -- how many of its pins are outside the window. A missing atlas falls back to a picture file;
+  -- a file the game does not have shows nothing or a green square.
+  local firstOf, outside, order = {}, {}, {}
+  local mapWidth, mapHeight = view.width * view.scale, view.height * view.scale
+  for _, pin in ipairs(pins) do
+    local kind = pin.kind or "?"
+    if not firstOf[kind] then
+      firstOf[kind], outside[kind] = pin, 0
+      order[#order + 1] = kind
+    end
+    local px, py = view.x + pin.x * mapWidth, view.y + pin.y * mapHeight
+    if px < 0 or px > width or py < 0 or py > height then
+      outside[kind] = outside[kind] + 1
+    end
+  end
+  table.sort(order)
+  local hasAtlas = C_Texture and C_Texture.GetAtlasInfo
+  for _, kind in ipairs(order) do
+    local pin = firstOf[kind]
+    local look = pin.data and pin.data.look or {}
+    local function state(atlas)
+      if not atlas then
+        return "none"
+      end
+      local ok, info = pcall(hasAtlas or error, atlas)
+      return atlas .. (ok and info and " (the game has it)" or " (missing)")
+    end
+    local okAtlas, shownAtlas = pcall(pin.icon.GetAtlas, pin.icon)
+    local okFile, shownFile = pcall(pin.icon.GetTexture, pin.icon)
+    print(string.format("    %s: %d of %d outside the window; atlas %s, second atlas %s, file %s; shows %s, size %s",
+      kind, outside[kind], kinds[kind], state(look.atlas), state(look.fallbackAtlas), tostring(look.texture),
+      okAtlas and shownAtlas and ("atlas " .. tostring(shownAtlas)) or ("file " .. tostring(okFile and shownFile or "?")),
+      tostring(pin.data and pin.data.size or 16)))
+  end
   local terrain = view.terrain
   print("  terrain: " .. (terrain and string.format("%d images, %d by %d, first %s, opacity %.2f", terrain.images, terrain.columns, terrain.rows, tostring(terrain.first), terrainAlpha())
     or (ns.GetOption("terrainDetail") and "on, but none for this map" or "off")))
