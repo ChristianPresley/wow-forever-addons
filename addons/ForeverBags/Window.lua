@@ -27,6 +27,7 @@ local BIND_QUEST = 4 -- the bind type of a quest item: its tooltip says "Quest I
 
 -- The categories, in the order of the window. `classes` are item class numbers (Enum.ItemClass).
 local CATEGORIES = {
+  { key = "new", name = "New items", classes = {} },
   { key = "equipment", name = "Equipment", classes = { [2] = true, [4] = true } },
   { key = "consumables", name = "Consumables", classes = { [0] = true } },
   { key = "trade", name = "Trade goods", classes = { [3] = true, [5] = true, [7] = true, [8] = true, [9] = true, [16] = true, [19] = true } },
@@ -41,6 +42,10 @@ local buttons = {} -- [bag][slot] = item button
 local headers = {}
 local search = ""
 local refreshPending = false
+local merchantOpen = false
+local SELL_LIMIT = 12 -- items sold with one click: the buyback list of the vendor holds 12
+local levelTexts = {} -- [item button] = font string with the item level. No field on the button.
+local EQUIPMENT = { [2] = true, [4] = true } -- item classes Weapon and Armor
 
 ---------------------------------------------------------------------------------------------------
 -- Item buttons
@@ -109,6 +114,32 @@ local function updateButton(button, bag, slot, info)
   call(button, "UpdateJunkItem", quality, info and info.hasNoValue)
   call(button, "UpdateCooldown", texture)
   call(button, "SetReadable", info and info.isReadable)
+  -- Weapons and armor: the item level, and red when the character's level is too low to use it.
+  local level, tooLow
+  if info and info.itemID then
+    local ok, _, _, _, itemLevel, minLevel, _, _, _, _, _, _, classID = pcall(C_Item.GetItemInfo, info.itemID)
+    if ok and EQUIPMENT[classID] then
+      level = type(itemLevel) == "number" and itemLevel > 1 and itemLevel or nil
+      tooLow = type(minLevel) == "number" and minLevel > (UnitLevel("player") or 0)
+    end
+  end
+  local text = levelTexts[button]
+  if level and ns.GetOption("itemLevel") then
+    if not text then
+      text = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+      text:SetPoint("TOPLEFT", 2, -2)
+      levelTexts[button] = text
+    end
+    text:SetText(level)
+    text:Show()
+  elseif text then
+    text:Hide()
+  end
+  if tooLow then
+    callGlobal("SetItemButtonTextureVertexColor", button, 0.9, 0.2, 0.2)
+  elseif not (info and info.isLocked) then
+    callGlobal("SetItemButtonTextureVertexColor", button, 1, 1, 1)
+  end
   local matches = matchesSearch(info)
   if type(button.SetMatchesSearch) == "function" then
     pcall(button.SetMatchesSearch, button, matches)
@@ -159,9 +190,17 @@ end
 --   a quest of the quest log names the item, as an objective or as the item to use
 -- Many quest items say "Soulbound" and not "Quest Item" in the tooltip, so the tooltip line
 -- alone is not the test.
+local function isJunk(info)
+  return (info.quality == 0 and not info.hasNoValue) or ns.IsMarkedJunk(info.itemID)
+end
+
 local function categoryOf(info, bag, slot)
-  if info.quality == 0 and not info.hasNoValue then
+  if isJunk(info) then
     return "junk"
+  end
+  local okNew, new = pcall(C_NewItems.IsNewItem, bag, slot)
+  if okNew and new == true then
+    return "new"
   end
   local okQuest, quest = pcall(C_Container.GetContainerItemQuestInfo, bag, slot)
   if okQuest and type(quest) == "table" and (quest.isQuestItem or quest.questID) then
@@ -322,6 +361,33 @@ local function refresh()
   window.money:SetText(ns.Money(GetMoney and GetMoney() or 0))
   window.free:SetText(ok and (free .. " free") or "")
   window:SetMovable(not ns.GetOption("lock"))
+  window.sell:SetShown(merchantOpen)
+end
+
+-- Sells the junk in the bags at an open vendor: grey items and the items marked as junk. At most
+-- SELL_LIMIT with one click, so each can still be bought back. Returns the number and the copper.
+function ns.SellJunk()
+  if not merchantOpen then
+    return 0, 0
+  end
+  local sold, copper = 0, 0
+  for _, bag in ipairs(ns.BAGS) do
+    local okSlots, slots = pcall(C_Container.GetContainerNumSlots, bag)
+    for slot = 1, okSlots and type(slots) == "number" and slots or 0 do
+      local info = C_Container.GetContainerItemInfo(bag, slot)
+      if sold < SELL_LIMIT and info and not info.isLocked and isJunk(info) then
+        local okPrice, price = pcall(function()
+          return (select(11, C_Item.GetItemInfo(info.itemID)))
+        end)
+        if okPrice and type(price) == "number" and price > 0 then
+          C_Container.UseContainerItem(bag, slot)
+          sold = sold + 1
+          copper = copper + price * (info.stackCount or 1)
+        end
+      end
+    end
+  end
+  return sold, copper
 end
 
 local function scheduleRefresh()
@@ -434,6 +500,19 @@ local function create()
     ns.SetOption("groupBy", ns.GetOption("groupBy") == "category" and "none" or "category")
   end)
   group:SetPoint("LEFT", all, "RIGHT", 4, 0)
+  -- At a vendor: sells the junk.
+  local sell = smallButton(window, "Sell junk", 76, "Sells the grey items and the items you marked as junk (/fbags junk), 12 at a time, so you can buy them back.", function()
+    local sold, copper = ns.SellJunk()
+    if sold > 0 then
+      ns.Print("sold " .. sold .. (sold == 1 and " item" or " items") .. " for " .. ns.Money(copper) .. ".")
+    else
+      ns.Print("no junk to sell.")
+    end
+  end)
+  sell:SetHeight(18)
+  sell:SetPoint("LEFT", title, "RIGHT", 10, 0)
+  sell:Hide()
+  window.sell = sell
 
   window:SetScript("OnShow", function()
     refresh()
@@ -694,6 +773,11 @@ ns.OnLogin(function()
   -- The game loads the data of an item late (after login): its category can change then.
   pcall(events.RegisterEvent, events, "GET_ITEM_INFO_RECEIVED")
   events:SetScript("OnEvent", function(_, event)
+    if event == "MERCHANT_SHOW" then
+      merchantOpen = true
+    elseif event == "MERCHANT_CLOSED" then
+      merchantOpen = false
+    end
     if event == "QUEST_LOG_UPDATE" or event == "QUEST_ACCEPTED" or event == "QUEST_REMOVED" then
       questNames, questIDs = nil, nil -- read again at the next layout
     end

@@ -11,6 +11,9 @@ local function help()
   print("  /fbags find [text] - open the bag window and search for the text")
   print("  /fbags count [item link] - who owns the item, in chat")
   print("  /fbags sort - sort the items in your bags")
+  print("  /fbags junk [item link] - mark the item as junk, or take the mark away")
+  print("  /fbags sell - at a vendor, sell the grey items and the items marked as junk")
+  print("  /fbags ilvl - the item level on weapons and armor, on or off")
   print("  /fbags view - change between items by category and items in the order of the bags")
   print("  /fbags columns 10, /fbags size 100, /fbags opacity 90 - the look of the bag window")
   print("  /fbags blizzard - use the bag window of the game again, or this one")
@@ -83,6 +86,20 @@ SlashCmdList["FOREVERBAGS"] = function(input)
     count(rest)
   elseif command == "sort" then
     pcall(C_Container.SortBags)
+  elseif command == "junk" then
+    local itemID = tonumber(rest:match("item:(%d+)")) or tonumber(rest)
+    if not itemID then
+      ns.Print("shift-click an item into the chat box after /fbags junk.")
+    else
+      local marked = ns.ToggleJunk(itemID)
+      ns.Print((rest:match("%[.-%]") or ("item " .. itemID)) .. (marked and " is marked as junk." or " is no longer marked as junk."))
+    end
+  elseif command == "sell" then
+    local sold, copper = ns.SellJunk()
+    ns.Print(sold > 0 and ("sold " .. sold .. (sold == 1 and " item" or " items") .. " for " .. ns.Money(copper) .. ".")
+      or "no junk sold. Talk to a vendor first.")
+  elseif command == "ilvl" then
+    toggle("itemLevel", "the item level on weapons and armor is")
   elseif command == "view" then
     ns.SetOption("groupBy", ns.GetOption("groupBy") == "category" and "none" or "category")
     ns.Print("items " .. (ns.GetOption("groupBy") == "category" and "by category." or "in the order of the bags."))

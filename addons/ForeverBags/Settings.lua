@@ -45,7 +45,7 @@ local function build()
   check("replaceBags", "Use this bag window in place of the game's", "The bag key and the bag buttons open the Forever Bags window. Off: the bag window of the game comes back, and /fbags still opens this one.")
   page:Choice({
     label = "Order of the items",
-    hint = "By category: equipment, consumables, trade goods, quest items, other and junk, each under its name. The View button of the window changes this too.",
+    hint = "By category: new items, equipment, consumables, trade goods, quest items, other and junk, each under its name. The View button of the window changes this too.",
     values = ns.GROUPINGS,
     get = function()
       return ns.GetOption("groupBy")
@@ -60,6 +60,7 @@ local function build()
   slider("scale", "Size of the items", nil, 5, percent)
   slider("alpha", "Opacity of the background", nil, 5, percent)
   check("lock", "Lock the window", "A locked window does not move when you drag it.")
+  check("itemLevel", "Item level on weapons and armor", "The item level at the top left of the button. An item your level is too low for is red either way.")
 
   page:Header("Item tooltips")
   check("tooltipCounts", "How many this character owns", "In the tooltip of an item: the number in the bags, in the bank and equipped.")

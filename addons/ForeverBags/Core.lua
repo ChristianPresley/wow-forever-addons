@@ -10,6 +10,7 @@ local _, ns = ...
 --                                      bags = { [itemID] = count }, bank = { ... }, equipped = { ... },
 --                                      bankSeen = time of the last look at the bank, or nil } }
 --   accountBank = { [itemID] = count }   -- the bank that all characters share
+--   junk        = { [itemID] = true }    -- items that the player marked as junk
 
 local DATA_VERSION = 1
 
@@ -33,6 +34,7 @@ ns.DEFAULTS = {
   lock = false, -- a locked window does not move
   tooltipCounts = true, -- how many of an item this character owns
   tooltipAlts = true, -- how many the other characters own
+  itemLevel = true, -- the item level on the buttons of weapons and armor
 }
 
 ns.LIMITS = {
@@ -85,6 +87,21 @@ function ns.SetOption(key, value)
     end
   end
   return true
+end
+
+-- Items that the player marked as junk. A marked item counts as junk and is sold with the junk.
+function ns.IsMarkedJunk(itemID)
+  return ForeverBagsDB ~= nil and type(ForeverBagsDB.junk) == "table" and ForeverBagsDB.junk[itemID] == true
+end
+
+-- Marks an item as junk, or takes the mark away. Returns the new state.
+function ns.ToggleJunk(itemID)
+  local marked = not ns.IsMarkedJunk(itemID)
+  ForeverBagsDB.junk[itemID] = marked or nil
+  for _, fn in ipairs(listeners) do
+    pcall(fn, "junk")
+  end
+  return marked
 end
 
 function ns.Money(copper)
@@ -171,6 +188,7 @@ loader:SetScript("OnEvent", function(self, event, name)
   tableAt(db, "frames")
   tableAt(db, "characters")
   tableAt(db, "accountBank")
+  tableAt(db, "junk")
   -- An option that is missing or has the wrong type gets its default.
   for key, default in pairs(ns.DEFAULTS) do
     if type(options[key]) ~= type(default) then
