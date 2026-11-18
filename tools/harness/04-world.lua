@@ -442,6 +442,43 @@ set("C_QuestLine", "GetAvailableQuestLines", function()
     { questID = 64, questName = "In the cellar", x = 0.2, y = 0.2, isHidden = false, inProgress = false, floorLocation = floors.Below },
   }
 end)
+-- H.world.questLines[questLineID] = { name = ..., quests = { questID, ... } }: the quest chains;
+-- none at first. H.world.completedQuests[questID]: a quest the character has done.
+local function questLineOf(questID)
+  for questLineID, line in pairs(H.world.questLines or {}) do
+    for _, id in ipairs(line.quests) do
+      if id == questID then
+        return questLineID, line
+      end
+    end
+  end
+end
+set("C_QuestLine", "GetQuestLineInfo", function(questID)
+  local questLineID, line = questLineOf(questID)
+  if not questLineID then
+    return nil
+  end
+  return {
+    questLineID = questLineID, questLineName = line.name, questID = questID,
+    questName = C_QuestLog.GetTitleForQuestID(questID) or "", x = 0.5, y = 0.5,
+    isHidden = false, isLegendary = false, isDaily = false, isCampaign = false,
+    isImportant = false, isAccountCompleted = false, isCombatAllyQuest = false, isMeta = false,
+    inProgress = C_QuestLog.GetLogIndexForQuestID(questID) ~= nil, isQuestStart = false,
+    isLocalStory = false, floorLocation = Enum.QuestLineFloorLocation.Same, startMapID = 37,
+  }
+end)
+H.allowNil("C_QuestLine.GetQuestLineInfo", "The game gives nothing for a quest of no quest line: Blizzard_FrameXMLUtil/Mainline/QuestUtils.lua tests the result with `if questLineInfo then`.")
+set("C_QuestLine", "GetQuestLineQuests", function(questLineID)
+  local line = H.world.questLines and H.world.questLines[questLineID]
+  local quests = {}
+  for index, id in ipairs(line and line.quests or {}) do
+    quests[index] = id
+  end
+  return quests
+end)
+set("C_QuestLog", "IsQuestFlaggedCompleted", function(questID)
+  return H.world.completedQuests ~= nil and H.world.completedQuests[questID] == true
+end)
 set("C_SuperTrack", "GetSuperTrackedQuestID", function() return 176 end)
 set("C_VignetteInfo", "GetVignettes", function() return { "Vignette-1", "Vignette-2" } end)
 set("C_VignetteInfo", "GetVignetteInfo", function(guid)
@@ -819,6 +856,23 @@ set("C_QuestLog", "RemoveQuestWatch", function(questID)
   did("unwatch", questID)
   return true
 end)
+-- H.world.questDifficulty[questID]: a value of Enum.RelativeContentDifficulty; Easy when unset.
+-- The game's QuestMapFrame.lua gives it to GetDifficultyColor.
+set("C_PlayerInfo", "GetContentDifficultyQuestForPlayer", function(questID)
+  local difficulty = H.world.questDifficulty and H.world.questDifficulty[questID]
+  return difficulty or Enum.RelativeContentDifficulty.Easy
+end)
+-- The quest menu's "Abandon" of Blizzard_UIPanels_Game/Mainline/QuestMapFrame.lua. The game
+-- selects the quest, calls C_QuestLog.SetAbandonQuest and shows the ABANDON_QUEST dialog; the
+-- stand-in keeps the quest and notes the call in H.abandonAsked.
+H.abandonAsked = nil
+setGlobal("QuestMapQuestOptions_AbandonQuest", function(questID)
+  if not C_QuestLog.GetLogIndexForQuestID(questID) then
+    error("QuestMapQuestOptions_AbandonQuest: quest " .. tostring(questID) .. " is not in the quest log", 2)
+  end
+  H.abandonAsked = questID
+  did("abandon asked", questID)
+end, "Blizzard_UIPanels_Game/Mainline/QuestMapFrame.lua")
 
 -- Builds the quest log, as the function of the same name in QuestMapFrame.lua: a header button
 -- and a title button for each entry, each with its place in the layout.
@@ -1208,6 +1262,14 @@ end, MAIL_FRAME)
 setGlobal("GetInboxHeaderInfo", function()
   return nil, nil, "Auction House", "Auction successful: Linen Cloth", 1000, 0, 29.5, 0, false
 end, MAIL_FRAME)
+-- The game's MailFrame.lua calls TakeInboxMoney(self.mailIndex) and AutoLootMailItem(index).
+-- The stand-in notes each call; the mail stays.
+setGlobal("TakeInboxMoney", function(index) did("take inbox money", index) end, MAIL_FRAME)
+setGlobal("AutoLootMailItem", function(index) did("loot mail", index) end, MAIL_FRAME)
+-- The mail window (Blizzard_MailFrame/MailFrame.xml), hidden until the mailbox opens.
+MailFrame = CreateFrame("Frame", "MailFrame", UIParent)
+MailFrame:Hide()
+H.gameFrameSet[MailFrame] = true
 
 ---------------------------------------------------------------------------------------------------
 -- The fight
