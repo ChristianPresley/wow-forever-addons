@@ -44,6 +44,32 @@ local function fillRow(row, spell, source, mode)
   row:Show()
 end
 
+-- Another player of a fight, by class: the one at the place `rank` if it has that class, else
+-- the only one with that class. Nil when the class is not known or more players share it.
+function ns.FindByClass(session, class, rank)
+  if ns.IsSecret(class) or type(class) ~= "string" then
+    return nil
+  end
+  local function matches(source)
+    return source and source.isLocalPlayer ~= true and not ns.IsSecret(source.classFilename)
+      and source.classFilename == class
+  end
+  local atRank = session.combatSources[rank or 0]
+  if matches(atRank) then
+    return atRank
+  end
+  local found
+  for _, source in ipairs(session.combatSources) do
+    if matches(source) then
+      if found then
+        return nil
+      end
+      found = source
+    end
+  end
+  return found
+end
+
 local function update()
   if not (frame and frame:IsShown() and shownSource) then
     return
@@ -51,8 +77,10 @@ local function update()
   local mode, segment = ns.Mode(), ns.segment
   frame.title:SetText(mode.short .. " - " .. ns.SegmentName(segment))
   -- A source that was clicked during a fight has a secret identity, and that value stays
-  -- secret after the fight. So the source is read again from the fight: the player's own
-  -- one, or the one at the same place in the list.
+  -- secret after the fight. So the source is read again from the fight: the player's own one,
+  -- or the one of the same class. The class is never secret (DamageMeterDocumentation.lua);
+  -- the order of the list can change by the end of the fight, so the place in the list only
+  -- decides between players of the same class.
   if ns.IsSecret(shownSource.guid) or ns.IsSecret(shownSource.name) then
     local session = ns.GetSession(mode, segment)
     local again
@@ -60,7 +88,7 @@ local function update()
       if shownSource.isLocal then
         again = ns.OwnSource(session)
       else
-        again = session.combatSources[shownSource.rank or 0]
+        again = ns.FindByClass(session, shownSource.class, shownSource.rank)
       end
     end
     if again and not ns.IsSecret(again.sourceGUID) then
@@ -87,6 +115,8 @@ local function update()
   if #spells == 0 then
     frame.note:SetText(ns.InCombat()
       and "The game gives the spells of a player after the fight.\nThis window fills in then."
+      or ns.IsSecret(shownSource.guid)
+      and "Two players of this class were in the fight.\nClick the player's bar again."
       or "No spells for this player in this fight.")
     frame.note:Show()
   else

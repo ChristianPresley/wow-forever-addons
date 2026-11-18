@@ -67,6 +67,26 @@ T.advance(2)
 -- itself once a second; here the change of the fight does it.)
 ns.Changed(nil)
 expect(ForeverMeterDetails.rows[1]:IsShown(), "after the fight the spell window of a player who was clicked in the fight fills in")
+-- The order of the list changes by the end of the fight: the window stays with the player who
+-- was clicked (found by class), not with the bar at the same place.
+local fromType = C_DamageMeter.GetCombatSessionFromType
+local function swapped(...)
+  local result = fromType(...)
+  if result and result.combatSources then
+    local list = result.combatSources
+    list[1], list[2] = list[2], list[1]
+  end
+  return result
+end
+T.world.secret = true
+T.advance(1)
+ns.ShowDetails(ns.GetSession(ns.Mode(), ns.segment).combatSources[1], 1)
+C_DamageMeter.GetCombatSessionFromType = swapped
+T.world.secret = false
+ns.Changed(nil)
+expect(H.plain(ForeverMeterDetails.who:GetText()) == "Otherplayer", "after a change of order the window shows the player who was clicked, got " .. tostring(H.plain(ForeverMeterDetails.who:GetText())))
+C_DamageMeter.GetCombatSessionFromType = fromType
+ns.Changed(nil)
 
 -- The bars for each kind of group.
 ns.SetOption("rowsSolo", 1)

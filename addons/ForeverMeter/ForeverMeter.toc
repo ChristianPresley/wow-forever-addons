@@ -2,7 +2,7 @@
 ## Title: Forever Meter
 ## Notes: A damage and healing meter for solo play, parties and raids: bars for each player, your own DPS on screen, fights to look back at, a spell breakdown and reports to chat.
 ## Author: Christian Presley
-## Version: 0.1.7
+## Version: 0.1.8
 ## Category: Combat
 ## SavedVariables: ForeverMeterDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons
