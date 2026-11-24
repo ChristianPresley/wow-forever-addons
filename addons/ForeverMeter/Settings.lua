@@ -64,6 +64,7 @@ local function build()
 
   page:Header("Data")
   check(page, "autoReset", "Delete earlier fights when I enter a dungeon or a raid", "The whole session then starts again in each instance.")
+  check(page, "keepFights", "Keep each fight after I log out", "The fights stay in the list of fights (marked Saved) after a log out. Only the numbers the game shows to addons are kept.")
   page:Info(function()
     local available, reason = ns.Available()
     if not available then
@@ -79,7 +80,7 @@ local function build()
   page:Buttons({
     {
       label = "Delete all fights",
-      hint = "Deletes the damage data of all fights. The game's own damage meter loses it too.",
+      hint = "Deletes the damage data of all fights, including the saved ones. The game's own damage meter loses its data too.",
       confirm = "Delete the damage data of all fights?",
       click = function()
         ns.ResetData()

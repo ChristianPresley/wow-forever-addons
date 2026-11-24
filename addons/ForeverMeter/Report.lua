@@ -5,15 +5,22 @@ local _, ns = ...
 -- Chat needs plain numbers. During a fight the numbers are secret, so a report waits for the end
 -- of the fight.
 
-local CHANNELS = { SELF = true, SAY = true, PARTY = true, RAID = true, GUILD = true }
+local CHANNELS = { SELF = true, SAY = true, PARTY = true, RAID = true, GUILD = true, OFFICER = true, WHISPER = true }
 
-local function send(text, channel)
+-- SendChatMessage takes the target after the language: (text, chatType, languageID, target).
+local function send(text, channel, target)
   if channel == "SELF" then
     print(text)
     return true
   end
   local sendMessage = C_ChatInfo.SendChatMessage
-  return sendMessage ~= nil and (pcall(sendMessage, text, channel))
+  if sendMessage == nil then
+    return false
+  end
+  if target then
+    return (pcall(sendMessage, text, channel, nil, target))
+  end
+  return (pcall(sendMessage, text, channel))
 end
 
 -- Returns the lines of the report, or nil and the reason.
@@ -53,11 +60,20 @@ function ns.ReportLines()
   return lines
 end
 
--- channel: "SELF", "SAY", "PARTY", "RAID" or "GUILD".
-function ns.Report(channel)
+-- channel: "SELF", "SAY", "PARTY", "RAID", "GUILD", "OFFICER" or "WHISPER". A whisper needs the
+-- name of the player (target).
+function ns.Report(channel, target)
   channel = (channel or "SELF"):upper()
   if not CHANNELS[channel] then
-    ns.Print("report to self, say, party, raid or guild. For example: /fmeter report party.")
+    ns.Print("report to self, say, party, raid, guild, officer or whisper. For example: /fmeter report party.")
+    return
+  end
+  if channel == "WHISPER" and (type(target) ~= "string" or target == "") then
+    ns.Print("name the player: /fmeter report whisper Name.")
+    return
+  end
+  if channel == "OFFICER" and not (IsInGuild and IsInGuild()) then
+    ns.Print("you are not in a guild.")
     return
   end
   if channel == "PARTY" and ns.GroupType() == "solo" then
@@ -79,7 +95,7 @@ function ns.Report(channel)
   end
   for _, line in ipairs(lines) do
     -- The game can refuse a chat message of an addon (in a fight, or in some places).
-    if not send(line, channel) then
+    if not send(line, channel, channel == "WHISPER" and target or nil) then
       ns.Print("the game refused the chat message. Try again after the fight, or report to self.")
       return
     end

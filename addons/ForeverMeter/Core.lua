@@ -74,6 +74,7 @@ ns.DEFAULTS = {
   personalHealing = false, -- the read-out shows your HPS, not your DPS
   reportLines = 5, -- players in a report to chat
   autoReset = false, -- delete the data when you enter a dungeon or a raid
+  keepFights = true, -- keep a copy of each fight, so the list survives a log out
   mode = "dps", -- a key of ns.MODES
 }
 
@@ -235,6 +236,9 @@ loader:SetScript("OnEvent", function(self, event, name)
   end
   if type(db.frames) ~= "table" then
     db.frames = {}
+  end
+  if type(db.history) ~= "table" then
+    db.history = {}
   end
   -- An option that is missing or has the wrong type gets its default.
   for key, default in pairs(ns.DEFAULTS) do

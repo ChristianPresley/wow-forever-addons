@@ -156,3 +156,30 @@ T.world.abbreviateWhole = nil
 T.world.strictAbbreviate = nil
 ns.ResetNumberWay()
 expect(ns.NumberWay() == "rules", "without that the rules are back")
+
+-- Saved fights: a fight that ended is kept with its spells, so the list survives a log out.
+local before = #ns.History()
+expect(ns.SaveFight() == true, "a fight with data is saved")
+expect(#ns.History() == before + 1, "the saved fight is in the list")
+local saved = ns.History()[1]
+expect(saved.modes.damage and #saved.modes.damage.combatSources == 2, "the saved fight has its two players")
+expect(type(saved.modes.dps.combatSources[1].name) == "string", "the saved name is text")
+ns.SetSegment({ history = saved.id, name = saved.name })
+expect(ns.GetSession(ns.Mode(), ns.segment) ~= nil and ns.ReportLines() ~= nil, "a saved fight is shown and can be reported")
+ns.SetSegment({ type = 1 })
+-- In a fight the numbers are secret: the saved fight keeps no secret value, and saves without error.
+T.world.secret = true
+expect(ns.SaveFight() == true, "in a fight a fight is saved without its secret values")
+local secretFight = ns.History()[1]
+expect(secretFight.modes.damage.combatSources[1].totalAmount == nil and secretFight.modes.damage.combatSources[1].name == "?", "a secret name becomes ? and a secret number is left out")
+T.world.secret = false
+ns.SetOption("keepFights", false)
+expect(ns.SaveFight() == false, "with keeping fights off nothing is saved")
+ns.SetOption("keepFights", true)
+
+-- Whispers and officers: a whisper needs a name, and the lines go to that player.
+ns.Report("WHISPER")
+expect(T.printed("name the player"), "a whisper without a name says so")
+local whispered = H.count("chat")
+ns.Report("WHISPER", "Otherplayer")
+expect(H.count("chat") == whispered + 3, "a whisper sends three lines to the player")

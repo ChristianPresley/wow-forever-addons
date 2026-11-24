@@ -28,7 +28,18 @@ local REPORT_CHANNELS = {
   { "PARTY", "Party" },
   { "RAID", "Raid" },
   { "GUILD", "Guild" },
+  { "OFFICER", "Officers" },
+  { "WHISPER", "Whisper to my target" },
 }
+
+-- The name of the player you target, for a whisper; nil if the target is not a player.
+local function targetName()
+  if UnitIsPlayer and UnitIsPlayer("target") and UnitName then
+    local name = UnitName("target")
+    return type(name) == "string" and name ~= "" and name or nil
+  end
+  return nil
+end
 
 local function showMenu(owner)
   if not (MenuUtil and MenuUtil.CreateContextMenu) then
@@ -78,11 +89,22 @@ local function showMenu(owner)
         ns.SetSegment({ id = session.sessionID, name = label })
       end)
     end
+    -- The fights kept by the addon, the newest first: they stay after a log out.
+    local saved = ns.History()
+    for i = 1, math.min(#saved, 10) do
+      local entry = saved[i]
+      local label = "Saved: " .. entry.name .. (entry.duration and (" (" .. ns.Clock(entry.duration) .. ")") or "")
+      fight:CreateRadio(label, function()
+        return ns.segment.history == entry.id
+      end, function()
+        ns.SetSegment({ history = entry.id, name = entry.name })
+      end)
+    end
 
     local report = root:CreateButton("Report to")
     for _, channel in ipairs(REPORT_CHANNELS) do
       report:CreateButton(channel[2], function()
-        ns.Report(channel[1])
+        ns.Report(channel[1], channel[1] == "WHISPER" and targetName() or nil)
       end)
     end
 
@@ -452,6 +474,13 @@ ns.OnLogin(function()
         ns.Print("the data of earlier fights is deleted, because you entered an instance.")
       end
       wasInInstance = inInstance
+    elseif event == "PLAYER_REGEN_ENABLED" then
+      -- The game keeps the numbers of the fight a moment after it ends; the copy waits for that.
+      C_Timer.After(2, function()
+        if pcall(ns.SaveFight) then
+          ns.Changed(nil)
+        end
+      end)
     elseif event == "DAMAGE_METER_RESET" then
       offset = 0
     end

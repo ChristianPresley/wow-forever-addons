@@ -57,6 +57,9 @@ end
 -- The data of a fight for a mode: { combatSources = { ... }, maxAmount, totalAmount }, or nil.
 -- The sources are in the order of the game: the highest first.
 function ns.GetSession(mode, segment)
+  if segment.history then
+    return ns.HistorySession(mode, segment)
+  end
   local meter = api()
   if not meter then
     return nil
@@ -76,6 +79,9 @@ end
 -- The spells of one source: { combatSpells = { ... }, maxAmount, totalAmount }, or nil.
 -- The game refuses this during a fight for a source whose identity is secret.
 function ns.GetSource(mode, segment, guid, creatureID)
+  if segment.history then
+    return ns.HistorySource(mode, segment, guid)
+  end
   local meter = api()
   if not (meter and meter.GetCombatSessionSourceFromType) then
     return nil
@@ -104,6 +110,10 @@ end
 
 -- Seconds that a fight lasted, or nil.
 function ns.Duration(segment)
+  if segment.history then
+    local entry = ns.HistoryEntry(segment.history)
+    return entry and entry.duration or nil
+  end
   local meter = api()
   if not meter then
     return nil
@@ -125,6 +135,9 @@ function ns.Duration(segment)
 end
 
 function ns.ResetData()
+  if ForeverMeterDB then
+    ForeverMeterDB.history = {}
+  end
   local meter = api()
   if not (meter and meter.ResetAllCombatSessions) then
     return false
@@ -136,6 +149,10 @@ function ns.ResetData()
 end
 
 function ns.SegmentName(segment)
+  if segment.history then
+    local entry = ns.HistoryEntry(segment.history)
+    return entry and entry.name or "Saved fight"
+  end
   if segment.id then
     return type(segment.name) == "string" and segment.name ~= "" and segment.name or ("Fight " .. segment.id)
   end
@@ -366,6 +383,134 @@ function ns.SourceColor(classFilename)
     end
   end
   return 0.55, 0.55, 0.6
+end
+
+---------------------------------------------------------------------------------------------------
+-- Saved fights: a copy of each fight in ForeverMeterDB, so that the list survives a log out.
+-- Only plain values are kept: the game refuses secret values in saved data, so a secret value is
+-- left out (a name becomes "?", a number is missing). Each fight keeps the four main modes.
+
+local HISTORY_MAX = 15 -- fights kept
+local HISTORY_MODES = { "dps", "damage", "hps", "healing" }
+local SPELLS_MAX = 15 -- spells kept for each player
+
+local function plainNumber(value)
+  return ns.Usable(value) and value or nil
+end
+
+local function plainText(value)
+  return (not ns.IsSecret(value) and type(value) == "string") and value or nil
+end
+
+function ns.History()
+  local list = ForeverMeterDB and ForeverMeterDB.history
+  return type(list) == "table" and list or {}
+end
+
+function ns.HistoryEntry(id)
+  for _, entry in ipairs(ns.History()) do
+    if entry.id == id then
+      return entry
+    end
+  end
+  return nil
+end
+
+-- The data of one mode of a fight, as plain values: the same shape as ns.GetSession.
+local function copySession(mode, segment)
+  local session = ns.GetSession(mode, segment)
+  if not session then
+    return nil
+  end
+  local copy = {
+    maxAmount = plainNumber(session.maxAmount),
+    totalAmount = plainNumber(session.totalAmount),
+    combatSources = {},
+  }
+  for _, source in ipairs(session.combatSources) do
+    local row = {
+      name = plainText(source.name) or "?",
+      classFilename = plainText(source.classFilename),
+      isLocalPlayer = source.isLocalPlayer == true,
+      totalAmount = plainNumber(source.totalAmount),
+      amountPerSecond = plainNumber(source.amountPerSecond),
+      deathTimeSeconds = plainNumber(source.deathTimeSeconds),
+      sourceGUID = plainText(source.sourceGUID),
+      sourceCreatureID = plainNumber(source.sourceCreatureID),
+      spells = {},
+    }
+    local detail = row.sourceGUID and ns.GetSource(mode, segment, row.sourceGUID, row.sourceCreatureID)
+    if detail then
+      row.maxAmount = plainNumber(detail.maxAmount)
+      for _, spell in ipairs(detail.combatSpells) do
+        if #row.spells >= SPELLS_MAX then
+          break
+        end
+        row.spells[#row.spells + 1] = {
+          spellID = plainNumber(spell.spellID),
+          totalAmount = plainNumber(spell.totalAmount),
+          amountPerSecond = plainNumber(spell.amountPerSecond),
+        }
+      end
+    end
+    copy.combatSources[#copy.combatSources + 1] = row
+  end
+  return copy
+end
+
+-- Keeps the fight that the game has just finished, if it has data. Returns true when it was kept.
+function ns.SaveFight()
+  if not ForeverMeterDB or not ns.GetOption("keepFights") then
+    return false
+  end
+  local segment = { type = 1 }
+  local probe = ns.GetSession(ns.ModeByKey.dps, segment)
+  if not probe or #probe.combatSources == 0 then
+    return false
+  end
+  local clock = ""
+  local okDate, text = pcall(date, "%H:%M")
+  if okDate and type(text) == "string" then
+    clock = text
+  end
+  local entry = {
+    id = tostring(time and time() or 0) .. "-" .. tostring(math.random(100000, 999999)),
+    name = "Fight at " .. clock,
+    duration = plainNumber(ns.Duration(segment)),
+    modes = {},
+  }
+  for _, key in ipairs(HISTORY_MODES) do
+    entry.modes[key] = copySession(ns.ModeByKey[key], segment)
+  end
+  if type(ForeverMeterDB.history) ~= "table" then
+    ForeverMeterDB.history = {}
+  end
+  local list = ForeverMeterDB.history
+  table.insert(list, 1, entry)
+  while #list > HISTORY_MAX do
+    table.remove(list)
+  end
+  return true
+end
+
+-- The data of a saved fight for a mode, as ns.GetSession gives it.
+function ns.HistorySession(mode, segment)
+  local entry = ns.HistoryEntry(segment.history)
+  return entry and entry.modes and entry.modes[mode.key] or nil
+end
+
+-- The spells of a player in a saved fight, as ns.GetSource gives them.
+function ns.HistorySource(mode, segment, guid)
+  local session = ns.HistorySession(mode, segment)
+  if not session or guid == nil then
+    return nil
+  end
+  for _, row in ipairs(session.combatSources) do
+    if row.sourceGUID ~= nil and row.sourceGUID == guid then
+      return { combatSpells = row.spells, maxAmount = row.maxAmount, totalAmount = row.totalAmount }
+    end
+  end
+  return nil
 end
 
 -- The source of the player in a fight, and its place in the list. Nil if the player did nothing.
