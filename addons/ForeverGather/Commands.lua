@@ -25,6 +25,22 @@ function ns.CastText(cast)
   return text
 end
 
+local function castLine(gather)
+  return string.format("%s%s, %s: %s.", ns.CastText(gather), ago(gather.at), gather.kind, gather.result)
+end
+
+local function history()
+  local list = ForeverGatherDB.history
+  if #list == 0 then
+    ns.Print("No gathering cast seen yet.")
+    return
+  end
+  ns.Print(string.format("The last %d gathering casts, the newest last:", #list))
+  for index, gather in ipairs(list) do
+    ns.Print(string.format("  %d. %s", index, castLine(gather)))
+  end
+end
+
 local function status()
   local total, counts = ns.CountNodes()
   ns.Print(string.format("%d nodes learned.", total))
@@ -42,10 +58,10 @@ local function status()
     end
   end
   ns.Print("Your skills: " .. table.concat(skills, ", ") .. ".")
-  local last = ForeverGatherDB.last
-  local gather, other = last.gather, last.other
+  local history = ForeverGatherDB.history
+  local gather, other = history[#history], ForeverGatherDB.last.other
   if gather then
-    ns.Print(string.format("Last gathering cast: %s%s, %s: %s.", ns.CastText(gather), ago(gather.at), gather.kind, gather.result))
+    ns.Print("Last gathering cast: " .. castLine(gather))
   else
     ns.Print("Last gathering cast: none seen yet. A gather is the spell Herb Gathering, Mining, Fishing or Opening.")
   end
@@ -56,13 +72,15 @@ end
 
 local function help()
   ns.Print("/fgather status - what is learned, the settings, and the last gathering cast with what came of it")
-  ns.Print("/fgather herb | ore | fish | treasure - show or hide a kind")
+  ns.Print("/fgather history - the last gathering casts and what came of each")
+  ns.Print("/fgather herb | ore | fish | treasure | quest - show or hide a kind")
   ns.Print("/fgather map | minimap - show or hide the pins there")
   ns.Print("/fgather trivial - hide nodes that give no more skill")
   ns.Print("/fgather skill <n> - hide nodes learned below skill n")
   ns.Print("/fgather size <n> - the size of the pins")
   ns.Print("/fgather options - the settings page")
   ns.Print("/fgather forget [kind] - forget the nodes (of one kind)")
+  ns.Print("/fgather forget here - forget the node nearest to you")
 end
 
 local TOGGLES = { map = "worldMap", minimap = "minimap", trivial = "hideTrivial" }
@@ -86,9 +104,14 @@ SlashCmdList.FOREVERGATHER = function(text)
     ns.Print(string.format("%s: %d", command, ns.GetOption(key)))
   elseif command == "options" then
     ns.OpenSettings()
+  elseif command == "history" then
+    history()
+  elseif command == "forget" and rest == "here" then
+    local node, reason = ns.ForgetHere()
+    ns.Print(node and ("Forgot " .. node.name .. ".") or ("Nothing forgotten: " .. reason .. "."))
   elseif command == "forget" then
     if rest ~= "" and not ns.KIND[rest] then
-      ns.Print("No kind " .. rest .. ". The kinds: herb, ore, fish, treasure.")
+      ns.Print("No kind " .. rest .. ". The kinds: " .. ns.KIND_KEYS .. ".")
       return
     end
     ns.Forget(rest ~= "" and rest or nil)

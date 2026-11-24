@@ -17,6 +17,18 @@ local function fillTooltip(tooltip, node)
   if skill then
     tooltip:AddLine(string.format("Gathered at %s %d", ns.KIND[node.kind].skill, skill), 1, 1, 1)
   end
+  local days = ns.DaysSince(node.last)
+  if days then
+    tooltip:AddLine(days == 0 and "Last gathered today" or string.format("Last gathered %d |4day:days; ago", days), 0.8, 0.8, 0.8)
+  end
+end
+
+-- Whole days since a time() value, or nil without one.
+function ns.DaysSince(at)
+  if type(at) ~= "number" then
+    return nil
+  end
+  return math.max(0, math.floor((time() - at) / 86400))
 end
 
 local function showTooltip(pin)

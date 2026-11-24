@@ -9,8 +9,9 @@ local _, ns = ...
 --
 -- A chest and a quest object are opened with the same spell ("Opening"). What tells them apart
 -- is the loot: a chest gives a loot window without a quest item. A quest object gives a quest
--- item, or no loot window at all (a tombstone). So a treasure is recorded when its loot shows,
--- at the place of the cast, and not before.
+-- item, or no loot window at all (a tombstone). So the thing is recorded when its loot shows,
+-- at the place of the cast, and not before: as treasure, or as a quest object with a quest
+-- item in the loot. Without a loot window nothing is recorded.
 
 -- The spells of gathering, by spell ID (each rank), and by name as a fallback.
 local SPELLS = {
@@ -20,10 +21,12 @@ local SPELLS = {
   [3365] = "treasure", [6247] = "treasure", [6477] = "treasure", [6478] = "treasure", [21248] = "treasure", [22810] = "treasure",
 }
 local SPELL_NAMES = { ["Herb Gathering"] = "herb", ["Mining"] = "ore", ["Fishing"] = "fish", ["Opening"] = "treasure" }
+-- The first rank of each: its name in the language of the client is a name of the kind too.
+local NAMED_BY = { [2366] = "herb", [2575] = "ore", [7620] = "fish", [3365] = "treasure" }
 
 -- Two nodes of the same name nearer than this (a part of the map) are one node. Fish are caught
 -- anywhere along a shore, so their places merge over a wider span.
-local SAME = { herb = 0.004, ore = 0.004, treasure = 0.004, fish = 0.012 }
+local SAME = { herb = 0.004, ore = 0.004, treasure = 0.004, quest = 0.004, fish = 0.012 }
 -- A cast that does not succeed within this many seconds is forgotten.
 local PENDING_SECONDS = 30
 -- The loot of an opened thing shows within this many seconds of the cast.
@@ -43,7 +46,31 @@ function ns.KindOfSpell(spellID)
     return kind
   end
   local name = spellName(spellID)
-  return name and SPELL_NAMES[name] or nil
+  return name and (SPELL_NAMES[name] or ns.LocalNames()[name]) or nil
+end
+
+-- The names of the gathering spells in the language of the client: { [name] = kind }. A name
+-- that two kinds share tells nothing and is left out.
+local localNames
+function ns.LocalNames()
+  if localNames then
+    return localNames
+  end
+  local names, shared = {}, {}
+  for spellID, kind in pairs(NAMED_BY) do
+    local name = spellName(spellID)
+    if name then
+      if names[name] and names[name] ~= kind then
+        shared[name] = true
+      end
+      names[name] = kind
+    end
+  end
+  for name in pairs(shared) do
+    names[name] = nil
+  end
+  localNames = names
+  return names
 end
 
 -- Remembers a gather of kind at a place: the given one, or the player's. Returns the node and
@@ -78,8 +105,9 @@ function ns.Record(kind, name, mapID, x, y)
     found.x = found.x + (x - found.x) / count
     found.y = found.y + (y - found.y) / count
     found.count = count
+    found.last = time()
   else
-    found = { kind = kind, name = name, x = x, y = y, count = 1 }
+    found = { kind = kind, name = name, x = x, y = y, count = 1, first = time(), last = time() }
     list[#list + 1] = found
   end
   local entry = ForeverGatherDB.names[name]
@@ -168,16 +196,52 @@ function ns.Forget(kind)
   ns.Changed()
 end
 
--- The last gathering cast and what came of it, kept in the saved data for /fgather status.
+-- Forgets the node nearest to the player, within reach yards (a part of the map where the game
+-- gives no yards). Returns the node, or nil and the reason.
+local FORGET_YARDS, FORGET_PART = 20, 0.01
+function ns.ForgetHere()
+  local mapID, x, y = ns.PlayerPosition()
+  if not mapID then
+    return nil, x
+  end
+  local list = ForeverGatherDB.nodes[mapID]
+  local width, height = ns.MapYards(mapID)
+  local reachX, reachY = FORGET_PART, FORGET_PART
+  if width then
+    reachX, reachY = FORGET_YARDS / width, FORGET_YARDS / height
+  end
+  local best, bestIndex, bestDistance
+  for index, node in ipairs(type(list) == "table" and list or {}) do
+    local dx, dy = (node.x - x) / reachX, (node.y - y) / reachY
+    local distance = dx * dx + dy * dy
+    if distance <= 1 and (not bestDistance or distance < bestDistance) then
+      best, bestIndex, bestDistance = node, index, distance
+    end
+  end
+  if not best then
+    return nil, "no node is within " .. FORGET_YARDS .. " yards of you"
+  end
+  table.remove(list, bestIndex)
+  ns.Changed()
+  return best
+end
+
+-- The gathering casts and what came of each, kept in the saved data for /fgather status and
+-- /fgather history. The newest is the last.
+local HISTORY = 20
 local function note(spellID, target, kind, result)
-  local last = ForeverGatherDB and ForeverGatherDB.last
-  if not last then
+  local history = ForeverGatherDB and ForeverGatherDB.history
+  if not history then
     return
   end
-  last.gather = { spell = spellID, spellName = spellName(spellID), target = target, kind = kind, result = result, at = time() }
+  history[#history + 1] = { spell = spellID, spellName = spellName(spellID), target = target, kind = kind, result = result, at = time() }
+  while #history > HISTORY do
+    table.remove(history, 1)
+  end
 end
 local function noteResult(result)
-  local gather = ForeverGatherDB and ForeverGatherDB.last and ForeverGatherDB.last.gather
+  local history = ForeverGatherDB and ForeverGatherDB.history
+  local gather = history and history[#history]
   if gather then
     gather.result = result
   end
@@ -229,12 +293,11 @@ local function lootShows()
     return
   end
   local loot = ns.LootKind()
-  if loot == "quest" then
-    noteResult("not recorded: its loot is a quest item, so it is a quest object and no chest")
-  elseif loot == "empty" then
+  if loot == "empty" then
     noteResult("not recorded: its loot window was empty")
   else
-    local node, mapID = ns.Record("treasure", thing.name, thing.mapID, thing.x, thing.y)
+    -- A quest item in the loot: a quest object. Else a chest.
+    local node, mapID = ns.Record(loot == "quest" and "quest" or "treasure", thing.name, thing.mapID, thing.x, thing.y)
     noteResult(node and recorded(node, mapID) or ("not recorded: " .. mapID))
   end
 end
@@ -281,7 +344,7 @@ local handlers = {
         return
       end
       opened = { name = name, mapID = mapID, x = x, y = y, time = GetTime() }
-      note(spellID, name, kind, "not recorded: no loot window came after it, so it is a quest object and no chest")
+      note(spellID, name, kind, "not recorded: no loot window came after it, so it is no chest and no quest object with loot")
       return
     end
     local node, mapID = ns.Record(kind, name)

@@ -2,13 +2,16 @@ local _, ns = ...
 
 -- Saved data, in ForeverGatherDB (for all characters):
 --   version = 2   (1 had quest objects as treasure: its treasure nodes are dropped)
---   options = { herb, ore, fish, treasure, worldMap, minimap, hideTrivial, minSkill, size }
---   nodes   = { [mapID] = { { kind = s, name = s, x = n, y = n, count = n }, ... } }   x, y from 0 to 1
+--   options = { herb, ore, fish, treasure, quest, worldMap, minimap, hideTrivial, minSkill, size }
+--   nodes   = { [mapID] = { { kind = s, name = s, x = n, y = n, count = n, first = n, last = n }, ... } }
+--             x, y from 0 to 1. first, last: time() of the first and the last gather (nil for a
+--             node of a version before 0.3.0)
 --   names   = { [name] = { kind = s, skill = n } }   skill: the lowest skill rank seen at a gather
---   last    = { gather = { spell = n, spellName = s, target = s, kind = s, result = s, at = n },
---               other = { spell = n, spellName = s, target = s, at = n } }
---             the last gathering cast and what came of it, and the last other cast at a target,
---             for /fgather status. at is time().
+--   history = { { spell = n, spellName = s, target = s, kind = s, result = s, at = n }, ... }
+--             the last gathering casts and what came of each, the newest last, for
+--             /fgather status and /fgather history. at is time().
+--   last    = { other = { spell = n, spellName = s, target = s, at = n } }
+--             the last other cast at a target: the spell to report when a gather is not known.
 
 local DATA_VERSION = 2
 
@@ -32,7 +35,14 @@ ns.KINDS = {
   { key = "ore", name = "Ore", skill = "Mining", icon = "Interface\\Icons\\INV_Ore_Copper_01" },
   { key = "fish", name = "Fish", skill = "Fishing", icon = "Interface\\Icons\\INV_Misc_Fish_02" },
   { key = "treasure", name = "Treasure", icon = "Interface\\Icons\\INV_Box_01" },
+  { key = "quest", name = "Quest objects", icon = "Interface\\GossipFrame\\AvailableQuestIcon" },
 }
+-- "herb, ore, fish, treasure, quest", for the texts of the commands.
+local keys = {}
+for _, kind in ipairs(ns.KINDS) do
+  keys[#keys + 1] = kind.key
+end
+ns.KIND_KEYS = table.concat(keys, ", ")
 ns.KIND = {}
 for _, kind in ipairs(ns.KINDS) do
   ns.KIND[kind.key] = kind
@@ -43,6 +53,7 @@ ns.OPTION_DEFAULTS = {
   ore = true,
   fish = true,
   treasure = true,
+  quest = true,
   worldMap = true,
   minimap = true,
   hideTrivial = false, -- hide nodes that the skill has outgrown (no more skill ups)
@@ -171,6 +182,10 @@ local function validate()
   if type(db.last) ~= "table" then
     db.last = {}
   end
+  db.last.gather = nil -- of 0.2.0: the history has it now
+  if type(db.history) ~= "table" then
+    db.history = {}
+  end
   ForeverGatherDB = db
   dropped.misplaced = ns.DropMisplaced()
 end
@@ -185,9 +200,6 @@ function ns.PlayerPosition()
   if not ns.Usable(mapID) then
     return nil, "the game gave no map"
   end
-  if ns.MapTooLarge(mapID) then
-    return nil, string.format("the game gave only the map of a continent (map %d)", mapID)
-  end
   local position = C_Map.GetPlayerMapPosition(mapID, "player")
   if not position then
     return nil, string.format("the game gave no position on map %d", mapID)
@@ -196,7 +208,34 @@ function ns.PlayerPosition()
   if not ns.Usable(x) or not ns.Usable(y) or (x == 0 and y == 0) then
     return nil, string.format("the game gave no position on map %d", mapID)
   end
+  if ns.MapTooLarge(mapID) then
+    -- Outside an instance the game gives the continent where a place has no map of its own
+    -- (a cave). The zone under that point of the continent is the map of the node.
+    local zone, zx, zy = ns.ZoneAt(mapID, x, y)
+    if not zone then
+      return nil, string.format("the game gave only the map of a continent (map %d), with no zone at your place", mapID)
+    end
+    return zone, zx, zy
+  end
   return mapID, x, y
+end
+
+-- The zone under a point of a larger map, and the point on the map of that zone, or nil.
+function ns.ZoneAt(mapID, x, y)
+  local info = C_Map.GetMapInfoAtPosition(mapID, x, y)
+  local zone = info and info.mapID
+  if not ns.Usable(zone) or zone == mapID or ns.MapTooLarge(zone) then
+    return nil
+  end
+  local minX, maxX, minY, maxY = C_Map.GetMapRectOnMap(zone, mapID)
+  if not (ns.Usable(minX) and ns.Usable(maxX) and ns.Usable(minY) and ns.Usable(maxY)) or maxX <= minX or maxY <= minY then
+    return nil
+  end
+  local zx, zy = (x - minX) / (maxX - minX), (y - minY) / (maxY - minY)
+  if zx < 0 or zx > 1 or zy < 0 or zy > 1 then
+    return nil
+  end
+  return zone, zx, zy
 end
 
 -- The player's rank in a skill line by its name, or nil.

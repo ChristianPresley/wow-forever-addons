@@ -13,6 +13,8 @@ T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 2366)
 local nodes = ns.VisibleNodes(37)
 expect(#nodes == 1 and nodes[1].name == "Peacebloom" and nodes[1].kind == "herb", "the herb is remembered with its name")
 expect(math.abs(nodes[1].x - 0.42) < 1e-6 and math.abs(nodes[1].y - 0.65) < 1e-6, "the herb is where the player stands")
+expect(type(nodes[1].first) == "number" and nodes[1].last == nodes[1].first, "the herb has the time of its first and last gather")
+expect(ns.DaysSince(time() - 3 * 86400 - 5) == 3 and ns.DaysSince(nil) == nil, "three days and five seconds ago is three days ago")
 
 -- The same herb again is the same node, gathered twice.
 T.fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "Cast-2", 2366)
@@ -32,10 +34,10 @@ T.fire("UNIT_SPELLCAST_SENT", "player", "", "Cast-6", 7620)
 T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-6", 7620)
 expect(ns.CountNodes() == 3, "ore and a fishing spot are learned")
 
--- A thing opened with "Opening" is a chest only when its loot says so. The loot window of the
--- stand-in is H.world.loot: a list of { name, quest, questID }.
+-- A thing opened with "Opening" is a chest or a quest object: its loot says which. The loot
+-- window of the stand-in is H.world.loot: a list of { name, quest, questID }.
 local function last()
-  return ForeverGatherDB.last.gather
+  return ForeverGatherDB.history[#ForeverGatherDB.history]
 end
 -- A tombstone of a quest: the cast succeeds and no loot window comes.
 T.fire("UNIT_SPELLCAST_SENT", "player", "Yuriv's Tombstone", "Cast-7", 3365)
@@ -53,8 +55,15 @@ T.fire("UNIT_SPELLCAST_SENT", "player", "Deepmoss Eggs", "Cast-8", 3365)
 T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-8", 3365)
 T.fire("LOOT_READY", false)
 T.fire("LOOT_OPENED", false, false)
-expect(ns.CountNodes() == 3, "a thing with a quest item as loot is no treasure")
-expect(last().result:find("quest object"), "the last cast says that it was a quest object, got " .. tostring(last().result))
+local questTotal, questCounts = ns.CountNodes()
+expect(questTotal == 4 and questCounts.quest == 1 and questCounts.treasure == nil, "a thing with a quest item as loot is a quest object and no treasure")
+expect(last().result == "recorded as quest objects on map 37", "the last cast says that it was recorded as a quest object, got " .. tostring(last().result))
+expect(ns.KIND.quest and ns.GetOption("quest") == true, "quest objects are a kind that shows from the start")
+ns.SetOption("quest", false)
+expect(#ns.VisibleNodes(37) == 3, "hidden quest objects do not show")
+ns.SetOption("quest", true)
+ns.Forget("quest")
+expect(ns.CountNodes() == 3, "the quest object is forgotten again for the counts below")
 H.world.loot = { { name = "Linen Cloth", quest = false }, { name = "Stolen Silver", quest = false, questID = 1234 } }
 expect(ns.LootKind() == "quest", "an item of a quest in the loot makes a quest object")
 H.world.loot = {}
@@ -77,7 +86,7 @@ for _, node in ipairs(ns.VisibleNodes(37)) do
 end
 expect(names.fish == "Fishing spot" and names.treasure == "Treasure", "a node without a target name has the name of its kind")
 
--- No node inside an instance, and none on the map of a continent: the place would be wrong.
+-- No node inside an instance. On the map of a continent the zone under the player has the node.
 local before = ns.CountNodes()
 local inInstance, bestMap = IsInInstance, C_Map.GetBestMapForUnit
 IsInInstance = function() return true, "party" end
@@ -89,11 +98,31 @@ IsInInstance = inInstance
 C_Map.GetBestMapForUnit = function() return 13 end
 T.fire("UNIT_SPELLCAST_SENT", "player", "Serpentbloom", "Cast-21", 2366)
 T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-21", 2366)
-expect(ns.CountNodes() == before and ForeverGatherDB.nodes[13] == nil, "a gather on the map of a continent adds no node")
-expect(last().result:find("continent %(map 13%)"), "the last cast names the continent map, got " .. tostring(last().result))
-T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-22", 3365)
+-- The continent has Elwynn Forest on its left half: 0.42 on the continent is 0.84 in the zone.
+local moved
+for _, node in ipairs(ForeverGatherDB.nodes[37]) do
+  if node.name == "Serpentbloom" then
+    moved = node
+  end
+end
+expect(ns.CountNodes() == before + 1 and ForeverGatherDB.nodes[13] == nil and moved, "a gather on the map of a continent is a node of the zone under the player")
+expect(moved and math.abs(moved.x - 0.84) < 1e-6 and math.abs(moved.y - 0.65) < 1e-6, "the place on the continent is the place 0.84, 0.65 in the zone")
+expect(last().result == "recorded as herbs on map 37", "the last cast names the zone, got " .. tostring(last().result))
+-- /fgather forget here: the node nearest to the player goes, and no other.
+T.slash("/fgather", "forget here")
+expect(T.printed("Forgot Serpentbloom") and ns.CountNodes() == before, "/fgather forget here forgets the node at the player")
+T.slash("/fgather", "forget here")
+expect(T.printed("Nothing forgotten: no node is within 20 yards"), "with no node near, /fgather forget here forgets nothing")
+expect(ns.CountNodes() == before, "the nodes 420 yards away stay")
+-- The world map has no zone under the player: nothing is recorded.
+C_Map.GetBestMapForUnit = function() return 947 end
+T.fire("UNIT_SPELLCAST_SENT", "player", "Serpentbloom", "Cast-22", 2366)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-22", 2366)
+expect(ns.CountNodes() == before and ForeverGatherDB.nodes[947] == nil, "a gather on a map with no zone under the player adds no node")
+expect(last().result:find("continent %(map 947%)"), "the last cast names the map that is too large, got " .. tostring(last().result))
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-23", 3365)
 T.fire("LOOT_READY", false)
-expect(ns.CountNodes() == before, "a chest on the map of a continent adds no node")
+expect(ns.CountNodes() == before, "a chest on such a map adds no node")
 C_Map.GetBestMapForUnit = bestMap
 H.world.loot = {}
 expect(ns.MapTooLarge(13) and ns.MapTooLarge(947) and not ns.MapTooLarge(37), "a continent and the world are too large for a node, a zone is not")
@@ -140,6 +169,45 @@ for index, node in ipairs(ForeverGatherDB.nodes[37]) do
   end
 end
 
+-- The history keeps the last 20 gathering casts.
+expect(#ForeverGatherDB.history > 5 and #ForeverGatherDB.history <= 20, "the history has the casts from above")
+for index = 1, 25 do
+  T.fire("UNIT_SPELLCAST_SENT", "player", "Vein " .. index, "Cast-4" .. index, 2575)
+  T.fire("UNIT_SPELLCAST_FAILED", "player", "Cast-4" .. index, 2575)
+end
+expect(#ForeverGatherDB.history == 20 and ForeverGatherDB.history[1].target == "Vein 6" and last().target == "Vein 25", "the history keeps the 20 newest casts")
+T.slash("/fgather", "history")
+expect(T.printed("The last 20 gathering casts") and T.printed("20%. .* at Vein 25.*not recorded: the cast failed"), "/fgather history lists the casts with what came of each")
+
+-- A node of the next zone shows on the minimap near the border. Westfall lies east of Elwynn
+-- Forest here: its left edge is the right edge of Elwynn Forest.
+local worldPos = C_Map.GetWorldPosFromMapPos
+C_Map.GetWorldPosFromMapPos = function(mapID, position)
+  return 0, CreateVector2D(position.x * 1000 + (mapID == 52 and 1000 or 0), position.y * 1000)
+end
+ForeverGatherDB.nodes[52] = { { kind = "herb", name = "Briarthorn", x = 0.01, y = 0.65, count = 1 } }
+local bx, by = ns.OnOtherMap(52, 0.01, 0.65, 37)
+expect(bx and math.abs(bx - 1.01) < 1e-6 and math.abs(by - 0.65) < 1e-6, "0.01 in Westfall is 1.01 on the map of Elwynn Forest")
+local across
+for _, entry in ipairs(ns.NodesAround(37)) do
+  if entry.node.name == "Briarthorn" then
+    across = entry
+  end
+end
+expect(across and #ns.NodesAround(37) == #ns.VisibleNodes(37) + 1, "the nodes around Elwynn Forest have the node of Westfall too")
+local ox, oy = ns.MinimapOffset(across or { x = 0, y = 0 }, 0.99, 0.65, 1000, 1000, 100, 70)
+expect(ox and math.abs(ox - 14) < 1e-6 and math.abs(oy) < 1e-6, "from 10 yards before the border the node is 20 yards east on the minimap")
+ForeverGatherDB.nodes[52] = nil
+C_Map.GetWorldPosFromMapPos = worldPos
+
+-- A square minimap shows its corners; a round one does not.
+local corner = { x = 0.5, y = 0.57 } -- 80 yards east and 80 yards north of 0.42, 0.65
+expect(ns.MinimapOffset(corner, 0.42, 0.65, 1000, 1000, 100, 70) == nil, "a node in the corner is off a round minimap")
+local sx, sy = ns.MinimapOffset(corner, 0.42, 0.65, 1000, 1000, 100, 70, nil, true)
+expect(sx and math.abs(sx - 56) < 1e-6 and math.abs(sy - 56) < 1e-6, "a node in the corner shows on a square minimap")
+corner.x = 0.53
+expect(ns.MinimapOffset(corner, 0.42, 0.65, 1000, 1000, 100, 70, nil, true) == nil, "a node 110 yards east is off a square minimap too")
+
 -- Filters by kind.
 ns.SetOption("herb", false)
 expect(#ns.VisibleNodes(37) == 3, "hidden herbs do not show")
@@ -182,6 +250,16 @@ local width, height = ns.MapYards(37)
 expect(width == 1000 and height == 1000, "the map is 1000 by 1000 yards in the stand-in")
 T.advance(1)
 expect(ns.MinimapPinCount() == 4, "the minimap has the four nodes at the player, got " .. ns.MinimapPinCount())
+ns.SetOption("herb", false)
+T.advance(1)
+expect(ns.MinimapPinCount() == 3, "with herbs hidden the minimap has three pins, got " .. ns.MinimapPinCount())
+ns.SetOption("herb", true)
+ns.SetOption("minimap", false)
+T.advance(1)
+expect(ns.MinimapPinCount() == 0, "with the minimap off it has no pins")
+ns.SetOption("minimap", true)
+T.advance(1)
+expect(ns.MinimapPinCount() == 4, "with the minimap on again the four pins are back, got " .. ns.MinimapPinCount())
 
 -- The commands.
 T.slash("/fgather", "")

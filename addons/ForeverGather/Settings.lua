@@ -39,7 +39,8 @@ local function build()
   check("herb", "Herbs", "Places where you picked an herb.")
   check("ore", "Ore", "Veins and deposits that you mined.")
   check("fish", "Fish", "Places where you caught a fish. Casts along one shore merge into one place.")
-  check("treasure", "Treasure", "Chests that you opened. A quest object is not a chest and is left out.")
+  check("treasure", "Treasure", "Chests that you opened: things whose loot has no quest item.")
+  check("quest", "Quest objects", "Things that you opened and that gave a quest item.")
 
   page:Header("Where")
   check("worldMap", "Show on the world map", "A pin for each node on the map of its zone.")
@@ -59,6 +60,15 @@ local function build()
     return ns.CountNodes() .. " nodes learned, for all your characters."
   end)
   page:Buttons({
+    {
+      label = "Forget the node here",
+      hint = "Deletes the learned node nearest to you, within 20 yards.",
+      confirm = "Delete the learned node nearest to you?",
+      click = function()
+        local node, reason = ns.ForgetHere()
+        ns.Print(node and ("Forgot " .. node.name .. ".") or ("Nothing forgotten: " .. reason .. "."))
+      end,
+    },
     {
       label = "Forget all nodes",
       hint = "Deletes every learned node.",

@@ -1,6 +1,6 @@
 {
   "id": "forever-gather",
   "category": "Map & Exploration",
-  "summary": "Remembers where you gather herbs, ore, fish and treasure, and shows those places on the world map and the minimap.",
-  "description": "Forever Gather learns from your own gathering. Each time you pick an herb, mine a vein, fish or open a chest, it remembers the place and the name of the node. Those places show on the world map and on the minimap, with an icon for each kind. You choose which kinds show, and can hide nodes that your skill has outgrown. The data comes only from your own characters. Type /fgather for commands."
+  "summary": "Remembers where you gather herbs, ore, fish, treasure and quest objects, and shows those places on the world map and the minimap.",
+  "description": "Forever Gather learns from your own gathering. Each time you pick an herb, mine a vein, fish, open a chest or open a quest object, it remembers the place and the name of the node. Those places show on the world map and on the minimap, with an icon for each kind. You choose which kinds show, and can hide nodes that your skill has outgrown. The data comes only from your own characters. Type /fgather for commands."
 }
