@@ -1,0 +1,6 @@
+{
+  "id": "forever-trace",
+  "category": "Development Tools",
+  "summary": "For developers: a record of Lua errors, blocked actions and recent events, to read after /reload.",
+  "description": "Forever Trace keeps a record of what went wrong while you played: each Lua error with its stack and a count, each action that the game blocked, the warnings of the game, and the logins, zone changes and fights around them. It can take a screenshot when a new error happens. The game writes the record to the SavedVariables folder at /reload and at logout. Type /ftrace for commands."
+}

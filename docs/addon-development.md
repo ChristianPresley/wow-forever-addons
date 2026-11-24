@@ -285,3 +285,21 @@ After a patch that adds a restriction to the documentation, the test fails with 
 - `/reload` loads changed files in a few seconds. A new file needs a restart of the game.
 - `/console scriptErrors 1` shows each Lua error as it happens.
 - `/fstack` shows the frame under the mouse, `/etrace` shows events as they fire, and `/dump <expression>` prints a value.
+
+### The trace of a play session
+
+The game writes no Lua error to the disk. Forever Trace (`addons/ForeverTrace`) keeps a record for a developer to read after the player has played:
+
+- **Where:** `WTF/Account/<account>/SavedVariables/ForeverTrace.lua`, the saved variable `ForeverTraceDB`. The game writes it at `/reload` and at logout only: ask the player to type `/reload`, then read the file.
+- **`errors`:** one entry for each different error, with a count: `{ id, kind, message, stack, locals, addon, forever, ours, count, first, last, versions, early, shot }`. `kind` is `error` (a Lua error), `blocked` or `forbidden` (`ADDON_ACTION_BLOCKED` and the like), `taint` or `warning` (`LUA_WARNING`) or `reported` (an addon called `ForeverTrace.Error`). `addon` is the addon of the first file in the message or the stack, `forever` is the first Forever addon in them, and `ours` is true if there is one. `early` marks an error from before Forever Trace loaded. `shot` is the time in the file name of the screenshot, `Screenshots/WoWScrnShot_<shot>.jpg`; a screenshot is on the disk at once.
+- **`events`:** the last events, the oldest first: `{ kind, addon, text, n }` and a stamp. `kind` is `login`, `reload`, `world` (a loading screen), `zone`, `fight`, `log`, `mark` (the player typed `/ftrace mark <text>`), `screenshot`, `logout`, or the kind of an error.
+- **A stamp** is `{ t, at, session, map, zone, fight }`: the time as a number and as a text, the number of the session (each login and each `/reload` starts one), the map ID, the name of the zone, and true in a fight. `first` and `last` of an error are stamps.
+- **`sessions`:** for each of the last 20 sessions the build of the game, the character, the versions of the loaded Forever addons, the names of the other loaded addons, and `hook`: true if the Lua errors of that session were seen.
+- A value that the game hides is stored as the text `secret`.
+
+An error that an addon hands to `geterrorhandler()` is in the trace already. For an error that an addon catches and keeps, and for a line of context, an addon calls:
+
+```lua
+if ForeverTrace then ForeverTrace.Error("ForeverBags", err) end
+if ForeverTrace then ForeverTrace.Log("ForeverBags", "the bank opened") end
+```
