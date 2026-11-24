@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: Forever Leveling
+## Notes: Your experience at a glance: XP an hour, time to level, kills and quests to level, rested XP, and the zones that suit your level.
+## Author: Christian Presley
+## Version: 0.1.0
+## Category: Quests
+## SavedVariables: ForeverLevelingDB
+## OptionalDeps: ForeverCompass
+## X-Website: https://github.com/ChristianPresley/wow-forever-addons
+
+Core.lua
+Zones.lua
+Window.lua
+SettingsKit.lua
+Settings.lua
+Commands.lua

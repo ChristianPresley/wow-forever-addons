@@ -1,0 +1,6 @@
+{
+  "id": "forever-leveling",
+  "category": "Questing",
+  "summary": "Your experience at a glance: XP an hour, time to level, kills and quests to level, rested XP and the zones for your level.",
+  "description": "Forever Leveling puts a small readout with an experience bar on your screen. It shows your experience an hour, the time to the next level, how many kills and quests are left at your recent average, and your rested experience. A second window lists the zones that suit your level; click one to put a map pin there and point a Forever Compass tracker at it. Type /flevel for commands."
+}
