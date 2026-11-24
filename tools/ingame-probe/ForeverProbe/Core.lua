@@ -348,6 +348,27 @@ local function run()
   host:Hide()
   secretCases(lines)
 
+  -- Three calls of the auction house from a timer, with no click. The arguments are ones that
+  -- the game cannot accept: no auction 0, no item at an empty location, and a browse query with
+  -- no search. Nothing is bought, sold or posted; the line is the game's answer, or "ran".
+  C_Timer.After(0.5, function()
+    case("C_AuctionHouse.PlaceBid(0, 0) from a timer, no click", function()
+      C_AuctionHouse.PlaceBid(0, 0)
+      return "ran"
+    end, lines)
+    case("C_AuctionHouse.PostItem({}, 0, 0) from a timer, no click", function()
+      C_AuctionHouse.PostItem({}, 0, 0)
+      return "ran"
+    end, lines)
+    case("C_AuctionHouse.SendBrowseQuery({ searchString = '' }) from a timer, no click", function()
+      C_AuctionHouse.SendBrowseQuery({ searchString = "", sorts = {}, filters = {} })
+      return "ran"
+    end, lines)
+    for index = #lines - 2, #lines do
+      print("|cff66ccffForever Probe|r " .. lines[index])
+    end
+  end)
+
   -- The cases of a fight of this session or an earlier one stay.
   local fight = ForeverProbeDB and ForeverProbeDB.fight
   ForeverProbeDB = { client = (select(4, GetBuildInfo())), build = (select(2, GetBuildInfo())), lines = lines, fight = fight }
