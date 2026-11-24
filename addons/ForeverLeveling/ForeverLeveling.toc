@@ -2,7 +2,7 @@
 ## Title: Forever Leveling
 ## Notes: Your experience at a glance: XP an hour, time to level, kills and quests to level, rested XP, and the zones that suit your level.
 ## Author: Christian Presley
-## Version: 0.1.0
+## Version: 0.1.1
 ## Category: Quests
 ## SavedVariables: ForeverLevelingDB
 ## OptionalDeps: ForeverCompass

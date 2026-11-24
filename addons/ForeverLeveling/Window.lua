@@ -51,12 +51,14 @@ local function line(parent, y)
   text:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
   text:SetPoint("RIGHT", parent, "RIGHT", -8, 0)
   text:SetJustifyH("LEFT")
+  -- One line each: a wrapped line would lie on the line below it.
+  text:SetWordWrap(false)
   return text
 end
 
 local function buildReadout()
   readout = CreateFrame("Frame", "ForeverLevelingReadout", UIParent)
-  readout:SetSize(WIDTH, 96)
+  readout:SetSize(WIDTH, 112)
   readout:SetClampedToScreen(true)
   background(readout)
   movable(readout, "readout")
@@ -79,8 +81,10 @@ local function buildReadout()
   barBg:SetColorTexture(0.15, 0.15, 0.15, 0.8)
 
   readout.rate = line(readout, -40)
-  readout.counts = line(readout, -56)
-  readout.restedText = line(readout, -72)
+  readout.kills = line(readout, -56)
+  readout.quests = line(readout, -72)
+  readout.restedText = line(readout, -88)
+  readout.lines = { readout.title, readout.rate, readout.kills, readout.quests, readout.restedText }
 
   readout:SetScript("OnMouseUp", function(_, button)
     if button == "RightButton" then
@@ -107,10 +111,19 @@ local function buildReadout()
   end)
 end
 
-function ns.RefreshReadout()
-  if not readout then
-    return
+-- The readout is as wide as its longest line, and no narrower than WIDTH.
+local function fitWidth()
+  local width = WIDTH
+  for _, text in ipairs(readout.lines) do
+    local needed = text:GetStringWidth()
+    if ns.Usable(needed) and needed + 16 > width then
+      width = math.ceil(needed + 16)
+    end
   end
+  readout:SetWidth(width)
+end
+
+local function refreshReadout()
   readout:SetShown(ns.GetOption("show"))
   readout:SetScale(ns.GetOption("scale") / 100)
   readout:EnableMouse(not ns.GetOption("lock"))
@@ -118,6 +131,11 @@ function ns.RefreshReadout()
   local state = ns.State()
   if not state then
     readout.title:SetText("Experience: hidden by the game")
+    readout.rested:Hide()
+    readout.rate:SetText("")
+    readout.kills:SetText("")
+    readout.quests:SetText("")
+    readout.restedText:SetText("")
     return
   end
   if state.maxLevel then
@@ -126,7 +144,8 @@ function ns.RefreshReadout()
     readout.bar:SetValue(1)
     readout.rested:Hide()
     readout.rate:SetText("")
-    readout.counts:SetText("")
+    readout.kills:SetText("")
+    readout.quests:SetText("")
     readout.restedText:SetText("")
     return
   end
@@ -150,14 +169,21 @@ function ns.RefreshReadout()
   else
     readout.rate:SetText("XP an hour: after the first minute with experience")
   end
-  local kills = state.killsToLevel and string.format("%d kills (%s each)", state.killsToLevel, ns.Thousands(state.killXP)) or "kills: none yet"
-  local quests = state.questsToLevel and string.format("%d quests (%s each)", state.questsToLevel, ns.Thousands(state.questXP)) or "quests: none yet"
-  readout.counts:SetText("To level: " .. kills .. ", " .. quests)
+  readout.kills:SetText(state.killsToLevel and string.format("Kills to level: %d (%s XP each)", state.killsToLevel, ns.Thousands(state.killXP)) or "Kills to level: none counted yet")
+  readout.quests:SetText(state.questsToLevel and string.format("Quests to level: %d (%s XP each)", state.questsToLevel, ns.Thousands(state.questXP)) or "Quests to level: none counted yet")
   if state.rested > 0 then
     readout.restedText:SetText(string.format("Rested: %s XP (%.0f%% of the level)", ns.Thousands(state.rested), state.max > 0 and state.rested * 100 / state.max or 0))
   else
     readout.restedText:SetText("Rested: none")
   end
+end
+
+function ns.RefreshReadout()
+  if not readout then
+    return
+  end
+  refreshReadout()
+  fitWidth()
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -242,14 +268,14 @@ end
 function ns.ResetPositions()
   ForeverLevelingDB.frames = {}
   placeFrame(readout, "readout", "TOP", 0, -120)
-  placeFrame(zones, "zones", "TOP", 0, -230)
+  placeFrame(zones, "zones", "TOP", 0, -246)
 end
 
 ns.OnLogin(function()
   buildReadout()
   buildZones()
   placeFrame(readout, "readout", "TOP", 0, -120)
-  placeFrame(zones, "zones", "TOP", 0, -230)
+  placeFrame(zones, "zones", "TOP", 0, -246)
   ns.OnChange(function()
     ns.RefreshReadout()
     ns.RefreshZones()

@@ -117,11 +117,23 @@ GetMaxLevelForPlayerExpansion = function() return 60 end
 ns.RefreshReadout()
 local shown = ForeverLevelingReadout
 expect(shown.title:GetText():find("Level 13: 100 / 5,500 (1.8%)", 1, true), "the readout has the level and the XP: " .. tostring(shown.title:GetText()))
-expect(shown.counts:GetText() == "To level: 4 kills (1,625 each), 16 quests (350 each)", "the readout has the kills and quests to level: " .. tostring(shown.counts:GetText()))
+expect(shown.kills:GetText() == "Kills to level: 4 (1,625 XP each)" and shown.quests:GetText() == "Quests to level: 16 (350 XP each)", "the readout has the kills and the quests to level, a line each: " .. tostring(shown.kills:GetText()) .. " / " .. tostring(shown.quests:GetText()))
+-- No line wraps onto the next one: each is one line, 16 pixels under the one before, and the
+-- readout is as wide as its longest line.
+local widest = 0
+for index, text in ipairs(shown.lines) do
+  expect(text:CanWordWrap() == false, "line " .. index .. " of the readout does not wrap")
+  widest = math.max(widest, text:GetStringWidth())
+end
+expect(shown:GetWidth() >= 260 and shown:GetWidth() >= widest + 16, "the readout is as wide as its longest line: " .. shown:GetWidth() .. " for " .. widest)
+local _, _, _, _, killsY = shown.kills:GetPoint(1)
+local _, _, _, _, questsY = shown.quests:GetPoint(1)
+local _, _, _, _, restedY = shown.restedText:GetPoint(1)
+expect(killsY - questsY == 16 and questsY - restedY == 16 and shown:GetHeight() >= -restedY + 16, "the lines are 16 pixels apart, inside the readout")
 expect(shown.restedText:GetText() == "Rested: 600 XP (11% of the level)" and shown.rate:GetText():find("XP an hour, level in", 1, true), "the readout has the rested XP and the rate")
 GetMaxLevelForPlayerExpansion = function() return 13 end
 ns.RefreshReadout()
-expect(shown.title:GetText() == "Level 13: the highest level" and shown.counts:GetText() == "", "at the highest level the readout says so")
+expect(shown.title:GetText() == "Level 13: the highest level" and shown.kills:GetText() == "" and shown.quests:GetText() == "", "at the highest level the readout says so")
 GetMaxLevelForPlayerExpansion = realCap
 -- The number of samples is an option.
 ns.SetOption("samples", 3)
