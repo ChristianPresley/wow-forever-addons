@@ -93,3 +93,9 @@ secret, in a fight: string.format('%d') of a secret number = ok: secret
 secret, in a fight: a secret number .. '' = ok: secret
 secret, in a fight: AbbreviateNumbers of a secret number = ok: secret
 secret, in a fight: if with a secret boolean = error: Interface/AddOns/ForeverProbe/Core.lua:135: attempt to perform boolean test on local 'inRange' (a secret boolean value, while execution tainted by 'ForeverProbe')
+
+C_PaperDollInfo.IsRangedSlotShown() = ok: true
+GetInventorySlotInfo('RangedSlot') (the global, not in the documentation) = ok: 18, 136520, true
+C_PaperDollInfo.GetInventorySlotInfo('RangedSlot') = ok: 18, 136520, true
+GetInventoryItemID('player', 18): the item in the ranged slot = ok: 263412
+The weapons in the bags: name, subclass, equip location = ok: 6256 Fishing Pole INVTYPE_2HWEAPON

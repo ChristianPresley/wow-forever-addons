@@ -157,6 +157,78 @@ watcher:SetScript("OnEvent", function()
   end)
 end)
 
+-- The events of the game while an auction case runs: a call that the game refuses to an addon
+-- fires ADDON_ACTION_FORBIDDEN or ADDON_ACTION_BLOCKED, and an error of the game is UI_ERROR_MESSAGE.
+-- The call itself can return without an error, so the events are the answer.
+local captured = nil
+local listener = CreateFrame("Frame")
+listener:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+listener:RegisterEvent("ADDON_ACTION_BLOCKED")
+listener:RegisterEvent("UI_ERROR_MESSAGE")
+listener:SetScript("OnEvent", function(_, event, ...)
+  if captured then
+    local values = {}
+    for index = 1, select("#", ...) do
+      values[#values + 1] = tostring((select(index, ...)))
+    end
+    captured[#captured + 1] = event .. " " .. table.concat(values, " ")
+  end
+end)
+
+-- Prints one line of the probe. A line of a refused call says "error" because the game answered
+-- with an error text, which is an answer of the game and not a fault of the probe: it is grey.
+local function printLine(line)
+  local text = "|cff66ccffForever Probe|r "
+  if line:find(" = error", 1, true) then
+    print(text .. "|cffaaaaaa" .. line .. "|r")
+  else
+    print(text .. line)
+  end
+end
+
+local auctionCases = {
+  { "the auction house window is shown", function()
+    return tostring(AuctionHouseFrame ~= nil and AuctionHouseFrame:IsShown())
+  end },
+  { "C_AuctionHouse.PlaceBid(0, 0) from a timer, no click", function()
+    C_AuctionHouse.PlaceBid(0, 0)
+    return "ran"
+  end },
+  { "C_AuctionHouse.PostItem({}, 0, 0) from a timer, no click", function()
+    C_AuctionHouse.PostItem({}, 0, 0)
+    return "ran"
+  end },
+  { "C_AuctionHouse.SendBrowseQuery({ searchString = '' }) from a timer, no click", function()
+    C_AuctionHouse.SendBrowseQuery({ searchString = "", sorts = {}, filters = {} })
+    return "ran"
+  end },
+}
+
+-- One auction case after another, a second apart, so that the events of each one are its own.
+local function runAuctionCase(index)
+  local probe = auctionCases[index]
+  if not probe then
+    for line = #lines - #auctionCases + 1, #lines do
+      printLine(lines[line])
+    end
+    print("|cff66ccffForever Probe|r all cases ran; lines with 'error' are the game's answers, not faults")
+    return
+  end
+  -- The list of this case is its own: another run of the probe may start its cases meanwhile.
+  local events = {}
+  captured = events
+  case(probe[1], probe[2], lines)
+  C_Timer.After(1, function()
+    if #events > 0 then
+      lines[#lines] = lines[#lines] .. " | the game fired: " .. table.concat(events, "; ")
+    end
+    if captured == events then
+      captured = nil
+    end
+    runAuctionCase(index + 1)
+  end)
+end
+
 local function run()
   wipe(lines)
   local host = CreateFrame("Frame", nil, UIParent)
@@ -378,32 +450,20 @@ local function run()
   host:Hide()
   secretCases(lines)
 
-  -- Three calls of the auction house from a timer, with no click. The arguments are ones that
-  -- the game cannot accept: no auction 0, no item at an empty location, and a browse query with
-  -- no search. Nothing is bought, sold or posted; the line is the game's answer, or "ran".
+  -- Three calls of the auction house from a timer, with no click, after a line that says whether
+  -- the auction house window is open. The arguments are ones that the game cannot accept: no
+  -- auction 0, no item at an empty location, and a browse query with no search. Nothing is bought,
+  -- sold or posted. A line says what the call returned, then the events the game fired (a refused
+  -- call from an addon, or an error message of the game) during the second after the call.
   C_Timer.After(0.5, function()
-    case("C_AuctionHouse.PlaceBid(0, 0) from a timer, no click", function()
-      C_AuctionHouse.PlaceBid(0, 0)
-      return "ran"
-    end, lines)
-    case("C_AuctionHouse.PostItem({}, 0, 0) from a timer, no click", function()
-      C_AuctionHouse.PostItem({}, 0, 0)
-      return "ran"
-    end, lines)
-    case("C_AuctionHouse.SendBrowseQuery({ searchString = '' }) from a timer, no click", function()
-      C_AuctionHouse.SendBrowseQuery({ searchString = "", sorts = {}, filters = {} })
-      return "ran"
-    end, lines)
-    for index = #lines - 2, #lines do
-      print("|cff66ccffForever Probe|r " .. lines[index])
-    end
+    runAuctionCase(1)
   end)
 
   -- The cases of a fight of this session or an earlier one stay.
   local fight = ForeverProbeDB and ForeverProbeDB.fight
   ForeverProbeDB = { client = (select(4, GetBuildInfo())), build = (select(2, GetBuildInfo())), lines = lines, fight = fight }
   for _, line in ipairs(lines) do
-    print("|cff66ccffForever Probe|r " .. line)
+    printLine(line)
   end
   print("|cff66ccffForever Probe|r " .. #lines .. " cases. They are saved after /reload.")
 end

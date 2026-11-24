@@ -1246,7 +1246,13 @@ mod tests {
         // The driver types /foreverprobe out of a fight and in one, and the probe prints each
         // line: the printed lines have the answers of both states.
         const PRINTED: &str = "|cff66ccffForever Probe|r ";
-        let answered: Vec<&str> = outcome.printed.iter().filter_map(|line| line.strip_prefix(PRINTED)).collect();
+        // A line of an error is printed grey: "|cffaaaaaa<line>|r".
+        let answered: Vec<&str> = outcome
+            .printed
+            .iter()
+            .filter_map(|line| line.strip_prefix(PRINTED))
+            .map(|line| line.strip_prefix("|cffaaaaaa").and_then(|grey| grey.strip_suffix("|r")).unwrap_or(line))
+            .collect();
         let mut differences = Vec::new();
         let mut stale = Vec::new();
         let mut cases = 0;

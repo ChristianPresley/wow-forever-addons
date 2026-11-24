@@ -53,11 +53,15 @@ local ITEMS = {
   -- Tough Jerky. It is in bag 0, slot 6.
   [5004] = { name = "Test Gem", quality = 1, class = 3, sell = 0, icon = 134004 },
   [5003] ={ name = "Stormwind Hunting Horn", quality = 1, class = 12, sell = 0, icon = 133706, bind = 4 },
+  -- A fishing pole of the item class Weapon (2), with the subclass and the equip location that the
+  -- probe read (tools/ingame-probe/answers.txt: "6256 Fishing Pole INVTYPE_2HWEAPON"). The icon is made up.
+  -- It is in bag 1, slot 5.
+  [6256] = { name = "Fishing Pole", quality = 1, class = 2, sell = 0, icon = 134004, subclass = "Fishing Pole", equipLoc = "INVTYPE_2HWEAPON" },
 }
 H.items = ITEMS
 local BAG_CONTENTS = {
   [0] = { size = 16, slots = { [1] = { 6948, 1 }, [2] = { 2589, 12 }, [3] = { 117, 5 }, [5] = { 2211, 1 }, [6] = { 5004, 1 } } },
-  [1] = { size = 6, slots = { [1] = { 769, 8 }, [2] = { 2589, 20 }, [3] = { 5001, 3 }, [4] = { 5002, 1 } } },
+  [1] = { size = 6, slots = { [1] = { 769, 8 }, [2] = { 2589, 20 }, [3] = { 5001, 3 }, [4] = { 5002, 1 }, [5] = { 6256, 1 } } },
 }
 local function itemLink(itemID)
   return "|cffffffff|Hitem:" .. itemID .. "::::::::20:::::|h[" .. ITEMS[itemID].name .. "]|h|r"
@@ -177,7 +181,21 @@ setGlobal("IsInRaid", function() return H.world.group == "raid" end, "Blizzard_C
 setGlobal("GetNumSubgroupMembers", function() return H.world.group and 1 or 0 end, "Blizzard_CompactRaidFrames/Blizzard_CompactRaidFrameContainer.lua")
 setGlobal("GetNumGroupMembers", function() return H.world.group and 2 or 0 end, "Blizzard_CompactRaidFrames/Blizzard_CompactRaidFrameContainer.lua")
 UNKNOWNOBJECT = "Unknown" -- Blizzard_RaidUI/Mainline/Blizzard_RaidUI.lua
-setGlobal("GetInventoryItemID", function(_, slot) return slot == 16 and 2211 or nil end, "Blizzard_BoostTutorial/Blizzard_TutorialLogic.lua")
+-- The ranged slot (18) has an item, as the game client answered the probe (tools/ingame-probe/answers.txt).
+setGlobal("GetInventoryItemID", function(_, slot)
+  if slot == 16 then return 2211 end
+  if slot == 18 then return 263412 end
+  return nil
+end, "Blizzard_BoostTutorial/Blizzard_TutorialLogic.lua")
+-- The ranged slot's number, texture and flag, as the game client answered the probe (answers.txt).
+-- No file of the game's UI code calls this global: the answer of the game is its source.
+setGlobal("GetInventorySlotInfo", function(name)
+  if name == "RangedSlot" then return 18, 136520, true end
+end, "tools/ingame-probe/answers.txt")
+set("C_PaperDollInfo", "IsRangedSlotShown", function() return true end)
+set("C_PaperDollInfo", "GetInventorySlotInfo", function(name)
+  if name == "RangedSlot" then return 18, 136520, true end
+end)
 setGlobal("IsModifiedClick", function() return false end, "Blizzard_ArtifactUI/Blizzard_ArtifactPowerButton.lua")
 setGlobal("CanMerchantRepair", function() return true end, "Blizzard_UIPanels_Game/Mainline/MerchantFrame.lua")
 
@@ -573,6 +591,10 @@ set("C_Container", "GetContainerItemInfo", function(bag, slot)
     itemID = entry[1], isBound = entry[1] == 6948, itemName = item.name,
   }
 end)
+set("C_Container", "GetContainerItemID", function(bag, slot)
+  local entry = BAG_CONTENTS[bag] and BAG_CONTENTS[bag].slots[slot]
+  return entry and entry[1] or nil
+end)
 -- isQuestItem is true for each item of the item class Quest, a quest item or not.
 set("C_Container", "GetContainerItemQuestInfo", function(bag, slot)
   local entry = BAG_CONTENTS[bag] and BAG_CONTENTS[bag].slots[slot]
@@ -617,7 +639,7 @@ set("C_Item", "GetItemInfoInstant", function(value)
   local itemID = itemOf(value)
   local item = ITEMS[itemID]
   if item then
-    return itemID, "Type", "Subtype", "", item.icon, item.class, 0
+    return itemID, "Type", item.subclass or "Subtype", item.equipLoc or "", item.icon, item.class, 0
   end
 end)
 set("C_Item", "GetItemNameByID", function(value) return ITEMS[itemOf(value)] and ITEMS[itemOf(value)].name end)
