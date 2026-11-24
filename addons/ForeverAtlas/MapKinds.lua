@@ -587,6 +587,10 @@ end
 
 -- Two things without a name (mailboxes) nearer than this, in hundredths of the map, are one.
 local SAME_PLACE = 0.6
+-- Two entries with the same name nearer than this are one thing (a mailbox that was seen twice).
+local SAME_THING = 2.5
+-- The position of one NPC is the average of up to this many visits, so the pin is where it stands.
+local SAMPLES = 10
 
 local function npcList(mapID)
   local all = ForeverAtlasDB and ForeverAtlasDB.npcs
@@ -624,7 +628,7 @@ local function remember(roleKey, thing)
   local entry
   for _, known in ipairs(list) do
     if type(known) == "table" and known.name == name
-      and (not thing or (ns.Usable(known.x) and ns.Usable(known.y) and math.abs(known.x - x) < SAME_PLACE and math.abs(known.y - y) < SAME_PLACE)) then
+      and (not thing or (ns.Usable(known.x) and ns.Usable(known.y) and math.abs(known.x - x) < SAME_THING and math.abs(known.y - y) < SAME_THING)) then
       entry = known
       break
     end
@@ -636,8 +640,21 @@ local function remember(roleKey, thing)
   if type(entry.roles) ~= "table" then
     entry.roles = {}
   end
-  entry.x, entry.y, entry.t = x, y, time()
+  local now = time()
+  if not (ns.Usable(entry.x) and ns.Usable(entry.y)) then
+    entry.x, entry.y, entry.n = x, y, 1
+  elseif entry.t ~= now then
+    -- A new visit moves the average; a second role of the same visit (a vendor that repairs) does not.
+    local count = math.min((entry.n or 1) + 1, SAMPLES)
+    entry.x = entry.x + (x - entry.x) / count
+    entry.y = entry.y + (y - entry.y) / count
+    entry.n = count
+  end
+  entry.t = now
   entry.roles[roleKey] = true
+  if not thing and name:find("^Innkeeper") then
+    entry.roles.inn = true -- an innkeeper also sells food and drink, so it opens the vendor window
+  end
   ns.RefreshPins()
 end
 
@@ -655,7 +672,18 @@ function ns.ForgetNpcs()
   ns.RefreshPins()
 end
 
+-- Whether an entry of the same name is drawn already nearby (an old copy of the same thing).
+local function twinOf(drawn, entry)
+  for _, other in ipairs(drawn) do
+    if other.name == entry.name and math.abs(other.x - entry.x) < SAME_THING and math.abs(other.y - entry.y) < SAME_THING then
+      return true
+    end
+  end
+  return false
+end
+
 local function metNpcs(mapID, add)
+  local drawn = {}
   for _, entry in ipairs(npcList(mapID) or {}) do
     if type(entry) == "table" and type(entry.name) == "string" and type(entry.roles) == "table" and ns.Usable(entry.x) and ns.Usable(entry.y) then
       local first, labels = nil, {}
@@ -665,7 +693,9 @@ local function metNpcs(mapID, add)
           labels[#labels + 1] = role[2]
         end
       end
-      if first then
+      -- Talking alone is not a place to go to, so it is not drawn.
+      if first and first[1] ~= "talk" and not twinOf(drawn, entry) then
+        drawn[#drawn + 1] = entry
         local x, y, name = entry.x, entry.y, entry.name
         add(x, y, {
           look = roleLook(first),
