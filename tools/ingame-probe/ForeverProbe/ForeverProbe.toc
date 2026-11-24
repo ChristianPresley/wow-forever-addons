@@ -2,6 +2,7 @@
 ## Title: Forever Probe
 ## Notes: Asks the game client what it does where no file of the game says it. For the test harness of this repository; not for players.
 ## Version: 0.1.0
+## Category: Development Tools
 ## SavedVariables: ForeverProbeDB
 
 Core.lua
