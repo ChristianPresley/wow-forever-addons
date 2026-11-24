@@ -19,26 +19,11 @@ local function vendorPrice(itemID)
   return price
 end
 
--- Size of the stack the tooltip is for. Only known for bag and bank slots, whose buttons have GetBagID. Else 1.
-local function readStack(tooltip, itemID)
-  local owner = tooltip:GetOwner()
-  local bag = owner and owner.GetBagID and owner:GetBagID()
-  if not bag or not ItemLocation or not C_Item or not C_Item.GetStackCount then
-    return 1
-  end
-  local location = ItemLocation:CreateFromBagAndSlot(bag, owner:GetID())
-  if not C_Item.DoesItemExist(location) or C_Item.GetItemID(location) ~= itemID then
-    return 1
-  end
-  return C_Item.GetStackCount(location)
-end
-
-local function stackCount(tooltip, itemID)
-  local count = ns.Guard("tooltip stack", readStack, tooltip, itemID)
-  if type(count) ~= "number" or isSecret(count) or count < 1 then
-    return 1
-  end
-  return count
+-- The stack size is not read. Reading the bag button the tooltip belongs to (GetOwner, GetBagID, GetID)
+-- was on the path of a blocked bag click (ForeverAuctions may not call UseContainerItem), so the stack
+-- lines are always for one item. The stack options stay in the settings but add nothing until this changes.
+local function stackCount()
+  return 1
 end
 
 local function addLines(tooltip, itemID)
