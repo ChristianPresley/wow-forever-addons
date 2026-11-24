@@ -345,6 +345,36 @@ local function run()
   case("The CVar showQuestObjectivesInLog: its default, its value now", function()
     return C_CVar.GetCVarDefault("showQuestObjectivesInLog"), C_CVar.GetCVar("showQuestObjectivesInLog")
   end)
+  -- The ranged slot (Forever Gear compares ranged weapons with GetInventoryItemID("player", 18)).
+  case("C_PaperDollInfo.IsRangedSlotShown()", function()
+    return C_PaperDollInfo.IsRangedSlotShown()
+  end)
+  case("GetInventorySlotInfo('RangedSlot') (the global, not in the documentation)", function()
+    return GetInventorySlotInfo("RangedSlot")
+  end)
+  case("C_PaperDollInfo.GetInventorySlotInfo('RangedSlot')", function()
+    return C_PaperDollInfo.GetInventorySlotInfo("RangedSlot")
+  end)
+  case("GetInventoryItemID('player', 18): the item in the ranged slot", function()
+    return GetInventoryItemID("player", 18)
+  end)
+  -- The equip location (the fourth result of C_Item.GetItemInfoInstant) of each weapon in the
+  -- bags, at most five: a bow or a wand if one is there.
+  case("The weapons in the bags: name, subclass, equip location", function()
+    local found = {}
+    for bag = 0, 4 do
+      for slot = 1, C_Container.GetContainerNumSlots(bag) do
+        local itemID = C_Container.GetContainerItemID(bag, slot)
+        if itemID and #found < 5 then
+          local _, _, subclass, equipLoc, _, classID = C_Item.GetItemInfoInstant(itemID)
+          if classID == 2 then
+            found[#found + 1] = tostring(itemID) .. " " .. tostring(subclass) .. " " .. tostring(equipLoc)
+          end
+        end
+      end
+    end
+    return #found > 0 and table.concat(found, "; ") or "no weapon in the bags"
+  end)
   host:Hide()
   secretCases(lines)
 
