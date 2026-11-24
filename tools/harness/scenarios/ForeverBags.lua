@@ -123,6 +123,8 @@ ns.SetOption("replaceBags", true)
 expect(ns.CategoryOf(1, 3) == "quest", "Gnoll Paw (\"Quest Item\" in the tooltip) is a quest item, got " .. tostring(ns.CategoryOf(1, 3)))
 expect(ns.CategoryOf(1, 4) == "quest", "the soulbound book of the item class Quest is a quest item, got " .. tostring(ns.CategoryOf(1, 4)))
 -- An item of another class that an objective of a quest names is a quest item while it does.
+-- The default world has the set "Tank" with Linen Cloth: these checks are without sets.
+T.world.equipmentSets = {}
 expect(ns.CategoryOf(0, 2) == "trade", "Linen Cloth is a trade good while no quest asks for it")
 T.world.questItems = true
 T.fire("QUEST_LOG_UPDATE")
@@ -133,6 +135,20 @@ expect(ns.CategoryOf(0, 2) == "trade", "and a trade good again when the quest is
 expect(ns.CategoryOf(1, 1) == "trade" and ns.CategoryOf(0, 3) == "consumables", "meat is a trade good and jerky a consumable")
 expect(ns.CategoryOf(0, 4) == nil, "an empty slot has no category")
 expect(ns.CategoryOf(0, 5) == "junk", "the grey shield is junk")
+-- A gem (item class 3) is with the equipment, not with the trade goods.
+expect(ns.CategoryOf(0, 6) == "equipment", "the gem is equipment, got " .. tostring(ns.CategoryOf(0, 6)))
+
+-- Equipment sets: an item of a set is in the group of its set, after the quest items.
+T.world.equipmentSets = { { id = 1, name = "Tank", icon = 133, items = { 2589 } } }
+expect(ns.CategoryOf(0, 2) == "set:1", "Linen Cloth is in the set Tank, got " .. tostring(ns.CategoryOf(0, 2)))
+expect(ns.CategoryOf(0, 3) == "consumables", "jerky is in no set and stays a consumable")
+T.world.questItems = true
+T.fire("QUEST_LOG_UPDATE")
+expect(ns.CategoryOf(0, 2) == "quest", "a quest item stays a quest item while it is in a set, got " .. tostring(ns.CategoryOf(0, 2)))
+T.world.questItems = nil
+T.fire("QUEST_LOG_UPDATE")
+T.world.equipmentSets = {}
+expect(ns.CategoryOf(0, 2) == "trade", "without the set Linen Cloth is a trade good again")
 
 -- Junk: an item marked as junk counts as junk, and a vendor buys the junk.
 T.slash("/fbags", "junk " .. H.itemLink(2589))

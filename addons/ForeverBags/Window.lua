@@ -28,9 +28,9 @@ local BIND_QUEST = 4 -- the bind type of a quest item: its tooltip says "Quest I
 -- The categories, in the order of the window. `classes` are item class numbers (Enum.ItemClass).
 local CATEGORIES = {
   { key = "new", name = "New items", classes = {} },
-  { key = "equipment", name = "Equipment", classes = { [2] = true, [4] = true } },
+  { key = "equipment", name = "Equipment", classes = { [2] = true, [3] = true, [4] = true } }, -- the gems too; a set group comes after it
   { key = "consumables", name = "Consumables", classes = { [0] = true } },
-  { key = "trade", name = "Trade goods", classes = { [3] = true, [5] = true, [7] = true, [8] = true, [9] = true, [16] = true, [19] = true } },
+  { key = "trade", name = "Trade goods", classes = { [5] = true, [7] = true, [8] = true, [9] = true, [16] = true, [19] = true } },
   { key = "quest", name = "Quest items", classes = { [12] = true } },
   { key = "other", name = "Other", classes = {} },
   { key = "junk", name = "Junk", classes = {} },
@@ -183,6 +183,28 @@ local function readQuestLog()
   end
 end
 
+-- The equipment sets of the character: setOf[itemID] = the ID of the first set with the item,
+-- setOrder = the set IDs by name, setNames[id] = the name. Read again at each layout.
+local setOf, setOrder, setNames
+local function readSets()
+  setOf, setOrder, setNames = {}, {}, {}
+  local okIDs, ids = pcall(C_EquipmentSet.GetEquipmentSetIDs)
+  for _, id in ipairs(okIDs and type(ids) == "table" and ids or {}) do
+    local okName, name = pcall(C_EquipmentSet.GetEquipmentSetInfo, id)
+    setNames[id] = okName and type(name) == "string" and name ~= "" and name or "Equipment set"
+    setOrder[#setOrder + 1] = id
+    local okItems, items = pcall(C_EquipmentSet.GetItemIDs, id)
+    for _, itemID in pairs(okItems and type(items) == "table" and items or {}) do
+      if type(itemID) == "number" and setOf[itemID] == nil then
+        setOf[itemID] = id
+      end
+    end
+  end
+  table.sort(setOrder, function(a, b)
+    return setNames[a] < setNames[b]
+  end)
+end
+
 -- A quest item is an item with any of the signs that the game gives:
 --   the game marks the slot as a quest item, or as an item that starts a quest
 --   the item is of the item class Quest
@@ -224,6 +246,11 @@ local function categoryOf(info, bag, slot)
     or (questNames and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and questNames[name:lower()]) then
     return "quest"
   end
+  -- A set's item is in its own group, after the quest items and before the class groups.
+  local setID = setOf and setOf[info.itemID]
+  if setID then
+    return "set:" .. setID
+  end
   for _, category in ipairs(CATEGORIES) do
     if category.classes[classID] then
       return category.key
@@ -233,6 +260,7 @@ local function categoryOf(info, bag, slot)
 end
 -- The category of the item in a slot: the key of CATEGORIES, or nil for an empty slot.
 function ns.CategoryOf(bag, slot)
+  readSets()
   local info = C_Container.GetContainerItemInfo(bag, slot)
   return info and categoryOf(info, bag, slot) or nil
 end
@@ -257,8 +285,14 @@ local function layout()
   local hearth -- the slot with the Hearthstone
 
   if byCategory then
+    readSets()
     for _, category in ipairs(CATEGORIES) do
       sections[#sections + 1] = { key = category.key, name = category.name, slots = {} }
+      if category.key == "equipment" then
+        for _, id in ipairs(setOrder) do
+          sections[#sections + 1] = { key = "set:" .. id, name = setNames[id], slots = {} }
+        end
+      end
     end
   else
     sections[1] = { slots = {} }
@@ -766,6 +800,7 @@ ns.OnLogin(function()
   for _, event in ipairs({
     "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN", "PLAYER_MONEY", "MERCHANT_SHOW",
     "MERCHANT_CLOSED", "BAG_NEW_ITEMS_UPDATED", "QUEST_ACCEPTED", "QUEST_REMOVED", "BAG_SLOT_FLAGS_UPDATED",
+    "EQUIPMENT_SETS_CHANGED",
   }) do
     pcall(events.RegisterEvent, events, event)
   end
