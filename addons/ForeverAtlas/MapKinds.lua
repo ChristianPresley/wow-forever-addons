@@ -689,11 +689,16 @@ local function metNpcs(mapID, add)
       local first, labels = nil, {}
       for _, role in ipairs(ROLES) do
         if entry.roles[role[1]] then
-          first = first or role
+          -- Giving quests is not the icon: the game does not say here whether the NPC has one now.
+          -- The quest givers and turn-ins of the map show the open quests, so a remembered quest
+          -- NPC never looks like an open quest and never sits over a turn-in.
+          if role[1] ~= "quests" then
+            first = first or role
+          end
           labels[#labels + 1] = role[2]
         end
       end
-      -- Talking alone is not a place to go to, so it is not drawn.
+      -- Talking alone, or giving quests alone, is not a place to go to, so it is not drawn.
       if first and first[1] ~= "talk" and not twinOf(drawn, entry) then
         drawn[#drawn + 1] = entry
         local x, y, name = entry.x, entry.y, entry.name
