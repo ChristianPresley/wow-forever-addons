@@ -30,6 +30,8 @@ local function help()
   print("  /fah days [number] - set how many days of prices are kept")
   print("  /fah options - open the settings page")
   print("  /fah clear yes - delete the stored prices of this realm. /fah clear says how many there are")
+  print("  /fah status - when each feature last ran without an error")
+  print("  /fah errors - the errors the features caught. /fah errors clear forgets them")
   print("  /fah help - show this list")
 end
 
@@ -45,6 +47,38 @@ local function price(rest)
     return
   end
   ns.Print(string.format("%s, seen %s. %d-day average: %s.", ns.Money(entry.price), ns.Age(entry.seen), days, ns.Money(average)))
+end
+
+-- /fah status: when each feature last ran without an error.
+local FEATURES = { "ledger", "undercut", "sell helper", "tooltip stack", "bags" }
+local function status()
+  ns.Print("when each feature last ran without an error:")
+  for _, area in ipairs(FEATURES) do
+    local at = ForeverAuctionsDB.status and ForeverAuctionsDB.status[area]
+    print(string.format("  %s: %s", area, at and ns.Age(at) or "not yet"))
+  end
+end
+
+-- /fah errors: the errors that the features caught. /fah errors clear forgets them.
+local function errorsCommand(rest)
+  if rest:lower() == "clear" then
+    ForeverAuctionsDB.errors = {}
+    ns.Print("the caught errors are forgotten.")
+    return
+  end
+  local lines = {}
+  for area, record in pairs(ForeverAuctionsDB.errors or {}) do
+    lines[#lines + 1] = string.format("  %s: %d times, last %s: %s", area, record.count, ns.Age(record.last), record.message)
+  end
+  table.sort(lines)
+  if #lines == 0 then
+    ns.Print("no errors caught.")
+    return
+  end
+  ns.Print("errors caught by the features (their results were left out):")
+  for _, line in ipairs(lines) do
+    print(line)
+  end
 end
 
 local function stats()
@@ -210,6 +244,10 @@ SlashCmdList["FOREVERAUCTIONS"] = function(input)
     days(rest)
   elseif command == "options" or command == "config" or command == "settings" then
     ns.OpenOptions()
+  elseif command == "status" then
+    status()
+  elseif command == "errors" then
+    errorsCommand(rest)
   elseif command == "clear" then
     -- The settings page asks before it deletes, and so does the command: the word "yes" is the answer.
     local count = 0

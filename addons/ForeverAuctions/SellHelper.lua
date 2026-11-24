@@ -93,11 +93,11 @@ local function readForm(frame, isCommodity)
 end
 
 local function update(panel)
-  local ok, itemID, low, own
+  local itemID, low, own
   if ns.GetOption("sellHelper") then
-    ok, itemID, low, own = pcall(readForm, panel.sellFrame, panel.isCommodity)
+    itemID, low, own = ns.Guard("sell helper", readForm, panel.sellFrame, panel.isCommodity)
   end
-  if not ok or not itemID then
+  if not itemID then
     panel.text:SetText("")
     panel.button:Hide()
     panel.fill = nil

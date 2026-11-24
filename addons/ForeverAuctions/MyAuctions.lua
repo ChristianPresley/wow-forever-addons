@@ -50,8 +50,8 @@ function ns.PrintMyAuctions()
     ns.Print("this game client has no list of own auctions for addons.")
     return
   end
-  local ok, undercut, active = pcall(ns.UndercutAuctions)
-  if not ok then
+  local undercut, active = ns.Guard("undercut", ns.UndercutAuctions)
+  if not undercut then
     ns.Print("your auctions cannot be read now.")
     return
   end
@@ -75,8 +75,8 @@ local function check()
   if not (ForeverAuctionsDB and ns.GetOption("undercutCheck")) then
     return
   end
-  local ok, undercut, active = pcall(ns.UndercutAuctions)
-  if not ok then
+  local undercut, active = ns.Guard("undercut", ns.UndercutAuctions)
+  if not undercut then
     return
   end
   -- The game sends the event several times for one list: one message per different result.

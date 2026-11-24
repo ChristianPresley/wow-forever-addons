@@ -34,8 +34,8 @@ local function readStack(tooltip, itemID)
 end
 
 local function stackCount(tooltip, itemID)
-  local ok, count = pcall(readStack, tooltip, itemID)
-  if not ok or type(count) ~= "number" or isSecret(count) or count < 1 then
+  local count = ns.Guard("tooltip stack", readStack, tooltip, itemID)
+  if type(count) ~= "number" or isSecret(count) or count < 1 then
     return 1
   end
   return count

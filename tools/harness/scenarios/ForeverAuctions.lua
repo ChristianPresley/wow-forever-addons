@@ -307,3 +307,16 @@ ForeverAuctionsDB.realmOf = nil
 expect(ns.Realm() == realmRecord, "without a saved name, the one realm of this faction in the records is found")
 GetRealmName = realGetRealmName
 expect(ns.Realm() == realmRecord, "the realm of the game is found again when the game gives its name")
+
+-- A feature that fails is caught and counted; /fah errors shows it, and the others keep working.
+local result = ns.Guard("test area", function() error("a test failure") end)
+expect(result == nil and ForeverAuctionsDB.errors["test area"].count == 1, "a failing feature is caught and counted")
+expect(ForeverAuctionsDB.errors["test area"].message:find("a test failure") ~= nil, "the caught error keeps its message")
+expect(ns.Guard("test area", function() return 7, 8 end) == 7 and ForeverAuctionsDB.status["test area"] ~= nil, "a working feature returns its results and its time is kept")
+T.slash("/fah", "errors")
+expect(T.printed("test area"), "/fah errors shows the caught error")
+T.slash("/fah", "status")
+expect(T.printed("ledger: "), "/fah status lists the features")
+T.slash("/fah", "errors clear")
+expect(next(ForeverAuctionsDB.errors) == nil, "/fah errors clear forgets the caught errors")
+ForeverAuctionsDB.status["test area"] = nil

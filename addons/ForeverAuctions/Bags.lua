@@ -61,8 +61,8 @@ function ns.BagValue()
 end
 
 function ns.PrintBagValue()
-  local ok, auction, vendor, items = pcall(ns.BagValue)
-  if not ok or not auction then
+  local auction, vendor, items = ns.Guard("bags", ns.BagValue)
+  if not auction then
     ns.Print("the bags cannot be read on this game client.")
     return
   end

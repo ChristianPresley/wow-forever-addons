@@ -493,8 +493,8 @@ function ns.ReadLedgerMail()
   if not (ForeverAuctionsDB and ns.GetOption("ledger")) then
     return 0
   end
-  local ok, added = pcall(readInbox)
-  if ok and added > 0 then
+  local added = ns.Guard("ledger", readInbox) or 0
+  if added > 0 then
     ns.RefreshLedger()
     return added
   end
@@ -506,8 +506,8 @@ local function onMail()
   if not (ForeverAuctionsDB and ns.GetOption("ledger")) then
     return
   end
-  local ok, added = pcall(readInbox)
-  if ok and added > 0 then
+  local added = ns.Guard("ledger", readInbox) or 0
+  if added > 0 then
     ns.Print(string.format("%d new %s in the ledger. Type /fah ledger to see them.", added, added == 1 and "line" or "lines"))
     ns.RefreshLedger()
   end

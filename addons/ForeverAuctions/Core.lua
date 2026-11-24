@@ -68,6 +68,48 @@ function ns.Print(msg)
   print("|cffd8a657Forever Auctions|r: " .. tostring(msg))
 end
 
+-- Runs a feature so that an error in it does not stop the rest of the addon. The error is counted
+-- in the saved variables with its last message, and /fah errors shows it. Returns the results of
+-- the feature, or nil when it failed.
+function ns.Guard(area, fn, ...)
+  local results = { pcall(fn, ...) }
+  if results[1] then
+    ns.MarkRan(area)
+    return unpack(results, 2)
+  end
+  ns.RecordError(area, results[2])
+  return nil
+end
+
+function ns.RecordError(area, message)
+  if not ForeverAuctionsDB then
+    return
+  end
+  local errors = ForeverAuctionsDB.errors
+  if type(errors) ~= "table" then
+    errors = {}
+    ForeverAuctionsDB.errors = errors
+  end
+  local record = errors[area] or { count = 0 }
+  record.count = record.count + 1
+  record.last = time()
+  record.message = tostring(message):sub(1, 200)
+  errors[area] = record
+end
+
+-- The time that a feature last ran without an error, for /fah status.
+function ns.MarkRan(area)
+  if not ForeverAuctionsDB then
+    return
+  end
+  local status = ForeverAuctionsDB.status
+  if type(status) ~= "table" then
+    status = {}
+    ForeverAuctionsDB.status = status
+  end
+  status[area] = time()
+end
+
 function ns.GetOption(key)
   local options = ForeverAuctionsDB and ForeverAuctionsDB.options
   local value = options and options[key]
