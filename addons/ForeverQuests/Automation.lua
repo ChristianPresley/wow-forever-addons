@@ -82,6 +82,6 @@ local frame = CreateFrame("Frame")
 for event in pairs(handlers) do
   pcall(frame.RegisterEvent, frame, event)
 end
-frame:SetScript("OnEvent", function(_, event)
+frame:SetScript("OnEvent", ns.Safely("the automation", function(_, event)
   handlers[event]()
-end)
+end))

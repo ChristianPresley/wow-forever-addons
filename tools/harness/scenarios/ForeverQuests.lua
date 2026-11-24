@@ -609,3 +609,14 @@ expect(ns.GetOption("questChain") == true and ForeverQuestsChain:IsShown(), "and
 T.world.questLines, T.world.completedQuests, T.world.questItems = nil, nil, nil
 QuestMapFrame.DetailsFrame:Hide()
 QuestMapFrame:Hide()
+
+-- /fq status: the version, the errors caught so far, the quests of the log and the tracker.
+T.slash("/fq", "status")
+expect(T.printed("status, version") and T.printed("errors caught so far") and T.printed("quests in the tracker"), "/fq status says the version, the errors caught and the quests of the tracker")
+-- An error inside an event handler is reported once in chat, and counted each time.
+local before = ns.ErrorCount()
+local guarded = ns.Safely("the check", function() error("boom") end)
+guarded()
+guarded()
+expect(ns.ErrorCount() == before + 2, "each error inside a guarded handler is counted, got " .. ns.ErrorCount() - before)
+expect(T.printed("error in the check: "), "an error inside a guarded handler is printed in chat")

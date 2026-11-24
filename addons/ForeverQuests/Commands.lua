@@ -31,6 +31,25 @@ local function stats()
   line("This character", ForeverQuestsCharDB)
 end
 
+local function diagnostics()
+  local version = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("ForeverQuests", "Version")
+  ns.Print("status, version " .. tostring(version or "?") .. ":")
+  local count, last = ns.ErrorCount()
+  print("  errors caught so far: " .. count .. (last and (", the last: " .. last) or ""))
+  local okLog, entries = pcall(C_QuestLog.GetNumQuestLogEntries)
+  local okWatch, watches = pcall(C_QuestLog.GetNumQuestWatches)
+  print("  quests in the log: " .. (okLog and type(entries) == "number" and entries or "?"))
+  print("  quests in the tracker: " .. (okWatch and type(watches) == "number" and watches or "?"))
+  print("  Forever Compass: " .. (rawget(_G, "ForeverCompass") and "loaded" or "not loaded"))
+  local on = 0
+  for _, option in ipairs(ns.OPTIONS) do
+    if ns.GetOption(option.key) then
+      on = on + 1
+    end
+  end
+  print("  options on: " .. on .. " of " .. #ns.OPTIONS .. " (/fq lists them)")
+end
+
 SLASH_FOREVERQUESTS1 = "/fq"
 SLASH_FOREVERQUESTS2 = "/foreverquests"
 SlashCmdList["FOREVERQUESTS"] = function(input)
@@ -43,6 +62,8 @@ SlashCmdList["FOREVERQUESTS"] = function(input)
     ns.Print("current zone only " .. onOff(ns.ToggleZoneFilter()) .. ".")
   elseif command == "stats" then
     stats()
+  elseif command == "status" then
+    diagnostics()
   elseif command == "party" then
     ns.PrintParty()
   elseif command == "demo" then

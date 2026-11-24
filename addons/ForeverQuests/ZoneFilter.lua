@@ -392,7 +392,7 @@ frame:RegisterEvent("ZONE_CHANGED_INDOORS")
 frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 pcall(frame.RegisterEvent, frame, "QUEST_ACCEPTED")
 local loggedIn = false
-frame:SetScript("OnEvent", function(self, event)
+frame:SetScript("OnEvent", ns.Safely("the zone filter", function(self, event)
   if event == "PLAYER_LOGIN" or event == "ADDON_LOADED" then
     loggedIn = loggedIn or event == "PLAYER_LOGIN"
     -- The quest log of the game can load later than this addon.
@@ -404,4 +404,4 @@ frame:SetScript("OnEvent", function(self, event)
   else
     schedule(0.5)
   end
-end)
+end))

@@ -4,6 +4,33 @@ function ns.Print(msg)
   print("|cffe6c229Forever Quests|r: " .. tostring(msg))
 end
 
+-- An error inside Forever Quests: each different one is printed in chat once. It is not put on the
+-- screen as a Lua error, so the game goes on as before. /fq status counts them.
+local reported, errorCount, lastError = {}, 0, nil
+function ns.Report(where, err)
+  local text = where .. ": " .. tostring(err)
+  errorCount = errorCount + 1
+  lastError = text
+  if not reported[text] then
+    reported[text] = true
+    ns.Print("error in " .. text)
+  end
+end
+
+function ns.ErrorCount()
+  return errorCount, lastError
+end
+
+-- A handler that reports its error, for the scripts of the event frames.
+function ns.Safely(where, fn)
+  return function(...)
+    local ok, err = pcall(fn, ...)
+    if not ok then
+      ns.Report(where, err)
+    end
+  end
+end
+
 -- Totals of this play session. The lifetime totals are in ForeverQuestsCharDB.
 ns.session = { quests = 0, xp = 0, money = 0 }
 

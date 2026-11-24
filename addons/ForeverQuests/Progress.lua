@@ -100,7 +100,7 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("QUEST_LOG_UPDATE")
 pcall(frame.RegisterEvent, frame, "QUEST_TURNED_IN")
-frame:SetScript("OnEvent", function(_, event, questID, xp, money)
+frame:SetScript("OnEvent", ns.Safely("the quest progress", function(_, event, questID, xp, money)
   if event == "QUEST_TURNED_IN" then
     if not ForeverQuestsCharDB then
       return
@@ -119,4 +119,4 @@ frame:SetScript("OnEvent", function(_, event, questID, xp, money)
     pending = true
     C_Timer.After(0.3, update)
   end
-end)
+end))
