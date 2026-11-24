@@ -61,8 +61,11 @@ jobs:
       # Fails if the files of an addon changed and its version did not: the manager finds
       # an update by the version, so that change would not reach anyone. A held addon is
       # left out and keeps its published entry.
+      # The output is kept, so the last step sees every addon that was held back.
       - name: Build the marketplace
-        run: cargo dev marketplace --published published --hold "$(paste -sd, held.txt)"
+        run: |
+          set -o pipefail
+          cargo dev marketplace --published published --hold "$(paste -sd, held.txt)" | tee build.txt
       - name: Upload to the marketplace release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,7 +91,9 @@ jobs:
       # is seen in the list of runs.
       - name: Report the addons that were held back
         run: |
-          if [ -s held.txt ]; then
-            echo "::error::Held back because its tests failed: $(paste -sd' ' held.txt). The others were published."
+          # The build reports each held addon with "held back": a failing test or changed files.
+          held=$(grep ' held back' build.txt | cut -d' ' -f1 | paste -sd' ' -)
+          if [ -n "$held" ]; then
+            echo "::error::Held back: $held. The others were published."
             exit 1
           fi
