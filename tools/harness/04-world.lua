@@ -90,7 +90,10 @@ setGlobal("UnitName", function(unit)
   return nil, nil
 end)
 H.allowNil("UnitName", "The game gives no name for a unit that does not exist, and no realm for a unit of the player's own realm: Blizzard_FriendsFrame/Mainline/FriendsFrame.lua tests the realm with `if server and`.")
-setGlobal("GetRealmName", function() return "TestRealm" end)
+-- The realm can be empty text on a server whose name the game does not give (Forever Bags:
+-- the realm then has no key). "s||" in the documentation allows an empty string.
+setGlobal("GetRealmName", function() return H.world.realmEmpty and "" or "TestRealm" end)
+setGlobal("GetNormalizedRealmName", function() return H.world.realmEmpty and "" or "TestRealm" end)
 -- For a unit that does not exist the game gives nothing.
 setGlobal("UnitClass", function(unit)
   if unitExists(unit) then
@@ -1266,6 +1269,20 @@ end, MAIL_FRAME)
 -- The stand-in notes each call; the mail stays.
 setGlobal("TakeInboxMoney", function(index) did("take inbox money", index) end, MAIL_FRAME)
 setGlobal("AutoLootMailItem", function(index) did("loot mail", index) end, MAIL_FRAME)
+-- The loot window: H.world.loot is the list of its items, each { name, quest, questID }. The
+-- window is empty until a scenario sets it. LootFrame.lua:227-228 calls GetNumLootItems and
+-- GetLootSlotInfo(slot) and takes ten results from the second: texture, item, quantity,
+-- currencyID, quality, locked, isQuestItem, questID, isActive, isCoin. Not in the documentation.
+local LOOT_FRAME = "Blizzard_UIPanels_Game/Mainline/LootFrame.lua"
+H.world.loot = {}
+setGlobal("GetNumLootItems", function() return #H.world.loot end, LOOT_FRAME)
+setGlobal("GetLootSlotInfo", function(slot)
+  local item = H.world.loot[slot]
+  if not item then
+    return nil
+  end
+  return "Interface\\Icons\\INV_Misc_Note_01", item.name, 1, nil, 1, false, item.quest or false, item.questID, false, false
+end, LOOT_FRAME)
 -- The mail window (Blizzard_MailFrame/MailFrame.xml), hidden until the mailbox opens.
 MailFrame = CreateFrame("Frame", "MailFrame", UIParent)
 MailFrame:Hide()
