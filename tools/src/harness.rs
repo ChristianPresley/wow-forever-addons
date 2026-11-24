@@ -656,6 +656,21 @@ mod tests {
         assert!(failures.is_empty(), "{failures:?}");
     }
 
+    #[test]
+    fn unit_stats_are_secret_in_a_fight_as_the_game_client_shows() {
+        // Seen on client 1.60.1 (tools/ingame-probe/answers.txt): UnitArmor('player') and
+        // GetCritChance() are secret in a fight and plain out of it.
+        let armor = r#"
+            local f = CreateFrame("Frame")
+            f:SetScript("OnUpdate", function()
+              local armor = UnitArmor("player")
+              USE
+            end)
+        "#;
+        assert!(check(&armor.replace("USE", "")).0.is_empty());
+        fails_in_the_fight_only(&armor.replace("USE", "local half = armor / 2"));
+    }
+
     fn fails_in_the_fight_only(lua: &str) {
         let (failures, _) = check(lua);
         assert!(failures.iter().any(|failure| failure.contains("secret value")), "expected a failure about a secret value, got {failures:?}");
