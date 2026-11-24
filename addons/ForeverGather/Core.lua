@@ -3,18 +3,24 @@ local _, ns = ...
 -- Saved data, in ForeverGatherDB (for all characters):
 --   version = 2   (1 had quest objects as treasure: its treasure nodes are dropped)
 --   options = { herb, ore, fish, treasure, quest, worldMap, minimap, hideTrivial, minSkill, size,
---               alert, alertSound, alertYards, dimMinutes, skillColours }
+--               alert, alertSound, alertYards, dimMinutes, skillColours, route }
 --   nodes   = { [mapID] = { { kind = s, name = s, x = n, y = n, count = n, first = n, last = n,
---               loot = { [item] = n }, looted = n, imported = true }, ... } }
+--               loot = { [item] = n }, looted = n, imported = true, seen = true }, ... } }
 --             x, y from 0 to 1. first, last: time() of the first and the last gather (nil for a
 --             node of a version before 0.3.0). loot: what the node gave, summed over looted loot
 --             windows. imported with count 0: a node from an import that was not gathered yet.
---   names   = { [name] = { kind = s, skill = n } }   skill: the lowest skill rank seen at a gather
+--             seen with count 0: a node that the player could not gather (the skill is too low).
+--   names   = { [name] = { kind = s, skill = n, needs = n } }
+--             skill: the lowest skill rank seen at a gather. needs: the skill that the game
+--             asked for when the player could not gather it.
 --   history = { { spell = n, spellName = s, target = s, kind = s, result = s, at = n }, ... }
 --             the last gathering casts and what came of each, the newest last, for
 --             /fgather status and /fgather history. at is time().
---   last    = { other = { spell = n, spellName = s, target = s, at = n } }
---             the last other cast at a target: the spell to report when a gather is not known.
+--   last    = { other = { spell = n, spellName = s, target = s, at = n },
+--               error = { message = s, name = s, lines = { s, ... }, at = n } }
+--             other: the last other cast at a target, the spell to report when a gather is not
+--             known. error: the last red message of the game with a thing under the pointer,
+--             to report when a node that needs more skill is not stored as seen.
 
 local DATA_VERSION = 2
 
@@ -67,6 +73,7 @@ ns.OPTION_DEFAULTS = {
   alertYards = 60, -- near is within this many yards
   dimMinutes = 5, -- a pin is dim for this long after its gather; 0: never
   skillColours = true, -- a dot on the pin in the colour of the difficulty for your skill
+  route = false, -- a line through the nodes of the zone on the world map
 }
 ns.OPTION_LIMITS = {
   minSkill = { 0, 300 },

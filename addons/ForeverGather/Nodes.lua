@@ -24,8 +24,10 @@ local SPELL_NAMES = { ["Herb Gathering"] = "herb", ["Mining"] = "ore", ["Fishing
 -- The first rank of each: its name in the language of the client is a name of the kind too.
 local NAMED_BY = { [2366] = "herb", [2575] = "ore", [7620] = "fish", [3365] = "treasure" }
 
--- Two nodes of the same name nearer than this (a part of the map) are one node. Fish are caught
--- anywhere along a shore, so their places merge over a wider span.
+-- Two nodes of the same name nearer than this many yards are one node. Fish are caught anywhere
+-- along a shore, so their places merge over a wider span. Where the game gives no yards for a
+-- map, SAME is the distance as a part of the map.
+local SAME_YARDS = { herb = 15, ore = 15, treasure = 15, quest = 15, fish = 45 }
 local SAME = { herb = 0.004, ore = 0.004, treasure = 0.004, quest = 0.004, fish = 0.012 }
 ns.SAME = SAME
 -- The loot of a fishing cast shows when the fish bites: up to this long after the cast.
@@ -96,8 +98,9 @@ function ns.Record(kind, name, mapID, x, y)
   local nodes = ForeverGatherDB.nodes
   nodes[mapID] = nodes[mapID] or {}
   local list = nodes[mapID]
-  local found = ns.FindNode(list, kind, name, x, y)
+  local found = ns.FindNode(list, kind, name, x, y, mapID)
   if found then
+    found.seen, found.imported = nil, nil
     -- The place moves toward the average of the gathers there. The first gather of an imported
     -- node puts it where the player stands.
     local count = found.count + 1
@@ -124,15 +127,128 @@ function ns.Record(kind, name, mapID, x, y)
   return found, mapID
 end
 
--- The node of a list with this kind and name at this place, or nil.
-function ns.FindNode(list, kind, name, x, y)
-  local same = SAME[kind]
+-- How near two nodes of a kind are one node, as parts of the width and the height of the map.
+function ns.SameReach(kind, mapID)
+  local width, height
+  if mapID then
+    width, height = ns.MapYards(mapID)
+  end
+  if width then
+    return SAME_YARDS[kind] / width, SAME_YARDS[kind] / height
+  end
+  return SAME[kind], SAME[kind]
+end
+
+-- The node of a list with this kind and name at this place, or nil. except is a node to pass over.
+function ns.FindNode(list, kind, name, x, y, mapID, except)
+  local sameX, sameY = ns.SameReach(kind, mapID)
   for _, node in ipairs(list) do
-    if node.kind == kind and node.name == name and math.abs(node.x - x) < same and math.abs(node.y - y) < same then
+    if node ~= except and node.kind == kind and node.name == name and math.abs(node.x - x) < sameX and math.abs(node.y - y) < sameY then
       return node
     end
   end
   return nil
+end
+
+-- Merges the nodes of the same kind and name that are one node by the rule above (nodes of an
+-- earlier version, which merged over a shorter distance, and imports). Returns how many went.
+function ns.CleanNodes()
+  local merged = 0
+  for mapID, list in pairs(ForeverGatherDB.nodes) do
+    local index = 1
+    while index <= #list do
+      local node = list[index]
+      local into = ns.FindNode(list, node.kind, node.name, node.x, node.y, mapID, node)
+      if into then
+        -- The place is the average by the gathers; a node without a gather counts as one.
+        local a, b = math.max(into.count, 1), math.max(node.count, 1)
+        into.x = (into.x * a + node.x * b) / (a + b)
+        into.y = (into.y * a + node.y * b) / (a + b)
+        into.count = into.count + node.count
+        if node.first and (not into.first or node.first < into.first) then
+          into.first = node.first
+        end
+        if node.last and (not into.last or node.last > into.last) then
+          into.last = node.last
+        end
+        for item, count in pairs(type(node.loot) == "table" and node.loot or {}) do
+          into.loot = into.loot or {}
+          into.loot[item] = (into.loot[item] or 0) + count
+        end
+        if node.looted then
+          into.looted = (into.looted or 0) + node.looted
+        end
+        if into.count > 0 then
+          into.seen, into.imported = nil, nil
+        end
+        table.remove(list, index)
+        merged = merged + 1
+      else
+        index = index + 1
+      end
+    end
+  end
+  if merged > 0 then
+    ns.Changed()
+  end
+  return merged
+end
+
+-- A node that the player could not gather: the game asked for more skill. It is stored as seen,
+-- with no gather, at the player's place. Returns the node, or nil and the reason.
+function ns.RecordSeen(kind, name, needs)
+  local mapID, x, y = ns.PlayerPosition()
+  if not mapID then
+    return nil, x
+  end
+  local nodes = ForeverGatherDB.nodes
+  nodes[mapID] = nodes[mapID] or {}
+  local list = nodes[mapID]
+  local entry = ForeverGatherDB.names[name]
+  if type(entry) ~= "table" then
+    entry = { kind = kind }
+    ForeverGatherDB.names[name] = entry
+  end
+  if needs then
+    entry.needs = needs
+  end
+  local found = ns.FindNode(list, kind, name, x, y, mapID)
+  if not found then
+    found = { kind = kind, name = name, x = x, y = y, count = 0, seen = true, last = time() }
+    list[#list + 1] = found
+  end
+  ns.Changed()
+  return found, mapID
+end
+
+-- The kind of the thing under the pointer and its name, from the tooltip of the game: a line of
+-- the tooltip names the skill ("Herbalism", "Mining"). Also the lines, for a report. Nil with
+-- nothing under the pointer.
+function ns.ThingUnderPointer()
+  local data = C_TooltipInfo.GetWorldCursor()
+  local lines = type(data) == "table" and data.lines
+  if type(lines) ~= "table" then
+    return nil
+  end
+  local texts = {}
+  for _, line in ipairs(lines) do
+    local text = type(line) == "table" and line.leftText
+    if ns.PlainString(text) then
+      texts[#texts + 1] = text
+    end
+  end
+  if #texts == 0 then
+    return nil
+  end
+  local kind
+  for index = 2, #texts do
+    for _, candidate in ipairs(ns.KINDS) do
+      if candidate.skill and texts[index]:find(candidate.skill, 1, true) then
+        kind = candidate.key
+      end
+    end
+  end
+  return kind, texts[1], texts
 end
 
 -- The gathers since the first one after login: { start = GetTime(), total = n, kinds = { [kind] = n },
@@ -197,10 +313,17 @@ function ns.LootOf(node)
   return out
 end
 
+-- The skill that the game asked for at a node of this name, or nil.
+function ns.NeededSkill(name)
+  local entry = ForeverGatherDB and ForeverGatherDB.names[name]
+  return entry and entry.needs
+end
+
 -- How hard a node is for the player's skill: a word and a colour, or nil where it is not known.
--- The skill that the node was first gathered at stands for the skill that it needs.
+-- Where the game never said what the node needs, the skill that it was first gathered at
+-- stands for it.
 function ns.Difficulty(node)
-  local learned = ns.LearnedSkill(node.name)
+  local learned = ns.NeededSkill(node.name) or ns.LearnedSkill(node.name)
   local rank = ns.SkillRank(ns.KIND[node.kind].skill)
   if not learned or not rank then
     return nil
@@ -374,7 +497,7 @@ local function note(spellID, target, kind, result)
   if not history then
     return
   end
-  history[#history + 1] = { spell = spellID, spellName = spellName(spellID), target = target, kind = kind, result = result, at = time() }
+  history[#history + 1] = { spell = spellID, spellName = spellID and spellName(spellID) or nil, target = target, kind = kind, result = result, at = time() }
   while #history > HISTORY do
     table.remove(history, 1)
   end
@@ -509,6 +632,24 @@ local handlers = {
   end,
   LOOT_READY = lootShows,
   LOOT_OPENED = lootShows,
+  -- A red message of the game. With an herb or a vein under the pointer and the name of its
+  -- skill in the message ("Requires Herbalism 150"), the player could not gather it.
+  UI_ERROR_MESSAGE = function(_, message)
+    if not ns.PlainString(message) or not ForeverGatherDB then
+      return
+    end
+    local kind, name, lines = ns.ThingUnderPointer()
+    if not name then
+      return
+    end
+    ForeverGatherDB.last.error = { message = message, name = name, lines = lines, at = time() }
+    if not kind or not message:find(ns.KIND[kind].skill, 1, true) then
+      return
+    end
+    local needs = tonumber(message:match("%d+"))
+    local node, mapID = ns.RecordSeen(kind, name, needs)
+    note(nil, name, kind, node and string.format("seen, not gathered (%s): stored on map %d", message, mapID) or ("not stored as seen: " .. mapID))
+  end,
 }
 handlers.UNIT_SPELLCAST_INTERRUPTED = handlers.UNIT_SPELLCAST_FAILED
 

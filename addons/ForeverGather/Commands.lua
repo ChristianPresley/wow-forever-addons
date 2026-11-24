@@ -18,6 +18,9 @@ end
 
 -- "Herb Gathering (spell 2366) at Peacebloom"
 function ns.CastText(cast)
+  if not cast.spell then
+    return cast.target or "a thing without a name" -- a node that was seen: no cast
+  end
   local text = string.format("%s (spell %s)", cast.spellName or "a spell without a name", tostring(cast.spell))
   if cast.target then
     text = text .. " at " .. cast.target
@@ -117,6 +120,11 @@ local function status()
   if other then
     ns.Print(string.format("Last other cast at a target: %s%s. If this was a gather, report this line.", ns.CastText(other), ago(other.at)))
   end
+  local problem = ForeverGatherDB.last.error
+  if problem then
+    ns.Print(string.format("Last red message with a thing under the pointer%s: \"%s\" at %s (%s). If this was a node that needs more skill and it is not stored, report this line.",
+      ago(problem.at), problem.message, problem.name, table.concat(problem.lines, " / ")))
+  end
 end
 
 local function help()
@@ -126,6 +134,8 @@ local function help()
   ns.Print("/fgather session - the gathers of this session; /fgather session reset starts again")
   ns.Print("/fgather export | import - the nodes as text, for another player")
   ns.Print("/fgather alert - say when a learned node comes near, or not")
+  ns.Print("/fgather route - a line through the nodes of the zone on the world map, or not")
+  ns.Print("/fgather clean - merge the nodes that are one node")
   ns.Print("/fgather herb | ore | fish | treasure | quest - show or hide a kind")
   ns.Print("/fgather map | minimap - show or hide the pins there")
   ns.Print("/fgather trivial - hide nodes that give no more skill")
@@ -136,7 +146,7 @@ local function help()
   ns.Print("/fgather forget here - forget the node nearest to you")
 end
 
-local TOGGLES = { map = "worldMap", minimap = "minimap", trivial = "hideTrivial", alert = "alert" }
+local TOGGLES = { map = "worldMap", minimap = "minimap", trivial = "hideTrivial", alert = "alert", route = "route" }
 
 SLASH_FOREVERGATHER1 = "/fgather"
 SlashCmdList.FOREVERGATHER = function(text)
@@ -147,6 +157,15 @@ SlashCmdList.FOREVERGATHER = function(text)
     local key = TOGGLES[command] or command
     ns.SetOption(key, not ns.GetOption(key))
     ns.Print(string.format("%s: %s", command, onOff(ns.GetOption(key))))
+    if key == "route" and ns.GetOption("route") then
+      local mapID = ns.PlayerPosition()
+      local route, yards = ns.Route(mapID)
+      if #route > 1 then
+        ns.Print(string.format("The route of this zone: %d nodes, %d yards around.", #route, math.floor(yards + 0.5)))
+      else
+        ns.Print("This zone has no two nodes for a route yet.")
+      end
+    end
   elseif command == "skill" or command == "size" then
     local key = command == "skill" and "minSkill" or "size"
     if not tonumber(rest) then
@@ -168,6 +187,8 @@ SlashCmdList.FOREVERGATHER = function(text)
     else
       sessionReport()
     end
+  elseif command == "clean" then
+    ns.Print(string.format("%d |4node:nodes; merged into another.", ns.CleanNodes()))
   elseif command == "export" then
     ns.ShowExport()
   elseif command == "import" then

@@ -14,7 +14,10 @@ local TOOLTIP_LOOT = 3 -- the items of a node that its tooltip names
 local function fillTooltip(tooltip, node, withMenu)
   tooltip:AddLine(node.name)
   tooltip:AddLine(ns.KIND[node.kind].name, 0.8, 0.8, 0.8)
-  if node.count == 0 then
+  if node.count == 0 and node.seen then
+    local needs = ns.NeededSkill(node.name)
+    tooltip:AddLine(needs and string.format("Seen, not gathered: needs %s %d", ns.KIND[node.kind].skill, needs) or "Seen, not gathered: needs more skill", 1, 1, 1)
+  elseif node.count == 0 then
     tooltip:AddLine("From an import, not gathered yet", 1, 1, 1)
   else
     tooltip:AddLine(string.format("Gathered %d |4time:times;", node.count), 1, 1, 1)
@@ -160,6 +163,7 @@ end
 
 local function draw()
   release()
+  ns.HideRoute()
   shownMap = WorldMapFrame:GetMapID()
   if not layer or not ns.GetOption("worldMap") or not ns.Usable(shownMap) then
     return
@@ -176,6 +180,7 @@ local function draw()
     scale = 1
   end
   local size = (ns.GetOption("size") + 2) / scale
+  ns.DrawRoute(layer, shownMap, width, height, scale)
   for _, node in ipairs(ns.VisibleNodes(shownMap)) do
     local pin = table.remove(pool) or ns.NewPin(layer)
     ns.SetPinNode(pin, node, size, shownMap)

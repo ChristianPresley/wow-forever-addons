@@ -349,6 +349,100 @@ ForeverGatherDB.nodes[52] = nil
 ForeverGatherDB.names["Briarthorn"] = nil
 ns.Changed()
 
+-- Two nodes of one name are one node within 15 yards (fish: 45), in every zone. The map of
+-- the stand-in is 1000 yards wide.
+local reachX, reachY = ns.SameReach("herb", 37)
+expect(math.abs(reachX - 0.015) < 1e-9 and math.abs(reachY - 0.015) < 1e-9 and math.abs(ns.SameReach("fish", 37) - 0.045) < 1e-9, "15 yards are 0.015 of the map, 45 yards 0.045")
+local here = ForeverGatherDB.nodes[37]
+local royalA = { kind = "herb", name = "Mageroyal", x = 0.2, y = 0.2, count = 2, first = 100, last = 200, loot = { Mageroyal = 2 }, looted = 2 }
+local royalB = { kind = "herb", name = "Mageroyal", x = 0.21, y = 0.2, count = 1, first = 50, last = 300, loot = { Mageroyal = 1, Swiftthistle = 1 }, looted = 1 }
+local royalC = { kind = "herb", name = "Mageroyal", x = 0.3, y = 0.2, count = 1 }
+local royalD = { kind = "ore", name = "Mageroyal", x = 0.2, y = 0.2, count = 1 }
+table.insert(here, royalA)
+table.insert(here, royalB)
+table.insert(here, royalC)
+table.insert(here, royalD)
+local beforeClean = ns.CountNodes()
+expect(ns.FindNode(here, "herb", "Mageroyal", 0.205, 0.2, 37, royalA) == royalB, "the node 5 yards away is the same node; the node to pass over is passed over")
+expect(ns.CleanNodes() == 1 and ns.CountNodes() == beforeClean - 1, "the two herbs 10 yards apart become one; the one 90 yards away and the ore stay")
+local kept = ns.FindNode(here, "herb", "Mageroyal", 0.2, 0.2, 37)
+expect(kept and kept.count == 3 and math.abs(kept.x - (0.2 * 2 + 0.21) / 3) < 1e-9, "the merged node has the gathers of both, at the average place by gathers")
+expect(kept and kept.first == 50 and kept.last == 300 and kept.loot.Mageroyal == 3 and kept.loot.Swiftthistle == 1 and kept.looted == 3, "the merged node has the first and the last time and the loot of both")
+T.slash("/fgather", "clean")
+expect(T.printed("0 |4node:nodes; merged") and ns.CountNodes() == beforeClean - 1, "/fgather clean merges nothing more")
+for index = #here, 1, -1 do
+  if here[index].name == "Mageroyal" then
+    table.remove(here, index)
+  end
+end
+ns.Changed()
+
+-- A node that needs more skill: the game says so in red, and the thing under the pointer has
+-- the name. It is stored as seen, with no gather.
+local worldCursor = C_TooltipInfo.GetWorldCursor
+local underPointer = { lines = { { leftText = "Mageroyal" }, { leftText = "Requires Herbalism" } } }
+C_TooltipInfo.GetWorldCursor = function() return underPointer end
+local beforeSeen = ns.CountNodes()
+T.fire("UI_ERROR_MESSAGE", 50, "Out of range.")
+expect(ns.CountNodes() == beforeSeen and ForeverGatherDB.last.error.message == "Out of range." and ForeverGatherDB.last.error.name == "Mageroyal", "another red message stores no node, and is kept for a report")
+T.fire("UI_ERROR_MESSAGE", 50, "Requires Herbalism 150")
+local seen = ns.FindNode(here, "herb", "Mageroyal", 0.42, 0.65, 37)
+expect(ns.CountNodes() == beforeSeen + 1 and seen and seen.count == 0 and seen.seen == true, "the herb that needs more skill is stored as seen, at the player")
+expect(ns.NeededSkill("Mageroyal") == 150 and last().result:find("seen, not gathered"), "the skill that the game asked for is kept, and the history has the node")
+T.fire("UI_ERROR_MESSAGE", 50, "Requires Herbalism 150")
+expect(ns.CountNodes() == beforeSeen + 1, "the same node is not stored twice")
+ns.SkillRank = function() return 100 end
+expect(ns.Difficulty(seen) == "needs more skill", "at skill 100 the node that needs 150 needs more skill")
+ns.SkillRank = function() return 160 end
+expect(ns.Difficulty(seen) == "orange", "at skill 160 the node that needs 150 is orange")
+ns.SkillRank = skillRank
+underPointer = { lines = { { leftText = "Kobold Vermin" }, { leftText = "Level 2 Humanoid" } } }
+T.fire("UI_ERROR_MESSAGE", 50, "Requires Herbalism 150")
+expect(ns.CountNodes() == beforeSeen + 1, "a thing whose tooltip names no skill is no node")
+underPointer = {}
+T.fire("UI_ERROR_MESSAGE", 50, "Requires Mining 75")
+expect(ForeverGatherDB.last.error.name == "Kobold Vermin", "with nothing under the pointer a red message is not kept")
+C_TooltipInfo.GetWorldCursor = worldCursor
+T.slash("/fgather", "status")
+expect(T.printed("Last red message with a thing under the pointer.*Requires Herbalism 150.*Kobold Vermin"), "/fgather status has the last red message")
+-- The first gather of a seen node makes it a gathered node.
+T.fire("UNIT_SPELLCAST_SENT", "player", "Mageroyal", "Cast-60", 2366)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-60", 2366)
+expect(ns.CountNodes() == beforeSeen + 1 and seen.count == 1 and seen.seen == nil, "a gather of the seen node counts on it, and it is no longer only seen")
+expect(ns.ForgetNode(37, seen), "the herb is forgotten again for the counts below")
+ForeverGatherDB.names["Mageroyal"] = nil
+
+-- The route of a zone: each node once, in a short order. Four corners of a square of 800 yards.
+ForeverGatherDB.nodes[52] = {
+  { kind = "herb", name = "Briarthorn", x = 0.1, y = 0.1, count = 1 },
+  { kind = "herb", name = "Briarthorn", x = 0.9, y = 0.9, count = 1 },
+  { kind = "herb", name = "Briarthorn", x = 0.9, y = 0.1, count = 1 },
+  { kind = "herb", name = "Briarthorn", x = 0.1, y = 0.9, count = 1 },
+}
+ns.Changed()
+local route, routeYards = ns.Route(52)
+expect(#route == 4 and math.abs(routeYards - 3200) < 1e-6, "the route around the four corners is 3200 yards, got " .. routeYards)
+-- Twelve nodes in two rows, given in a mixed order: the shortest way round is 1200 yards.
+ForeverGatherDB.nodes[52] = {}
+for _, index in ipairs({ 3, 9, 0, 6, 11, 2, 8, 5, 1, 10, 4, 7 }) do
+  table.insert(ForeverGatherDB.nodes[52], { kind = "ore", name = "Tin Vein", x = 0.1 + (index % 6) * 0.1, y = index < 6 and 0.4 or 0.5, count = 1 })
+end
+ns.Changed()
+route, routeYards = ns.Route(52)
+local onRoute, different = {}, 0
+for _, node in ipairs(route) do
+  if not onRoute[node] then
+    onRoute[node] = true
+    different = different + 1
+  end
+end
+expect(#route == 12 and different == 12, "the route has each of the twelve nodes once")
+expect(math.abs(routeYards - 1200) < 1e-6, "the route round the two rows is 1200 yards, got " .. routeYards)
+expect(#ns.Route(nil) == 0 and select(2, ns.Route(1)) == 0, "no map and a map without nodes have no route")
+ForeverGatherDB.nodes[52] = nil
+ForeverGatherDB.names["Briarthorn"] = nil
+ns.Changed()
+
 -- Filters by kind.
 ns.SetOption("herb", false)
 expect(#ns.VisibleNodes(37) == 3, "hidden herbs do not show")
@@ -375,6 +469,20 @@ ns.SetOption("worldMap", false)
 ns.RefreshWorldPins()
 expect(ns.WorldPinCount() == 0, "with the world map off it has no pins")
 ns.SetOption("worldMap", true)
+-- The line of the route on the world map: a leg from each node to the next, and back to the first.
+ns.RefreshWorldPins()
+expect(ns.RouteLineCount() == 0, "with the route off the map has no line")
+T.slash("/fgather", "route")
+ns.RefreshWorldPins()
+expect(ns.GetOption("route") == true and ns.RouteLineCount() == 4, "/fgather route draws a line with four legs through the four nodes, got " .. ns.RouteLineCount())
+expect(T.printed("The route of this zone: 4 nodes"), "/fgather route says the route of the zone")
+ns.SetOption("herb", false)
+ns.RefreshWorldPins()
+expect(ns.RouteLineCount() == 3, "the route goes through the nodes that show only, got " .. ns.RouteLineCount())
+ns.SetOption("herb", true)
+T.slash("/fgather", "route")
+ns.RefreshWorldPins()
+expect(ns.GetOption("route") == false and ns.RouteLineCount() == 0, "with the route off again the line is gone")
 
 -- The minimap: a node at the player shows at the centre; one far away does not show.
 local node = { kind = "herb", name = "Peacebloom", x = 0.42, y = 0.65, count = 1 }

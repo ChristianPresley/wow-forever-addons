@@ -2,7 +2,7 @@
 ## Title: Forever Gather
 ## Notes: Remembers where you gather herbs, ore, fish, treasure and quest objects, and shows those places on the world map and the minimap.
 ## Author: Christian Presley
-## Version: 0.4.0
+## Version: 0.5.0
 ## Category: Map
 ## SavedVariables: ForeverGatherDB
 ## OptionalDeps: ForeverAtlas
@@ -10,6 +10,7 @@
 
 Core.lua
 Nodes.lua
+Route.lua
 WorldPins.lua
 MinimapPins.lua
 Alert.lua

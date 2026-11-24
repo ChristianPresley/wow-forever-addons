@@ -67,7 +67,7 @@ function ns.ImportNodes(text)
   for _, entry in ipairs(read) do
     nodes[entry.mapID] = nodes[entry.mapID] or {}
     local list = nodes[entry.mapID]
-    if not ns.FindNode(list, entry.kind, entry.name, entry.x, entry.y) then
+    if not ns.FindNode(list, entry.kind, entry.name, entry.x, entry.y, entry.mapID) then
       list[#list + 1] = { kind = entry.kind, name = entry.name, x = entry.x, y = entry.y, count = 0, imported = true }
       if type(ForeverGatherDB.names[entry.name]) ~= "table" then
         ForeverGatherDB.names[entry.name] = { kind = entry.kind }

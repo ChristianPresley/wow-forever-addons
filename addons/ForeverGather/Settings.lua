@@ -101,7 +101,9 @@ local function build()
     return value == 0 and "never" or (value .. " minutes")
   end)
 
-  more:Header("Share")
+  check(more, "route", "Route through the nodes of the zone", "A line on the world map through the nodes that show, in an order that is short to ride.")
+
+  more:Header("Share and clean up")
   more:Info(function()
     return "An export is text to copy. An import adds the nodes that you do not know yet."
   end)
@@ -118,6 +120,13 @@ local function build()
       hint = "Opens a window to paste the text of an export.",
       click = function()
         ns.ShowImport()
+      end,
+    },
+    {
+      label = "Merge duplicates",
+      hint = "Merges the nodes of the same name that are within 15 yards of each other (fish: 45 yards) into one.",
+      click = function()
+        ns.Print(string.format("%d |4node:nodes; merged into another.", ns.CleanNodes()))
       end,
     },
   })
