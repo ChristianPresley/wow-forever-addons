@@ -103,6 +103,7 @@ local function updateButton(button, bag, slot, info)
   callGlobal("SetItemButtonQuality", button, quality, info and info.hyperlink, false, info and info.isBound)
   callGlobal("SetItemButtonCount", button, info and info.stackCount)
   callGlobal("SetItemButtonDesaturated", button, info and info.isLocked)
+  call(button, "UpdateCooldown", texture)
   -- Weapons and armor: the item level, and red when the character's level is too low to use it.
   local level, tooLow
   if info and info.itemID then
