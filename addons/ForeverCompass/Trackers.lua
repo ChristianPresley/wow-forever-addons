@@ -28,6 +28,29 @@ local function isComplete(questID)
   return C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID) and true or false
 end
 
+-- Every objective of the quest is done. The game can leave a quest unflagged as complete after
+-- its last objective, so a quest with all of them done is ready to hand in too.
+local function allObjectivesDone(questID)
+  if not (C_QuestLog and C_QuestLog.GetQuestObjectives) then
+    return false
+  end
+  local ok, list = pcall(C_QuestLog.GetQuestObjectives, questID)
+  if not ok or type(list) ~= "table" or #list == 0 then
+    return false
+  end
+  for _, objective in ipairs(list) do
+    if type(objective) ~= "table" or objective.finished ~= true then
+      return false
+    end
+  end
+  return true
+end
+
+-- Ready to hand in: flagged complete, or every objective done.
+local function readyToTurnIn(questID)
+  return isComplete(questID) or allObjectivesDone(questID)
+end
+
 -- The icons of the game, as the map and the minimap show them.
 local OBJECTIVE = { atlas = "QuestObjective", texture = "Interface\\GossipFrame\\IncompleteQuestIcon" }
 local TURN_IN = { atlas = "QuestTurnin", texture = "Interface\\GossipFrame\\ActiveQuestIcon" }
@@ -48,13 +71,13 @@ local LOOKS = {
 
 -- The look of a quest of the log: ready to turn in, or with something left to do.
 local function questLook(questID)
-  return isComplete(questID) and TURN_IN or OBJECTIVE
+  return readyToTurnIn(questID) and TURN_IN or OBJECTIVE
 end
 
 -- Quests of the log with a point on the map. wantComplete chooses the turn-ins or the objectives.
 local function logQuests(mapID, add, wantComplete)
   for _, quest in ipairs(questsOnMap(mapID)) do
-    if quest.questID and quest.x and quest.y and isComplete(quest.questID) == wantComplete then
+    if quest.questID and quest.x and quest.y and readyToTurnIn(quest.questID) == wantComplete then
       add(quest.x, quest.y, questName(quest.questID), nil, quest.questID)
     end
   end
@@ -112,9 +135,13 @@ local function rares(mapID, add)
       local ok, position = pcall(C_VignetteInfo.GetVignettePosition, guid, mapID)
       if ok and position then
         local x, y = position:GetXY()
-        -- The game names the icon of each one: a skull, a chest, a star.
-        local own = type(info.atlasName) == "string" and info.atlasName ~= "" and { atlas = info.atlasName, texture = RARE.texture } or nil
-        add(x, y, type(info.name) == "string" and info.name ~= "" and info.name or "Rare", nil, nil, own)
+        -- The game can hide the name and the icon of a rare (a secret value): a secret value is
+        -- not compared, so a hidden name is a plain "Rare" and a hidden icon is the skull.
+        local name, atlas = info.name, info.atlasName
+        local hiddenName = (issecretvalue and issecretvalue(name)) or type(name) ~= "string" or name == ""
+        local hiddenAtlas = (issecretvalue and issecretvalue(atlas)) or type(atlas) ~= "string" or atlas == ""
+        local own = not hiddenAtlas and { atlas = atlas, texture = RARE.texture } or nil
+        add(x, y, hiddenName and "Rare" or name, nil, nil, own)
       end
     end
   end

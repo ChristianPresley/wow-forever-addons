@@ -17,6 +17,22 @@ expect(names("questTurnIns") == "A Fishy Peril", "quest turn-ins: the quest that
 expect(names("questGivers") == "Shipment to Stormwind", "quest givers: not the hidden one and not the one on another floor, got " .. names("questGivers"))
 expect(names("trackedQuest") == "Wanted: Hogger", "the tracked quest, got " .. names("trackedQuest"))
 expect(names("rares") == "Gruff Swiftbite, Rare", "rares: a marker without a name is \"Rare\", got " .. names("rares"))
+-- A rare whose name and icon the game hides (a secret value) is "Rare" with the skull, and nothing errors.
+local vignetteInfo = C_VignetteInfo.GetVignetteInfo
+C_VignetteInfo.GetVignetteInfo = function() return { name = H.secret("Hidden"), atlasName = H.secret("VignetteKill"), isDead = false } end
+local hidden = ns.FindTargets("rares")
+C_VignetteInfo.GetVignetteInfo = vignetteInfo
+local allRare = #hidden >= 1
+for _, target in ipairs(hidden) do
+  allRare = allRare and target[4] == "Rare" and target[6] == nil
+end
+expect(allRare and ns.KindByKey.rares.look ~= nil, "a hidden rare is Rare, and has no icon of its own so it takes the skull of its kind, got " .. #hidden .. " targets")
+-- A quest with every objective done, not yet flagged complete, is ready to hand in.
+local objectives = C_QuestLog.GetQuestObjectives
+C_QuestLog.GetQuestObjectives = function(questID) if questID == 176 then return { { finished = true }, { finished = true } } end return objectives(questID) end
+expect(names("questTurnIns") == "A Fishy Peril, Wanted: Hogger" and names("questObjectives") == "", "a quest with every objective done is ready to hand in, got turn-ins " .. names("questTurnIns") .. " and objectives " .. names("questObjectives"))
+C_QuestLog.GetQuestObjectives = objectives
+expect(names("questTurnIns") == "A Fishy Peril" and names("questObjectives") == "Wanted: Hogger", "with an objective left the quest is an objective again")
 expect(names("flight") == "Goldshire", "flight masters: of the player's faction only, got " .. names("flight"))
 expect(names("mapPin") == "Map pin", "the map pin, got " .. names("mapPin"))
 expect(names("party") == "" and names("corpse") == "", "no party member and no corpse when alone and alive")
