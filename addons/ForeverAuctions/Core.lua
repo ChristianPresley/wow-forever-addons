@@ -107,14 +107,56 @@ function ns.OnReady(callback)
   readyCallbacks[#readyCallbacks + 1] = callback
 end
 
-local function realmKey()
+-- The realm of the character. The game sometimes gives an empty name, so the name that the character
+-- had last time is kept in the saved variables (realmOf, by character and faction) and used then.
+-- Without a saved name, the one realm of this faction that the records already have is used, when
+-- there is only one. A realm of the empty name is never made, because it would be a second record.
+local function realmOfRecords(faction)
+  local found
+  for key in pairs(ForeverAuctionsDB.realms) do
+    local name = type(key) == "string" and key:match("^(.+)%-" .. faction .. "$")
+    if name and name ~= "" and name ~= "Unknown" then
+      if found and found ~= name then
+        return nil -- more than one realm of this faction: do not guess
+      end
+      found = name
+    end
+  end
+  return found
+end
+
+function ns.RealmName()
   local faction = UnitFactionGroup("player") or "Neutral"
-  return (GetRealmName() or "Unknown") .. "-" .. faction
+  local character = (UnitName("player") or "?") .. "-" .. faction
+  local realmOf = ForeverAuctionsDB.realmOf
+  if type(realmOf) ~= "table" then
+    realmOf = {}
+    ForeverAuctionsDB.realmOf = realmOf
+  end
+  local name = GetRealmName()
+  if type(name) == "string" and name ~= "" then
+    realmOf[character] = name
+    return name
+  end
+  if type(realmOf[character]) == "string" then
+    return realmOf[character]
+  end
+  name = realmOfRecords(faction) or GetNormalizedRealmName() or ""
+  if name ~= "" then
+    realmOf[character] = name
+    return name
+  end
+  return "Unknown"
+end
+
+-- The key of the current realm and faction in the saved prices: "realm-faction".
+function ns.RealmKey()
+  return ns.RealmName() .. "-" .. (UnitFactionGroup("player") or "Neutral")
 end
 
 -- The data of the current realm and faction: prices and price alerts.
 function ns.Realm()
-  local key = realmKey()
+  local key = ns.RealmKey()
   local realm = ForeverAuctionsDB.realms[key]
   if type(realm) ~= "table" then
     realm = {}

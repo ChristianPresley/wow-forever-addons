@@ -905,7 +905,7 @@ local function createWindow()
 
   local realm = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
   realm:SetPoint("BOTTOMRIGHT", -16, 10)
-  realm:SetText((GetRealmName() or "") .. ", " .. (UnitFactionGroup("player") or "Neutral"))
+  realm:SetText(ns.RealmName() .. ", " .. (UnitFactionGroup("player") or "Neutral"))
 
   local listArea = CreateFrame("Frame", nil, content)
   listArea:SetPoint("TOPLEFT", 12, -LIST_TOP)

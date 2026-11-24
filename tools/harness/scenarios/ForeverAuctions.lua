@@ -294,3 +294,16 @@ T.slash("/fah", "clear")
 expect(ns.Lookup(2589) ~= nil and T.printed("Type /fah clear yes"), "/fah clear alone deletes nothing and says how to delete")
 T.slash("/fah", "clear yes")
 expect(ns.Lookup(2589) == nil and ns.Lookup(769) == nil, "/fah clear yes deletes the stored prices")
+
+-- An empty realm name from the game must find the same record, not make a new one.
+local faction = UnitFactionGroup("player") or "Neutral"
+local realmRecord = ns.Realm()
+expect(ns.RealmName() == "TestRealm" and ns.RealmKey() == "TestRealm-" .. faction, "the realm name comes from the game while the game gives one")
+local realGetRealmName = GetRealmName
+GetRealmName = function() return "" end
+expect(ns.RealmName() == "TestRealm" and ns.Realm() == realmRecord, "with an empty realm name the saved name is used, and the same record is found")
+expect(ForeverAuctionsDB.realms["-" .. faction] == nil, "an empty realm name does not make a record of its own")
+ForeverAuctionsDB.realmOf = nil
+expect(ns.Realm() == realmRecord, "without a saved name, the one realm of this faction in the records is found")
+GetRealmName = realGetRealmName
+expect(ns.Realm() == realmRecord, "the realm of the game is found again when the game gives its name")

@@ -186,7 +186,7 @@ local function open(mode)
     local text, count = ns.ExportPrices()
     frame.TitleText:SetText("Forever Auctions: export prices")
     frame.help:SetText(string.format("%d prices of %s. Copy the text below (Ctrl+C) and import it with /fah import on another character.",
-      count, (GetRealmName() or "this realm") .. ", " .. (UnitFactionGroup("player") or "Neutral")))
+      count, ns.RealmName() .. ", " .. (UnitFactionGroup("player") or "Neutral")))
     frame.box:SetText(text)
     frame.action:SetText("Select all")
   end
