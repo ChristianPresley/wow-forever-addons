@@ -2,7 +2,7 @@
 ## Title: Forever Bags
 ## Notes: One bag window with search and categories, the bags and banks of all your characters in one list, and item counts in tooltips.
 ## Author: Christian Presley
-## Version: 0.1.9
+## Version: 0.1.10
 ## Category: Bags & Inventory
 ## SavedVariables: ForeverBagsDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons

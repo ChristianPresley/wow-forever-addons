@@ -29,20 +29,6 @@ local function changed()
   end
 end
 
--- The realm as the game names it, the text of the keys. The game gives an empty text now and then
--- (on some servers, for GetRealmName), so the normalized name is the second choice. nil if both are empty.
-function ns.RealmName()
-  local realm = GetRealmName and GetRealmName()
-  if type(realm) == "string" and realm ~= "" then
-    return realm
-  end
-  realm = GetNormalizedRealmName and GetNormalizedRealmName()
-  if type(realm) == "string" and realm ~= "" then
-    return realm
-  end
-  return nil
-end
-
 -- The realm that a stored record of this name has, for a time when the game gives none.
 local function knownRealm(name)
   if not ForeverBagsDB or type(ForeverBagsDB.characters) ~= "table" then
@@ -56,9 +42,44 @@ local function knownRealm(name)
   return nil
 end
 
+-- The one realm that the stored records have, or nil when there are none or more than one. A
+-- guess between two realms would make a second key, so nothing is guessed.
+function ns.SingleStoredRealm()
+  local found
+  for _, record in pairs(ForeverBagsDB and ForeverBagsDB.characters or {}) do
+    local realm = type(record) == "table" and record.realm
+    if type(realm) == "string" and realm ~= "" and realm ~= "?" then
+      if found and found ~= realm then
+        return nil
+      end
+      found = realm
+    end
+  end
+  return found
+end
+
+-- The realm of this character, in the order of ForeverAuctions: the game's name when it has one;
+-- the realm stored for this character; the one realm of the stored records; the normalized name
+-- last. nil if none of them has a text. The normalized name has no spaces, so it is never first:
+-- it would make a second key.
+function ns.RealmName()
+  local realm = GetRealmName and GetRealmName()
+  if type(realm) == "string" and realm ~= "" then
+    return realm
+  end
+  realm = knownRealm(UnitName("player") or "?") or ns.SingleStoredRealm()
+  if realm then
+    return realm
+  end
+  realm = GetNormalizedRealmName and GetNormalizedRealmName()
+  if type(realm) == "string" and realm ~= "" then
+    return realm
+  end
+  return nil
+end
+
 function ns.CharacterKey()
-  local name = UnitName("player") or "?"
-  return name .. "-" .. (ns.RealmName() or knownRealm(name) or "?")
+  return (UnitName("player") or "?") .. "-" .. (ns.RealmName() or "?")
 end
 
 -- The record of this character. Made at the first call.
@@ -71,7 +92,7 @@ function ns.Me()
     characters[key] = me
   end
   me.name = UnitName("player") or "?"
-  me.realm = ns.RealmName() or knownRealm(me.name) or "?"
+  me.realm = ns.RealmName() or "?"
   me.class = select(2, UnitClass("player"))
   me.level = UnitLevel("player")
   for _, part in ipairs({ "bags", "bank", "equipped" }) do

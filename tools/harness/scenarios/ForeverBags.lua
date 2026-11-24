@@ -223,7 +223,12 @@ expect(ns.MigrateOwnRecord() == false, "a second migration has nothing to move")
 T.world.realmEmpty = true
 T.fire("BAG_UPDATE_DELAYED")
 T.advance(1)
-expect(ns.RealmName() == nil and ns.CharacterKey() == "Tester-TestRealm", "with an empty realm the key is the one with the realm, got " .. ns.CharacterKey())
+expect(ns.RealmName() == "TestRealm" and ns.CharacterKey() == "Tester-TestRealm", "with an empty realm the realm stored for this character is used, got " .. ns.CharacterKey())
+-- The single realm of the stored records: nothing is guessed between two realms.
+expect(ns.SingleStoredRealm() == "TestRealm", "the stored records have one realm, got " .. tostring(ns.SingleStoredRealm()))
+ForeverBagsDB.characters["Other-OtherRealm"] = { name = "Other", realm = "OtherRealm", money = 0, bags = {}, bank = {}, equipped = {} }
+expect(ns.SingleStoredRealm() == nil, "two realms among the stored records: no single realm is taken")
+ForeverBagsDB.characters["Other-OtherRealm"] = nil
 expect(ForeverBagsDB.characters["Tester-"] == nil and ns.Me() == ForeverBagsDB.characters["Tester-TestRealm"], "no record is made under the empty realm, and the record is the same")
 T.world.realmEmpty = nil
 T.fire("BAG_UPDATE_DELAYED")
