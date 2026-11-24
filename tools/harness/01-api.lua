@@ -1228,9 +1228,30 @@ function mapvalues(fn, ...)
   end
   return unpack(out, 1, n)
 end
--- The error handler of the game shows the error. The driver sets H.onError to record it.
+-- The text of the call stack, as the game's debugstack gives it (Blizzard_ScriptErrors.lua calls it):
+-- the file of each addon line is "Interface/AddOns/<addon>/<file>.lua:<line>". The levels of the
+-- stack are those of debug.traceback; `top` and `bottom` are not modelled.
+-- The lines of the harness (its scenarios and driver) are not in the game: they are left out, so
+-- that a stack shows the addons and the game's code only, as in the game.
+H.setGlobal("debugstack", function(start)
+  local text = H.debug.traceback("", (start or 1) + 1)
+  local kept = {}
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    local file = line:match("^%s*(%S+%.lua):%d+")
+    if not (file and file:sub(1, 8) == "harness/") then
+      kept[#kept + 1] = (line:gsub("^(%s*)(%S+%.lua):", "%1Interface/AddOns/%2:"))
+    end
+  end
+  return table.concat(kept, "\n")
+end, "Blizzard_ScriptErrors/Blizzard_ScriptErrors.lua")
+
+-- The error handler of the game shows the error in ScriptErrorsFrame first (HandleLuaError in
+-- Blizzard_ScriptErrors.lua calls DisplayMessageInternal with the stack), then the driver records it.
 function geterrorhandler()
   return function(err)
+    if ScriptErrorsFrame then
+      pcall(ScriptErrorsFrame.DisplayMessageInternal, ScriptErrorsFrame, err, 0, debugstack(2), "<none>")
+    end
     if H.onError then
       H.onError("error handler", err)
     end

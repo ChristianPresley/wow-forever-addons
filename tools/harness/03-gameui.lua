@@ -160,6 +160,33 @@ QuestObjectiveTracker.lineSpacing = 4
 H.trackerBlocks = {} -- [quest ID] = the block; made once and used again, as the game does
 H.trackerLayouts = 0
 
+-- The frame of the Lua errors (Blizzard_ScriptErrorsFrame.xml: <Frame name="ScriptErrorsFrame"
+-- mixin="ScriptErrorsFrameMixin">). Hidden at login, as in the game. Its errorData is the list of
+-- the errors of the session; an addon reads it once and hooks DisplayMessageInternal with
+-- hooksecurefunc, which is the way the game allows (AddLuaErrorHandler asserts issecure()).
+ScriptErrorsFrame = CreateFrame("Frame", "ScriptErrorsFrame", UIParent)
+ScriptErrorsFrame:Hide()
+ScriptErrorsFrame.errorData = {}
+H.scriptErrorIndex = {} -- [message and stack] = the index of its entry in errorData
+-- ScriptErrorsFrameMixin:DisplayMessageInternal (Blizzard_ScriptErrorsFrame.lua): a message that was
+-- seen before with the same stack raises the count of its entry; a new one is appended with its
+-- time. The game escapes the texts (C_StringUtil.EscapeDecimalNonPrintables in PackageAndAddError);
+-- the stand-in keeps them as they are.
+function ScriptErrorsFrame:DisplayMessageInternal(message, messageType, stack, locals)
+  stack = stack or ""
+  locals = locals or "<none>"
+  local key = tostring(message) .. "\n" .. stack
+  local index = H.scriptErrorIndex[key]
+  if index then
+    self.errorData[index].count = self.errorData[index].count + 1
+  else
+    self.errorData[#self.errorData + 1] = {
+      count = 1, message = message, messageType = messageType, time = date(), stack = stack, locals = locals,
+    }
+    H.scriptErrorIndex[key] = #self.errorData
+  end
+end
+
 -- The auction house (Blizzard_AuctionHouseUI). The game loads it when the auction house opens:
 -- until the driver calls H.openAuctionHouse, AuctionHouseFrame is nil, as at login in the game.
 H.auctionSearches = {}
