@@ -53,7 +53,7 @@ local bags = lastError()
 expect(#db.errors == 1 and bags.kind == "error" and bags.message == BAGS and bags.stack == BAGS_STACK and bags.locals == "slot = nil", "a Lua error is stored with its message, stack and locals")
 expect(bags.addon == "ForeverBags" and bags.forever == "ForeverBags" and bags.ours == true, "the path says that it is an error of Forever Bags")
 expect(bags.count == 1 and bags.first.session == 1 and bags.first.zone == "Elwynn Forest" and bags.first.map == 37 and bags.first.fight == false, "the error has the session, the place and the fight")
-expect(bags.versions.ForeverBags == "0.3.1" and bags.versions.ForeverGear == "0.2.0", "the error has the versions of the Forever addons")
+expect(bags.version == "0.3.1" and bags.versions == nil, "the error has the version of its Forever addon, not the whole list")
 expect(T.printed("error in ForeverBags: Interface/AddOns/ForeverBags/Core.lua:12"), "a new error is said in the chat")
 expect(lastEvent().kind == "error" and lastEvent().addon == "ForeverBags" and lastEvent().text:find("^#1 "), "a new error is an event of the ring")
 local eventsBefore = #db.events
@@ -101,18 +101,75 @@ T.fire("LUA_WARNING", "Deprecated function called")
 expect(lastError().kind == "warning", "another warning is a warning")
 
 -- A fight and a new zone are events, and the next error has them.
+local before = #db.events
 T.fire("PLAYER_REGEN_DISABLED")
-expect(lastEvent().kind == "fight" and lastEvent().text == "start", "the start of a fight is an event")
+expect(#db.events == before, "the start of a fight is not a line of the ring")
 raise("Interface/AddOns/ForeverMeter/Core.lua:77: in the fight", "")
-expect(lastError().first.fight == true, "an error in a fight says so")
+expect(lastError().first.fight == true and lastEvent().fight == true, "an error in a fight says so")
 T.advance(3)
 T.fire("PLAYER_REGEN_ENABLED")
-expect(lastEvent().kind == "fight" and lastEvent().text == "end after 3 s" and lastEvent().fight == false, "the end of the fight has its length")
+expect(lastEvent().kind == "fight" and lastEvent().text == "lasted 3 s" and lastEvent().seconds == 3 and lastEvent().fight == false, "a fight is one line at its end, with its length")
+-- Fights with nothing between them are one line.
+before = #db.events
+for _ = 1, 3 do
+  T.fire("PLAYER_REGEN_DISABLED")
+  T.advance(5)
+  T.fire("PLAYER_REGEN_ENABLED")
+  T.advance(2)
+end
+expect(#db.events == before and lastEvent().n == 4 and lastEvent().seconds == 18 and lastEvent().text == "4 fights, 18 s in all" and type(lastEvent().till) == "string", "fights in a row are one line: " .. tostring(lastEvent().text))
+ForeverTrace.Log("ForeverMeter", "between two fights")
+T.fire("PLAYER_REGEN_DISABLED")
+T.advance(2)
+T.fire("PLAYER_REGEN_ENABLED")
+expect(#db.events == before + 2 and lastEvent().text == "lasted 2 s" and lastEvent().n == nil, "a fight after another event is a new line")
+
 T.world.zone = "Westfall"
 T.fire("ZONE_CHANGED_NEW_AREA")
-expect(lastEvent().kind == "zone" and lastEvent().text == "Westfall" and lastEvent().map == 52, "a new zone is an event")
+expect(lastEvent().kind == "zone" and lastEvent().text == "Westfall" and lastEvent().map == 52 and lastEvent().from == "Elwynn Forest", "a new zone is an event, with the zone before")
 raise("Interface/AddOns/ForeverMeter/Core.lua:78: in Westfall", "")
 expect(lastError().first.zone == "Westfall" and lastError().first.map == 52, "an error has the zone it happened in")
+-- The same zone again is no new line.
+before = #db.events
+T.fire("ZONE_CHANGED_NEW_AREA")
+expect(#db.events == before, "the event of a new zone without a new zone is no line")
+-- At a border the zone flips: one line for the border, with the crossings.
+T.world.zone = "Duskwood"
+T.fire("ZONE_CHANGED_NEW_AREA")
+before = #db.events
+for _ = 1, 3 do
+  T.advance(2)
+  T.world.zone = "Westfall"
+  T.fire("ZONE_CHANGED_NEW_AREA")
+  T.advance(2)
+  T.world.zone = "Duskwood"
+  T.fire("ZONE_CHANGED_NEW_AREA")
+end
+expect(#db.events == before and lastEvent().text == "Duskwood" and lastEvent().zone == "Duskwood" and lastEvent().from == "Westfall" and lastEvent().n == 7, "flips over one border are one line: " .. tostring(lastEvent().n))
+T.advance(2)
+T.world.zone = "Stranglethorn Vale"
+T.fire("ZONE_CHANGED_NEW_AREA")
+expect(#db.events == before + 1 and lastEvent().from == "Duskwood" and lastEvent().n == nil, "a third zone is a new line")
+T.advance(120)
+T.world.zone = "Duskwood"
+T.fire("ZONE_CHANGED_NEW_AREA")
+expect(#db.events == before + 2 and lastEvent().n == nil, "a way back after a long time is a new line")
+-- The game gives the map of the zone before at the event, and the right one a moment later.
+local realMap = C_Map.GetBestMapForUnit
+C_Map.GetBestMapForUnit = function() return 1414 end
+T.world.zone = "Westfall"
+T.fire("ZONE_CHANGED_NEW_AREA")
+expect(lastEvent().map == 1414, "at the event the line has the map that the game gives")
+C_Map.GetBestMapForUnit = realMap
+T.advance(2)
+expect(lastEvent().text == "Westfall" and lastEvent().map == 52 and ns.where.map == 52, "a moment later the line has the right map")
+-- No map inside an instance: /ftrace status says so.
+C_Map.GetBestMapForUnit = function() return nil end
+T.slash("/ftrace", "status")
+expect(T.printed("here: Westfall, no map ID: the game gives none here"), "/ftrace status says that the game gives no map here")
+C_Map.GetBestMapForUnit = realMap
+T.slash("/ftrace", "status")
+expect(T.printed("here: Westfall, map 52"), "/ftrace status says the zone and the map")
 T.world.zone = nil
 T.fire("PLAYER_ENTERING_WORLD", false, false)
 expect(lastEvent().kind == "world" and lastEvent().text == "Elwynn Forest" and db.sessions[1].how == "login", "a loading screen is an event, and does not change how the session started")
@@ -178,6 +235,10 @@ T.slash("/ftrace", "mark the bag window looks wrong")
 T.advance(1)
 expect(shots == 4 and db.events[#db.events].kind == "mark" and db.events[#db.events].text == "the bag window looks wrong", "/ftrace mark stores the text and takes a screenshot")
 T.fire("SCREENSHOT_SUCCEEDED")
+local mark = db.marks[#db.marks]
+expect(mark.text == "the bag window looks wrong" and mark.zone == "Elwynn Forest" and mark.session == 1 and type(mark.shot) == "string" and mark.shot:find("^%d%d%d%d%d%d_%d%d%d%d%d%d$"), "the marker is in its own list, with the place and the name of its screenshot")
+T.slash("/ftrace", "marks")
+expect(T.printed("Elwynn Forest: the bag window looks wrong %(screenshot %d+_%d+%)"), "/ftrace marks lists the markers")
 T.slash("/ftrace", "screenshots")
 Screenshot = realShot
 
@@ -200,6 +261,32 @@ T.slash("/ftrace", "record")
 expect(ns.GetOption("enabled") == true, "/ftrace record turns it on again")
 expect(ns.SetOption("noSuchOption", 1) == false, "an option that does not exist is refused")
 
+-- /ftrace test raises one error and says if the record caught it. Here the error is handed to
+-- the error window as the game's handler does it.
+local realRaise = ns.RaiseTest
+ns.RaiseTest = function()
+  raise("Interface/AddOns/ForeverTrace/Commands.lua:1: Forever Trace test error: raised on purpose", "[Interface/AddOns/ForeverTrace/Commands.lua]:1: in function 'RaiseTest'")
+end
+T.slash("/ftrace", "status")
+expect(T.printed("the hook is in place, not proved in this session"), "before the test /ftrace status says that nothing is proved")
+T.slash("/ftrace", "test")
+T.advance(2)
+expect(db.sessions[1].test == true and lastError().test == true and lastEvent().kind == "test" and T.printed("the test error was recorded"), "/ftrace test says that the error was recorded")
+T.slash("/ftrace", "status")
+expect(T.printed("Lua errors: seen, proved by /ftrace test"), "after the test /ftrace status says that it is proved")
+-- A client that does not hand the error to the error window.
+ns.RaiseTest = function() end
+T.slash("/ftrace", "test")
+T.advance(2)
+expect(db.sessions[1].test == false and lastEvent().text == "the Lua error was not recorded" and T.printed("the test error was not recorded"), "/ftrace test says so when the error was not recorded")
+ns.RaiseTest = function()
+  raise("Interface/AddOns/ForeverTrace/Commands.lua:1: Forever Trace test error: raised on purpose", "[Interface/AddOns/ForeverTrace/Commands.lua]:1: in function 'RaiseTest'")
+end
+T.slash("/ftrace", "test")
+T.advance(2)
+expect(db.sessions[1].test == true and lastError().count == 2, "the test error again is counted, and proves it again")
+ns.RaiseTest = realRaise
+
 -- The limits: the oldest go.
 ns.SetOption("ring", 50)
 for number = 1, 150 do
@@ -208,6 +295,16 @@ end
 expect(#db.events <= 100 and lastEvent().text == "line 150", "the ring stays near its limit while it fills: " .. #db.events)
 ns.Tidy()
 expect(#db.events == 50 and db.events[1].text == "line 101", "at logout the ring has its last 50 events")
+local inRing = false
+for _, entry in ipairs(db.events) do
+  inRing = inRing or entry.kind == "mark"
+end
+expect(not inRing and #db.marks >= 2 and db.marks[#db.marks].text == "the bag window looks wrong", "the events pushed the markers out of the ring, not out of their list")
+for number = 1, 200 do
+  ns.Mark("marker " .. number)
+end
+ns.Tidy()
+expect(#db.marks == 100 and db.marks[100].text == "marker 200", "the list of markers keeps the last 100")
 ns.SetOption("errors", 20)
 for number = 1, 30 do
   T.advance(1)
@@ -221,7 +318,7 @@ expect(ns.GetOption("ring") == 1000, "the ring stops at 1000 events")
 
 -- Deleting.
 T.slash("/ftrace", "clear")
-expect(#db.errors == 0 and #db.events == 0 and db.session == 1, "/ftrace clear deletes the errors and the events, not the session")
+expect(#db.errors == 0 and #db.events == 0 and #db.marks == 0 and db.session == 1, "/ftrace clear deletes the errors, the events and the markers, not the session")
 raise(BAGS, BAGS_STACK)
 expect(#db.errors == 1 and lastError().count == 1, "after the deletion an old error is new again")
 ns.SetOption("ring", 300)

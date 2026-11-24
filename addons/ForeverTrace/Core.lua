@@ -15,17 +15,25 @@ local ADDON, ns = ...
 --     { id, kind = "error"|"warning"|"taint"|"blocked"|"forbidden"|"reported",
 --       message, stack, locals, addon = the addon of the first file in the message or the stack,
 --       forever = the first Forever addon in them, ours = true if there is one,
---       count, first = stamp, last = stamp, versions, early = true if it happened before this
---       addon loaded, shot = the time in the name of the screenshot }
+--       count, first = stamp, last = stamp, version = the version of `forever` when the error was
+--       seen last (all versions of a session are in sessions), early = true if it happened before
+--       this addon loaded, shot = the time in the name of the screenshot, test = true for the
+--       error of /ftrace test }
 --   events   = the last events, the oldest first:
 --     stamp + { kind = "login"|"reload"|"world"|"zone"|"fight"|"log"|"mark"|"error"|..., addon, text,
 --       n = how many times in a row }
+--     A "zone" line has from = the zone before; n counts the crossings of one border.
+--     A "fight" line is written when the fight ends, with seconds; fights with nothing between
+--     them are one line: n fights, seconds in all, till = the end of the last one.
+--   marks    = the markers of the player, the oldest first: stamp + { text, shot }. They are in
+--     the events too, but here no other event pushes them out.
 --   internal = { count, last }: errors of Forever Trace itself, which it caught
 -- A stamp is { t = time(), at = "2026-11-23 14:02:11", session, map, zone, fight }.
 -- A value that the game hides is stored as the text "secret".
 
 local DATA_VERSION = 1
 local SESSIONS_KEPT = 20
+local MARKS_KEPT = 100
 local SLACK = 50 -- a list is cut when it is this much over its limit, not at each entry
 local MESSAGE_LIMIT, STACK_LIMIT, LOCALS_LIMIT, TEXT_LIMIT = 1000, 4000, 2000, 300
 local RING_AGAIN_SECONDS = 30 -- a repeat of an error is an event again after this long
@@ -193,6 +201,26 @@ function ns.Push(kind, addon, text)
   return entry
 end
 
+function ns.LastEvent()
+  local events = ForeverTraceDB and ForeverTraceDB.events
+  return events and events[#events]
+end
+
+-- A marker of the player: a line of the ring, and an entry of its own list, which is returned.
+function ns.AddMark(text)
+  if not ns.Push("mark", nil, text) then
+    return nil
+  end
+  local marks = ForeverTraceDB.marks
+  local mark = stamp({ text = text })
+  marks[#marks + 1] = mark
+  if #marks > MARKS_KEPT + SLACK then
+    trim(marks, MARKS_KEPT)
+  end
+  ns.Changed()
+  return mark
+end
+
 ---------------------------------------------------------------------------------------------------
 -- Errors: one entry for each different one, with a count
 
@@ -211,14 +239,6 @@ function ns.OwnerOf(message, stack)
   local addon = text:match("AddOns[/\\]([^/\\]+)[/\\]")
   local forever = text:match("AddOns[/\\](Forever[^/\\]*)[/\\]")
   return addon, forever
-end
-
-local function copy(source)
-  local out = {}
-  for key, value in pairs(source) do
-    out[key] = value
-  end
-  return out
 end
 
 -- The entry that was seen last goes when the list is full.
@@ -292,7 +312,7 @@ local function record(db, kind, message, stack, locals, addon, early)
   local now = GetTime()
   local isNew = seenNow[key] == nil
   if isNew then
-    entry.versions = copy(ns.versions)
+    entry.version = entry.forever and ns.versions[entry.forever] or nil
   end
   if isNew or now - seenNow[key] >= RING_AGAIN_SECONDS then
     seenNow[key] = now
@@ -324,7 +344,7 @@ function ns.Clear()
   if not db then
     return
   end
-  db.errors, db.events = {}, {}
+  db.errors, db.events, db.marks = {}, {}, {}
   db.internal = { count = 0 }
   index, seenNow = {}, {}
   busy = false
@@ -381,6 +401,7 @@ local function load()
   db.session = (type(db.session) == "number" and db.session or 0) + 1
   list(db, "sessions")
   list(db, "events")
+  list(db, "marks")
   if type(db.internal) ~= "table" then
     db.internal = { count = 0 }
   end
@@ -390,6 +411,11 @@ local function load()
     if type(entry) == "table" and type(entry.kind) == "string" and type(entry.message) == "string" and type(entry.count) == "number" and type(entry.first) == "table" and type(entry.last) == "table" and type(entry.last.t) == "number" then
       kept[#kept + 1] = entry
       index[keyOf(entry)] = entry
+      -- Version 0.1.0 stored all versions in each error.
+      if type(entry.versions) == "table" then
+        entry.version = entry.version or (entry.forever and entry.versions[entry.forever]) or nil
+        entry.versions = nil
+      end
     end
   end
   db.errors = kept
@@ -402,6 +428,7 @@ function ns.Tidy()
     return
   end
   trim(db.events, db.options.ring)
+  trim(db.marks, MARKS_KEPT)
   trim(db.sessions, SESSIONS_KEPT)
 end
 

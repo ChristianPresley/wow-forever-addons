@@ -13,6 +13,8 @@ local ADDON, ns = ...
 -- Blocked actions and warnings come as events.
 
 local SHOT_DELAY = 0.5 -- the error window of the game is on the screen by then
+local SETTLE_SECONDS = 1 -- after a zone event the game gives the right map by then
+local BORDER_SECONDS = 60 -- a crossing back within this time is the same border
 
 ---------------------------------------------------------------------------------------------------
 -- Screenshots
@@ -177,6 +179,7 @@ local function startSession()
     hook = false,
   }
   db.sessions[#db.sessions + 1] = session
+  ns.session = session
   ns.inFight = InCombatLockdown() and true or false
   ns.ReadPlace()
   session.hook = ns.Attach()
@@ -209,34 +212,91 @@ function handlers.ADDON_LOADED(name)
   end
 end
 
+-- At the event of a new zone the game often still gives the map of the zone before, or of the
+-- continent. A second later it gives the right one: the place is read again, and the line of the
+-- event gets it.
+local function settled(entry)
+  ns.ReadPlace()
+  if entry and entry.zone == ns.where.zone then
+    entry.map = ns.where.map
+  end
+end
+
+local function settle(entry)
+  C_Timer.After(SETTLE_SECONDS, function()
+    ns.Safely(settled, entry)
+  end)
+end
+
 function handlers.PLAYER_ENTERING_WORLD(isLogin, isReload)
   ns.ReadPlace()
   local how = is(isLogin) and "login" or is(isReload) and "reload" or "world"
   if session and not session.how and how ~= "world" then
     session.how = how
   end
-  ns.Push(how, nil, ns.where.zone)
+  settle(ns.Push(how, nil, ns.where.zone))
 end
 
+local zoneLine = nil -- the last "zone" line of the ring
+local zoneTime = nil -- GetTime() of its last change
+
+-- Near a border the zone flips several times a second. One line holds one border: `from` is the
+-- other side, `n` counts the crossings, and the stamp is that of the last one.
 function handlers.ZONE_CHANGED_NEW_AREA()
+  local from = ns.where.zone
   ns.ReadPlace()
-  ns.Push("zone", nil, ns.where.zone)
+  local zone = ns.where.zone
+  local now = GetTime()
+  local line = zoneLine
+  if zone == from then
+    settle(line)
+    return
+  end
+  if line and line == ns.LastEvent() and line.from == zone and now - zoneTime < BORDER_SECONDS then
+    line.from = line.text
+    line.text, line.zone, line.map = zone, zone, ns.where.map
+    line.n = (line.n or 1) + 1
+    line.t, line.at = time(), date("%Y-%m-%d %H:%M:%S")
+  else
+    line = ns.Push("zone", nil, zone)
+    if line then
+      line.from = from
+    end
+  end
+  zoneLine, zoneTime = line, now
+  settle(line)
 end
 
 handlers.ZONE_CHANGED = ns.ReadPlace
 handlers.ZONE_CHANGED_INDOORS = ns.ReadPlace
 
+local fightLine = nil -- the last "fight" line of the ring
+
 function handlers.PLAYER_REGEN_DISABLED()
   ns.inFight = true
   fightStart = GetTime()
-  ns.Push("fight", nil, "start")
 end
 
+-- One line for a fight, at its end: what happened in the fight is above it, with fight = true.
+-- A fight directly after a fight line joins that line, so that an hour of fights does not push
+-- everything else out of the ring.
 function handlers.PLAYER_REGEN_ENABLED()
   ns.inFight = false
   local seconds = fightStart and math.floor(GetTime() - fightStart + 0.5)
   fightStart = nil
-  ns.Push("fight", nil, seconds and ("end after " .. seconds .. " s") or "end")
+  local line = fightLine
+  if seconds and line and line.seconds and line == ns.LastEvent() and ns.GetOption("enabled") then
+    line.n = (line.n or 1) + 1
+    line.seconds = line.seconds + seconds
+    line.text = line.n .. " fights, " .. line.seconds .. " s in all"
+    line.till = date("%Y-%m-%d %H:%M:%S")
+    return
+  end
+  line = ns.Push("fight", nil, seconds and ("lasted " .. seconds .. " s") or "end")
+  if line and seconds and not line.n then
+    line.seconds = seconds
+  end
+  fightLine = line
 end
 
 -- The game refused an action because addon code was in the way. The event comes while the code
@@ -333,9 +393,9 @@ function ns.Mark(text)
   if not text or text == "" then
     text = "marker"
   end
-  local entry = ns.Push("mark", nil, text)
-  if entry and ns.GetOption("screenshots") then
-    shoot(nil, false)
+  local mark = ns.AddMark(text)
+  if mark and ns.GetOption("screenshots") then
+    shoot(mark, false)
   end
-  return entry
+  return mark
 end

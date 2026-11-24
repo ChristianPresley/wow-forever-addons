@@ -40,7 +40,7 @@ local function build()
   page:Header("Recording")
   check("enabled", "Record errors and events", "Lua errors, blocked actions, warnings of the game, and what happened around them. The game writes the record to the disk at /reload and at logout.")
   check("announce", "Say a new error in the chat", "One line for each new error. A repeat of the same error is counted, not said again.")
-  slider("ring", "Events to keep", "Logins, zone changes, fights, markers and what the Forever addons log. The oldest go first.", 50, "events")
+  slider("ring", "Events to keep", "Logins, zone changes, fights and what the Forever addons log. The oldest go first. Your markers are kept apart from them.", 50, "events")
   slider("errors", "Different errors to keep", "A repeat of an error raises its count. When the list is full, the error that was seen longest ago goes.", 10, "errors")
 
   page:Header("Screenshots")
@@ -51,9 +51,10 @@ local function build()
     return (ns.StatusLines()[1]:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
   end)
   page:Info(function()
-    return ns.hooked and "Lua errors are seen through the error window of the game." or "Lua errors are not seen: the error window of the game is not there."
+    return (ns.StatusLines()[2]:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
   end)
   page:Buttons({
+    { label = "Test error", hint = "Raises one harmless Lua error and says if the record caught it. The game may show its error window.", click = ns.Test },
     { label = "Test screenshot", hint = "Takes one screenshot now, to see if the game lets an addon take one.", click = ns.TestShot },
     {
       label = "Drop a marker",
@@ -62,7 +63,7 @@ local function build()
         ns.Mark("marker from the settings page")
       end,
     },
-    { label = "Delete the trace", hint = "Deletes the stored errors and events.", confirm = "Delete all stored errors and events of Forever Trace?", click = ns.Clear },
+    { label = "Delete the trace", hint = "Deletes the stored errors, events and markers.", confirm = "Delete all stored errors, events and markers of Forever Trace?", click = ns.Clear },
   })
   if page:Register() then
     ns.OnChange(function()
