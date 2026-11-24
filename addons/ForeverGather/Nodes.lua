@@ -6,6 +6,11 @@ local _, ns = ...
 -- player: UNIT_SPELLCAST_SENT names the target (the node, "Peacebloom"), and
 -- UNIT_SPELLCAST_SUCCEEDED with the same cast says that it worked. At that moment the player
 -- stands at the node, so the node is where the player is.
+--
+-- A chest and a quest object are opened with the same spell ("Opening"). What tells them apart
+-- is the loot: a chest gives a loot window without a quest item. A quest object gives a quest
+-- item, or no loot window at all (a tombstone). So a treasure is recorded when its loot shows,
+-- at the place of the cast, and not before.
 
 -- The spells of gathering, by spell ID (each rank), and by name as a fallback.
 local SPELLS = {
@@ -21,6 +26,13 @@ local SPELL_NAMES = { ["Herb Gathering"] = "herb", ["Mining"] = "ore", ["Fishing
 local SAME = { herb = 0.004, ore = 0.004, treasure = 0.004, fish = 0.012 }
 -- A cast that does not succeed within this many seconds is forgotten.
 local PENDING_SECONDS = 30
+-- The loot of an opened thing shows within this many seconds of the cast.
+local LOOT_SECONDS = 5
+
+local function spellName(spellID)
+  local name = C_Spell.GetSpellName(spellID)
+  return ns.PlainString(name) and name or nil
+end
 
 function ns.KindOfSpell(spellID)
   if not ns.Usable(spellID) then
@@ -30,21 +42,21 @@ function ns.KindOfSpell(spellID)
   if kind then
     return kind
   end
-  local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
-  if ns.PlainString(name) then
-    return SPELL_NAMES[name]
-  end
-  return nil
+  local name = spellName(spellID)
+  return name and SPELL_NAMES[name] or nil
 end
 
--- Remembers a gather of kind at the player's place. Returns the node, or nil without a place.
-function ns.Record(kind, name)
+-- Remembers a gather of kind at a place: the given one, or the player's. Returns the node and
+-- its map, or nil and the reason without a place.
+function ns.Record(kind, name, mapID, x, y)
   if not ForeverGatherDB or not ns.KIND[kind] then
-    return nil
+    return nil, "the addon is not ready"
   end
-  local mapID, x, y = ns.PlayerPosition()
   if not mapID then
-    return nil
+    mapID, x, y = ns.PlayerPosition()
+    if not mapID then
+      return nil, x
+    end
   end
   if not ns.PlainString(name) then
     name = kind == "fish" and "Fishing spot" or ns.KIND[kind].name
@@ -80,7 +92,7 @@ function ns.Record(kind, name)
     entry.skill = rank
   end
   ns.Changed()
-  return found
+  return found, mapID
 end
 
 -- The skill that a node name was first seen gathered at, or nil.
@@ -156,8 +168,76 @@ function ns.Forget(kind)
   ns.Changed()
 end
 
+-- The last gathering cast and what came of it, kept in the saved data for /fgather status.
+local function note(spellID, target, kind, result)
+  local last = ForeverGatherDB and ForeverGatherDB.last
+  if not last then
+    return
+  end
+  last.gather = { spell = spellID, spellName = spellName(spellID), target = target, kind = kind, result = result, at = time() }
+end
+local function noteResult(result)
+  local gather = ForeverGatherDB and ForeverGatherDB.last and ForeverGatherDB.last.gather
+  if gather then
+    gather.result = result
+  end
+end
+-- The last cast at a target that is no gathering spell here. When a gather is not recognized,
+-- this is the spell to report.
+local function noteOther(spellID, target)
+  local last = ForeverGatherDB and ForeverGatherDB.last
+  if last and ns.Usable(spellID) and ns.PlainString(target) then
+    last.other = { spell = spellID, spellName = spellName(spellID), target = target, at = time() }
+  end
+end
+
+local function recorded(node, mapID)
+  return string.format("recorded as %s on map %d", ns.KIND[node.kind].name:lower(), mapID)
+end
+
+-- What the loot window says about the thing that was opened: "chest", "quest" or "empty".
+function ns.LootKind()
+  local count = GetNumLootItems()
+  if not ns.Usable(count) then
+    return "empty"
+  end
+  local items = 0
+  for slot = 1, count do
+    local _, item, _, _, _, _, isQuestItem, questID = GetLootSlotInfo(slot)
+    if item ~= nil then
+      if issecretvalue(isQuestItem) or issecretvalue(questID) then
+        return "quest" -- cannot be told: not recorded
+      end
+      if isQuestItem or (questID and questID ~= 0) then
+        return "quest"
+      end
+      items = items + 1
+    end
+  end
+  return items > 0 and "chest" or "empty"
+end
+
 -- The cast that is under way: { kind, name, castGUID, time }.
 local pending
+-- The thing that was opened and waits for its loot: { name, mapID, x, y, time }.
+local opened
+
+local function lootShows()
+  local thing = opened
+  opened = nil
+  if not thing or GetTime() - thing.time > LOOT_SECONDS then
+    return
+  end
+  local loot = ns.LootKind()
+  if loot == "quest" then
+    noteResult("not recorded: its loot is a quest item, so it is a quest object and no chest")
+  elseif loot == "empty" then
+    noteResult("not recorded: its loot window was empty")
+  else
+    local node, mapID = ns.Record("treasure", thing.name, thing.mapID, thing.x, thing.y)
+    noteResult(node and recorded(node, mapID) or ("not recorded: " .. mapID))
+  end
+end
 
 local handlers = {
   UNIT_SPELLCAST_SENT = function(unit, target, castGUID, spellID)
@@ -166,6 +246,7 @@ local handlers = {
     end
     local kind = ns.KindOfSpell(spellID)
     if not kind then
+      noteOther(spellID, target)
       return
     end
     pending = {
@@ -174,6 +255,7 @@ local handlers = {
       castGUID = ns.PlainString(castGUID) and castGUID or nil,
       time = GetTime(),
     }
+    note(spellID, pending.name, kind, "the cast started and did not end yet")
   end,
   UNIT_SPELLCAST_SUCCEEDED = function(unit, castGUID, spellID)
     if not ns.PlainString(unit) or unit ~= "player" then
@@ -190,19 +272,39 @@ local handlers = {
       end
     end
     pending = nil
-    ns.Record(kind, name)
+    if kind == "treasure" then
+      -- The place is taken now, at the thing; the loot decides if it is a chest.
+      local mapID, x, y = ns.PlayerPosition()
+      if not mapID then
+        opened = nil
+        note(spellID, name, kind, "not recorded: " .. x)
+        return
+      end
+      opened = { name = name, mapID = mapID, x = x, y = y, time = GetTime() }
+      note(spellID, name, kind, "not recorded: no loot window came after it, so it is a quest object and no chest")
+      return
+    end
+    local node, mapID = ns.Record(kind, name)
+    note(spellID, name, kind, node and recorded(node, mapID) or ("not recorded: " .. mapID))
   end,
   UNIT_SPELLCAST_FAILED = function(unit)
-    if ns.PlainString(unit) and unit == "player" then
+    if ns.PlainString(unit) and unit == "player" and pending then
       pending = nil
+      noteResult("not recorded: the cast failed or was interrupted")
     end
   end,
+  LOOT_READY = lootShows,
+  LOOT_OPENED = lootShows,
 }
 handlers.UNIT_SPELLCAST_INTERRUPTED = handlers.UNIT_SPELLCAST_FAILED
 
 local frame = CreateFrame("Frame")
 for event in pairs(handlers) do
-  frame:RegisterUnitEvent(event, "player")
+  if event:find("^UNIT_") then
+    frame:RegisterUnitEvent(event, "player")
+  else
+    frame:RegisterEvent(event)
+  end
 end
 frame:SetScript("OnEvent", function(_, event, ...)
   local ok, err = pcall(handlers[event], ...)

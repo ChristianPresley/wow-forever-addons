@@ -39,7 +39,7 @@ local function build()
   check("herb", "Herbs", "Places where you picked an herb.")
   check("ore", "Ore", "Veins and deposits that you mined.")
   check("fish", "Fish", "Places where you caught a fish. Casts along one shore merge into one place.")
-  check("treasure", "Treasure", "Chests and other things that you opened.")
+  check("treasure", "Treasure", "Chests that you opened. A quest object is not a chest and is left out.")
 
   page:Header("Where")
   check("worldMap", "Show on the world map", "A pin for each node on the map of its zone.")

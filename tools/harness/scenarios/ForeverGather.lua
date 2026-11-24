@@ -25,12 +25,50 @@ T.fire("UNIT_SPELLCAST_FAILED", "player", "Cast-3", 2575)
 T.fire("UNIT_SPELLCAST_SUCCEEDED", "target", "Cast-4", 2575)
 expect(ns.CountNodes() == 1, "a failed cast and a cast of another unit add no node")
 
--- Ore, fish (no target name) and a chest.
+-- Ore and fish (no target name).
 T.fire("UNIT_SPELLCAST_SENT", "player", "Copper Vein", "Cast-5", 2575)
 T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-5", 2575)
 T.fire("UNIT_SPELLCAST_SENT", "player", "", "Cast-6", 7620)
 T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-6", 7620)
+expect(ns.CountNodes() == 3, "ore and a fishing spot are learned")
+
+-- A thing opened with "Opening" is a chest only when its loot says so. The loot window of the
+-- stand-in is H.world.loot: a list of { name, quest, questID }.
+local function last()
+  return ForeverGatherDB.last.gather
+end
+-- A tombstone of a quest: the cast succeeds and no loot window comes.
+T.fire("UNIT_SPELLCAST_SENT", "player", "Yuriv's Tombstone", "Cast-7", 3365)
 T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-7", 3365)
+expect(ns.CountNodes() == 3, "a thing that is opened is no node before its loot shows")
+expect(last().target == "Yuriv's Tombstone" and last().result:find("no loot window"), "the last cast says that no loot window came, got " .. tostring(last().result))
+-- Loot much later is not the loot of that cast.
+T.advance(10)
+H.world.loot = { { name = "Linen Cloth", quest = false } }
+T.fire("LOOT_READY", false)
+expect(ns.CountNodes() == 3, "a loot window ten seconds after the cast records nothing")
+-- A quest object: its loot is a quest item.
+H.world.loot = { { name = "Deepmoss Egg", quest = true } }
+T.fire("UNIT_SPELLCAST_SENT", "player", "Deepmoss Eggs", "Cast-8", 3365)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-8", 3365)
+T.fire("LOOT_READY", false)
+T.fire("LOOT_OPENED", false, false)
+expect(ns.CountNodes() == 3, "a thing with a quest item as loot is no treasure")
+expect(last().result:find("quest object"), "the last cast says that it was a quest object, got " .. tostring(last().result))
+H.world.loot = { { name = "Linen Cloth", quest = false }, { name = "Stolen Silver", quest = false, questID = 1234 } }
+expect(ns.LootKind() == "quest", "an item of a quest in the loot makes a quest object")
+H.world.loot = {}
+expect(ns.LootKind() == "empty", "a loot window without items is empty")
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-9", 3365)
+T.fire("LOOT_READY", false)
+expect(ns.CountNodes() == 3 and last().result:find("empty"), "an empty loot window records nothing")
+-- A chest: loot without a quest item. It has no target name here, so it has the name of its kind.
+H.world.loot = { { name = "Linen Cloth", quest = false }, { name = "Minor Healing Potion", quest = false, questID = 0 } }
+expect(ns.LootKind() == "chest", "loot without a quest item is a chest")
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-10", 3365)
+T.fire("LOOT_READY", false)
+T.fire("LOOT_OPENED", false, false)
+expect(last().result == "recorded as treasure on map 37", "the last cast says where the chest was recorded, got " .. tostring(last().result))
 local total, counts = ns.CountNodes()
 expect(total == 4 and counts.ore == 1 and counts.fish == 1 and counts.treasure == 1, "ore, fish and a chest are learned, got " .. total)
 local names = {}
@@ -38,6 +76,69 @@ for _, node in ipairs(ns.VisibleNodes(37)) do
   names[node.kind] = node.name
 end
 expect(names.fish == "Fishing spot" and names.treasure == "Treasure", "a node without a target name has the name of its kind")
+
+-- No node inside an instance, and none on the map of a continent: the place would be wrong.
+local before = ns.CountNodes()
+local inInstance, bestMap = IsInInstance, C_Map.GetBestMapForUnit
+IsInInstance = function() return true, "party" end
+T.fire("UNIT_SPELLCAST_SENT", "player", "Serpentbloom", "Cast-20", 2366)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-20", 2366)
+expect(ns.CountNodes() == before, "a gather inside an instance adds no node")
+expect(last().target == "Serpentbloom" and last().result:find("inside an instance"), "the last cast says that it was inside an instance, got " .. tostring(last().result))
+IsInInstance = inInstance
+C_Map.GetBestMapForUnit = function() return 13 end
+T.fire("UNIT_SPELLCAST_SENT", "player", "Serpentbloom", "Cast-21", 2366)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-21", 2366)
+expect(ns.CountNodes() == before and ForeverGatherDB.nodes[13] == nil, "a gather on the map of a continent adds no node")
+expect(last().result:find("continent %(map 13%)"), "the last cast names the continent map, got " .. tostring(last().result))
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-22", 3365)
+T.fire("LOOT_READY", false)
+expect(ns.CountNodes() == before, "a chest on the map of a continent adds no node")
+C_Map.GetBestMapForUnit = bestMap
+H.world.loot = {}
+expect(ns.MapTooLarge(13) and ns.MapTooLarge(947) and not ns.MapTooLarge(37), "a continent and the world are too large for a node, a zone is not")
+
+-- Nodes of the earlier version on the map of a continent go at login.
+ForeverGatherDB.nodes[13] = {
+  { kind = "herb", name = "Serpentbloom", x = 0.52, y = 0.55, count = 4 },
+  { kind = "herb", name = "Serpentbloom", x = 0.53, y = 0.54, count = 1 },
+}
+expect(ns.DropMisplaced() == 2 and ForeverGatherDB.nodes[13] == nil and ns.CountNodes() == before, "the two nodes on the continent are dropped, the others stay")
+
+-- The treasure of data version 1 goes: it had quest objects in it. Herbs stay.
+local old = {
+  version = 1,
+  nodes = { [37] = {
+    { kind = "treasure", name = "Deepmoss Eggs", x = 0.5, y = 0.7, count = 1 },
+    { kind = "herb", name = "Peacebloom", x = 0.4, y = 0.6, count = 2 },
+    { kind = "treasure", name = "Alliance Chest", x = 0.5, y = 0.8, count = 1 },
+  } },
+  names = { ["Deepmoss Eggs"] = { kind = "treasure" }, ["Peacebloom"] = { kind = "herb", skill = 1 }, ["Alliance Chest"] = { kind = "treasure" } },
+}
+expect(ns.DropOldTreasure(old) == 2 and #old.nodes[37] == 1 and old.nodes[37][1].name == "Peacebloom", "the old treasure nodes go, the herb stays")
+expect(old.names["Deepmoss Eggs"] == nil and old.names["Peacebloom"].skill == 1, "the names of old treasure go, the herb keeps its skill")
+
+-- /fgather status: the last gathering cast with what came of it, and the last other cast.
+T.fire("UNIT_SPELLCAST_SENT", "player", "Kobold Vermin", "Cast-30", 133)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-30", 133)
+expect(ForeverGatherDB.last.other.spell == 133 and ForeverGatherDB.last.other.target == "Kobold Vermin", "a cast of another spell at a target is kept as the last other cast")
+T.fire("UNIT_SPELLCAST_SENT", "player", "Tin Vein", "Cast-31", 2575)
+T.fire("UNIT_SPELLCAST_INTERRUPTED", "player", "Cast-31", 2575)
+T.slash("/fgather", "status")
+expect(T.printed("Last gathering cast: .*%(spell 2575%) at Tin Vein.*ore: not recorded: the cast failed or was interrupted"), "/fgather status has the interrupted cast and why it was not recorded")
+expect(T.printed("Last other cast at a target: .*%(spell 133%) at Kobold Vermin"), "/fgather status has the last other cast")
+expect(T.printed("Your skills: Herbalism"), "/fgather status has the skills")
+T.fire("UNIT_SPELLCAST_SENT", "player", "Tin Vein", "Cast-32", 2575)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-32", 2575)
+T.slash("/fgather", "status")
+expect(T.printed("at Tin Vein.*ore: recorded as ore on map 37"), "/fgather status says where the last gather was recorded")
+-- The Tin Vein goes again: the checks below count the four nodes from above.
+for index, node in ipairs(ForeverGatherDB.nodes[37]) do
+  if node.name == "Tin Vein" then
+    table.remove(ForeverGatherDB.nodes[37], index)
+    break
+  end
+end
 
 -- Filters by kind.
 ns.SetOption("herb", false)

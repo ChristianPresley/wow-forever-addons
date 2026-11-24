@@ -1,12 +1,16 @@
 local _, ns = ...
 
 -- Saved data, in ForeverGatherDB (for all characters):
---   version = 1
+--   version = 2   (1 had quest objects as treasure: its treasure nodes are dropped)
 --   options = { herb, ore, fish, treasure, worldMap, minimap, hideTrivial, minSkill, size }
 --   nodes   = { [mapID] = { { kind = s, name = s, x = n, y = n, count = n }, ... } }   x, y from 0 to 1
 --   names   = { [name] = { kind = s, skill = n } }   skill: the lowest skill rank seen at a gather
+--   last    = { gather = { spell = n, spellName = s, target = s, kind = s, result = s, at = n },
+--               other = { spell = n, spellName = s, target = s, at = n } }
+--             the last gathering cast and what came of it, and the last other cast at a target,
+--             for /fgather status. at is time().
 
-local DATA_VERSION = 1
+local DATA_VERSION = 2
 
 function ns.Print(msg)
   print("|cff6fc96fForever Gather|r: " .. tostring(msg))
@@ -89,8 +93,64 @@ function ns.SetOption(key, value)
   return true
 end
 
+-- True for a map that is a continent or larger. A place on such a map is not the place of a
+-- node: the game gives the continent where a zone has no map of its own, as inside a dungeon.
+function ns.MapTooLarge(mapID)
+  local info = C_Map.GetMapInfo(mapID)
+  local mapType = info and info.mapType
+  return ns.Usable(mapType) and mapType <= Enum.UIMapType.Continent
+end
+
+-- Drops the stored nodes of maps that are a continent or larger. Returns how many.
+function ns.DropMisplaced()
+  local dropped = 0
+  for mapID, list in pairs(ForeverGatherDB.nodes) do
+    if type(list) ~= "table" then
+      ForeverGatherDB.nodes[mapID] = nil
+    elseif ns.MapTooLarge(mapID) then
+      dropped = dropped + #list
+      ForeverGatherDB.nodes[mapID] = nil
+    end
+  end
+  return dropped
+end
+
+-- Version 1 could not tell a chest from a quest object: every treasure of it goes.
+-- Returns how many nodes went.
+local function dropOldTreasure(db)
+  local dropped = 0
+  if type(db.nodes) == "table" then
+    for _, list in pairs(db.nodes) do
+      if type(list) == "table" then
+        for index = #list, 1, -1 do
+          if type(list[index]) ~= "table" or list[index].kind == "treasure" then
+            table.remove(list, index)
+            dropped = dropped + 1
+          end
+        end
+      end
+    end
+  end
+  if type(db.names) == "table" then
+    for name, entry in pairs(db.names) do
+      if type(entry) ~= "table" or entry.kind == "treasure" then
+        db.names[name] = nil
+      end
+    end
+  end
+  return dropped
+end
+ns.DropOldTreasure = dropOldTreasure
+
+-- What validate dropped, for one line at login: { treasure = n, misplaced = n }.
+local dropped = { treasure = 0, misplaced = 0 }
+
 local function validate()
   local db = ForeverGatherDB
+  if type(db) == "table" and db.version == 1 then
+    dropped.treasure = dropOldTreasure(db)
+    db.version = DATA_VERSION
+  end
   if type(db) ~= "table" or db.version ~= DATA_VERSION then
     db = { version = DATA_VERSION }
   end
@@ -108,22 +168,33 @@ local function validate()
   if type(db.names) ~= "table" then
     db.names = {}
   end
+  if type(db.last) ~= "table" then
+    db.last = {}
+  end
   ForeverGatherDB = db
+  dropped.misplaced = ns.DropMisplaced()
 end
 
--- The player's map and position on it, or nil where the game hides it (an instance).
+-- The player's map and position on it. Without a place for a node: nil and the reason, for
+-- /fgather status.
 function ns.PlayerPosition()
+  if IsInInstance() then
+    return nil, "you were inside an instance"
+  end
   local mapID = C_Map.GetBestMapForUnit("player")
   if not ns.Usable(mapID) then
-    return nil
+    return nil, "the game gave no map"
+  end
+  if ns.MapTooLarge(mapID) then
+    return nil, string.format("the game gave only the map of a continent (map %d)", mapID)
   end
   local position = C_Map.GetPlayerMapPosition(mapID, "player")
   if not position then
-    return nil
+    return nil, string.format("the game gave no position on map %d", mapID)
   end
   local x, y = position.x, position.y
   if not ns.Usable(x) or not ns.Usable(y) or (x == 0 and y == 0) then
-    return nil
+    return nil, string.format("the game gave no position on map %d", mapID)
   end
   return mapID, x, y
 end
@@ -148,10 +219,19 @@ end
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(self, event, name)
   if event == "ADDON_LOADED" and name == "ForeverGather" then
     validate()
     self:UnregisterEvent("ADDON_LOADED")
     ns.Changed()
+  elseif event == "PLAYER_LOGIN" then
+    self:UnregisterEvent("PLAYER_LOGIN")
+    if dropped.treasure > 0 then
+      ns.Print(string.format("dropped %d treasure nodes of the earlier version: it stored quest objects as treasure. Chests are learned again as you open them.", dropped.treasure))
+    end
+    if dropped.misplaced > 0 then
+      ns.Print(string.format("dropped %d nodes that were stored on the map of a continent, at a wrong place.", dropped.misplaced))
+    end
   end
 end)
