@@ -315,6 +315,24 @@ expect(ns.MapTerrain() ~= nil and ns.MapTerrain().images == allImages, "the cont
 -- From zone to zone. Close enough for the terrain in full, the map moves past the edge of the
 -- zone, and the zone that is there shows, with the same place in the middle.
 ns.ShowMap(37)
+-- The place search: the names that start with the text come first, then the shorter names; an
+-- empty text finds nothing; Enter in the search box goes to the best place.
+do
+  expect(#ns.FindPlaces("") == 0, "an empty search finds nothing")
+  expect(#ns.FindPlaces("zzz") == 0, "a text that is in no name finds nothing")
+  local west = ns.FindPlaces("west")
+  expect(#west == 1 and west[1].mapID == 52 and west[1].name == "Westfall", "the search finds Westfall, got " .. #west)
+  local e = ns.FindPlaces("e")
+  expect(e[1].mapID == 37 and e[2].mapID == 13 and e[3].mapID == 52, "the names that start with the text come first, then the shorter ones: " .. tostring(e[1] and e[1].name))
+  ns.ShowMap(37)
+  local search = ForeverAtlasMap.search
+  search:SetText("westf")
+  search:GetScript("OnTextChanged")(search, true)
+  expect(ForeverAtlasSearch:IsShown() and ForeverAtlasMap.search == search, "the search box is in the map window")
+  search:GetScript("OnEnterPressed")(search)
+  expect(ns.MapView().mapID == 52 and search:GetText() == "", "Enter in the search box goes to the best place and clears the box")
+  ns.ShowMap(37)
+end
 -- The zones beside the zone are drawn around it, where they lie on the continent: Westfall
 -- is the east half, so it starts at the east edge of Elwynn Forest and is as wide.
 do
@@ -613,8 +631,19 @@ do
   expect(count("npcs") == 0 and count("learned") == 2, "with the NPCs off they are gone, and Forever Compass has both of its places")
   ns.SetOption("show_npcs", true)
   _G["ForeverCompassDB"] = compass
-  -- Forgetting them.
-  expect(ns.CountNpcs() == 3 and count("npcs") == 3, "three are known, got " .. ns.CountNpcs())
+  -- The place of an NPC is the average of its visits: the old place 40 and the new one 42 give 41.
+  known[1].x, known[1].n, known[1].t = 40, nil, (known[1].t or 0) - 3600
+  T.world.npc = "Brog Hamfist"
+  T.fire("MERCHANT_SHOW")
+  expect(math.abs(known[1].x - 41) < 0.01 and known[1].n == 2, "the place is the average of two visits, got " .. tostring(known[1].x))
+  -- An innkeeper that sells food is an inn as well; a talk-only NPC is remembered but not drawn.
+  T.world.npc = "Innkeeper Test"
+  T.fire("MERCHANT_SHOW")
+  local inn = known[#known]
+  expect(inn.name == "Innkeeper Test" and inn.roles.inn and inn.roles.vendor and count("npcs") == 3, "an innkeeper that sells is remembered as an inn too, got " .. count("npcs"))
+  T.world.npc = nil
+  -- Forgetting them: four are known, three are drawn (the talk-only one is not).
+  expect(ns.CountNpcs() == 4 and count("npcs") == 3, "four are known, three drawn, got " .. ns.CountNpcs() .. " and " .. count("npcs"))
   ns.ForgetNpcs()
   expect(ns.CountNpcs() == 0 and count("npcs") == 0, "after forgetting them none is left")
   ForeverAtlasMap:Hide()

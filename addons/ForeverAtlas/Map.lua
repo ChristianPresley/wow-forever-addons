@@ -1393,6 +1393,64 @@ function ns.ResetMapWindow()
   end
 end
 
+-- The zones and continents of the world, by name, for the search: from the world map and the
+-- zones of each continent (the game's list of the zones of a continent is the one that is sure).
+local SEARCH_WORLD = 947
+local SEARCH_MOST = 8
+
+local function searchMaps()
+  local list, seen = {}, {}
+  local function add(info)
+    if type(info) == "table" and ns.Usable(info.mapID) and type(info.name) == "string" and info.name ~= "" and not seen[info.mapID] then
+      seen[info.mapID] = true
+      list[#list + 1] = info
+    end
+  end
+  local ok, top = pcall(C_Map.GetMapChildrenInfo, SEARCH_WORLD, nil, true)
+  if ok and type(top) == "table" then
+    for _, info in ipairs(top) do
+      add(info)
+      if type(info) == "table" and info.mapType == Enum.UIMapType.Continent then
+        local okZones, zones = pcall(C_Map.GetMapChildrenInfo, info.mapID, Enum.UIMapType.Zone)
+        for _, zone in ipairs(okZones and type(zones) == "table" and zones or {}) do
+          add(zone)
+        end
+      end
+    end
+  end
+  return list
+end
+
+-- The places that match a text, the best first: the names that start with it, then the
+-- shorter names. Returns up to SEARCH_MOST of { mapID, name }.
+function ns.FindPlaces(text)
+  local wanted = string.lower(text or "")
+  if wanted == "" then
+    return {}
+  end
+  local found = {}
+  for _, info in ipairs(searchMaps()) do
+    local at = string.lower(info.name):find(wanted, 1, true)
+    if at then
+      found[#found + 1] = { mapID = info.mapID, name = info.name, at = at }
+    end
+  end
+  table.sort(found, function(a, b)
+    if (a.at == 1) ~= (b.at == 1) then
+      return a.at == 1
+    end
+    if #a.name ~= #b.name then
+      return #a.name < #b.name
+    end
+    return a.name < b.name
+  end)
+  local list = {}
+  for index = 1, math.min(#found, SEARCH_MOST) do
+    list[index] = { mapID = found[index].mapID, name = found[index].name }
+  end
+  return list
+end
+
 local function create()
   window = CreateFrame("Frame", "ForeverAtlasMap", UIParent)
   window:SetFrameStrata("HIGH")
@@ -1465,6 +1523,77 @@ local function create()
     showMenu(self)
   end)
   window.show:SetPoint("LEFT", game, "RIGHT", 4, 0)
+
+  -- The search: type a name of a zone, and the list of the places it matches shows under it.
+  -- Enter goes to the best one; a click on a line goes to that one.
+  local search = CreateFrame("EditBox", "ForeverAtlasSearch", window, "InputBoxTemplate")
+  search:SetSize(150, 20)
+  search:SetPoint("LEFT", window.show, "RIGHT", 14, 0)
+  search:SetAutoFocus(false)
+  search:SetMaxLetters(40)
+  local results = CreateFrame("Frame", nil, window)
+  results:SetPoint("TOPLEFT", search, "BOTTOMLEFT", -6, -2)
+  results:SetSize(170, 20)
+  results:SetFrameLevel(window:GetFrameLevel() + 40)
+  results:Hide()
+  local resultsBack = results:CreateTexture(nil, "BACKGROUND")
+  resultsBack:SetAllPoints()
+  resultsBack:SetColorTexture(0.03, 0.03, 0.04, 0.98)
+  results.rows = {}
+  local function closeSearch()
+    search:SetText("")
+    search:ClearFocus()
+    results:Hide()
+  end
+  local function goTo(mapID)
+    closeSearch()
+    ns.ShowMap(mapID)
+  end
+  local function showResults(text)
+    local list = ns.FindPlaces(text)
+    if #list == 0 then
+      results:Hide()
+      return
+    end
+    for index, place in ipairs(list) do
+      local row = results.rows[index]
+      if not row then
+        row = CreateFrame("Button", nil, results)
+        row:SetSize(166, 16)
+        row:SetPoint("TOPLEFT", 2, -2 - (index - 1) * 16)
+        row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        row.text:SetPoint("LEFT", 4, 0)
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        row:SetScript("OnClick", function(self)
+          goTo(self.mapID)
+        end)
+        results.rows[index] = row
+      end
+      row.mapID = place.mapID
+      row.text:SetText(place.name)
+      row:Show()
+    end
+    for index = #list + 1, #results.rows do
+      results.rows[index]:Hide()
+    end
+    results:SetHeight(4 + #list * 16)
+    results:Show()
+  end
+  search:SetScript("OnTextChanged", function(self, userInput)
+    if userInput then
+      showResults(self:GetText())
+    end
+  end)
+  search:SetScript("OnEnterPressed", function(self)
+    local list = ns.FindPlaces(self:GetText())
+    if list[1] then
+      goTo(list[1].mapID)
+    else
+      closeSearch()
+    end
+  end)
+  search:SetScript("OnEscapePressed", closeSearch)
+  window.search = search
 
   viewport = CreateFrame("Frame", nil, window)
   viewport:SetPoint("TOPLEFT", 8, -34)
