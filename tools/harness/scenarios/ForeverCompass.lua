@@ -43,6 +43,20 @@ T.fire("MAIL_SHOW")
 expect(#ns.Places("mailbox") == 1, "a mailbox is remembered")
 T.world.npc = nil
 
+-- A place inside an instance is read on the continent map: a continent is not a place, so the
+-- window of a vendor there remembers nothing.
+local bestMap = C_Map.GetBestMapForUnit
+C_Map.GetBestMapForUnit = function() return 13 end
+T.world.npc = "Continent Vendor"
+T.fire("MERCHANT_SHOW")
+C_Map.GetBestMapForUnit = bestMap
+T.world.npc = nil
+expect(#ns.Places("vendor") == 1 and not T.printed("Continent Vendor"), "a place on the continent map is not remembered")
+-- A place stored on a continent before that check is dropped, the places of zones are kept.
+table.insert(ForeverCompassDB.places.vendor, { mapID = 13, x = 0.5, y = 0.5, name = "Stale" })
+expect(ns.DropLargePlaces() == 1 and #ns.Places("vendor") == 1 and ns.Places("vendor")[1].name == "Brog Hamfist", "a stored place on the continent is dropped, the others are kept")
+expect(ns.DropLargePlaces() == 0, "with none left there is nothing to drop")
+
 -- The trackers: each one can be set to each kind.
 for index = 1, ns.COUNT do
   expect(ns.SetCompass(index, "enabled", true) == true, "tracker " .. index .. " turns on")

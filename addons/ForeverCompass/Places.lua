@@ -19,11 +19,31 @@ local function npcName(fallback)
   return name
 end
 
+-- Whether a map is a continent or larger (the world, the cosmos), and whether the game knows
+-- the map at all. A place on such a map points to a wrong spot: inside an instance the best map
+-- for the player is the continent, and the position of the player there is not a place of it.
+local function largeMap(mapID)
+  local ok, info = pcall(C_Map.GetMapInfo, mapID)
+  if not ok or type(info) ~= "table" or not Enum or not Enum.UIMapType then
+    return false, false
+  end
+  for _, name in ipairs({ "Cosmic", "World", "Continent" }) do
+    if Enum.UIMapType[name] ~= nil and info.mapType == Enum.UIMapType[name] then
+      return true, true
+    end
+  end
+  return false, true
+end
+
 local function remember(kind, name)
   if not ForeverCompassDB then
     return
   end
   local mapID = ns.PlayerMap()
+  local large, known = largeMap(mapID)
+  if large or not known then
+    return -- a continent, or a map the game does not name: not a place
+  end
   local x, y = ns.PlayerMapPosition(mapID)
   if not x then
     return -- the game hides the position here (an instance)
@@ -59,6 +79,34 @@ end
 function ns.ForgetPlaces()
   wipe(ForeverCompassDB.places)
 end
+
+-- Drops the places that were stored on a continent or larger map (before this check existed),
+-- and returns how many. A map the game does not name keeps its places.
+function ns.DropLargePlaces()
+  local dropped = 0
+  if not ForeverCompassDB or type(ForeverCompassDB.places) ~= "table" then
+    return dropped
+  end
+  for _, list in pairs(ForeverCompassDB.places) do
+    if type(list) == "table" then
+      for index = #list, 1, -1 do
+        local large, known = largeMap(list[index].mapID)
+        if large and known then
+          table.remove(list, index)
+          dropped = dropped + 1
+        end
+      end
+    end
+  end
+  return dropped
+end
+
+ns.OnLogin(function()
+  local dropped = ns.DropLargePlaces()
+  if dropped > 0 then
+    ns.Print(dropped .. " learned " .. (dropped == 1 and "place was" or "places were") .. " on a continent map, where it pointed to a wrong spot, and " .. (dropped == 1 and "was" or "were") .. " dropped.")
+  end
+end)
 
 local handlers = {
   MERCHANT_SHOW = function()
