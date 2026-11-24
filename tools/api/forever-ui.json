@@ -6656,7 +6656,7 @@
     "Texture": ["OnEnter","OnHide","OnLeave","OnShow"],
     "UIThemeContainerFrame": ["OnEvent","OnHide","OnLoad","OnMouseWheel","OnShow"]
   },
-  "source": "wow-ui-source, branch forever, commit 734f0653",
+  "source": "wow-ui-source, branch forever, 1.60.1 (70938), commit bebcb6bf",
   "templates": {
     "AchievementAlertFrameTemplate": {"children":[{"key":"animIn","kind":"AnimationGroup"},{"children":[{"key":"animOut","kind":"Alpha"}],"key":"waitAndAnimOut","kind":"AnimationGroup"},{"key":"Background","kind":"Texture"},{"inherits":["GameFontBlackTiny"],"key":"Unlocked","kind":"FontString"},{"inherits":["GameFontHighlight"],"key":"Name","kind":"FontString"},{"inherits":["GameFontNormal"],"key":"GuildName","kind":"FontString"},{"key":"GuildBanner","kind":"Texture"},{"key":"GuildBorder","kind":"Texture"},{"children":[{"key":"animIn","kind":"AnimationGroup"}],"key":"glow","kind":"Texture"},{"children":[{"key":"animIn","kind":"AnimationGroup"}],"key":"shine","kind":"Texture"},{"children":[{"key":"Bling","kind":"Texture"},{"key":"Texture","kind":"Texture"},{"key":"Overlay","kind":"Texture"}],"key":"Icon","kind":"Frame"},{"children":[{"key":"Icon","kind":"Texture"},{"inherits":["GameFontNormal"],"key":"Points","kind":"FontString"}],"key":"Shield","kind":"Frame"}],"inherits":["AlertFrameTemplate"],"kind":"ContainedAlertFrame","scripts":["OnClick"]},
     "AchievementCategoryTemplate": {"children":[{"children":[{"key":"Background","kind":"Texture"},{"inherits":["GameFontNormalLeftBottom"],"key":"Label","kind":"FontString"}],"key":"Button","kind":"Button","mixin":["AchievementCategoryTemplateButtonMixin"]}],"kind":"Frame","mixin":["AchievementCategoryTemplateMixin"],"scripts":["OnLoad"]},

@@ -162,7 +162,6 @@
     },
     "EncodingLimits": {
       "EncodingDecompressSizeLimit": 104857600,
-      "EncodingDeserializeSizeLimit": 104857600,
       "EncodingStackSizeLimit": 100
     },
     "EncounterTimelineEventConstants": {
@@ -18230,7 +18229,6 @@
       "IsBattleNetFriendsListEnabled": "b||",
       "IsBattleNetFriendsListSupported": "b||",
       "IsFriendTagSupportedForCurrentGameType": "b|n|U",
-      "IsGameAccountOnSameRealm": "b|n|U",
       "SearchFriends": "t|t{AuroraFriendsSearchInfo}|UH",
       "SendGameData": "n|nss|U",
       "SendTitleFriendInviteByName": "|s|UH",
@@ -20466,7 +20464,6 @@
       "CanCheckInbox": "bn||",
       "GetCraftingOrderMailInfo": "t{CraftingOrderMailInfo}?|n|U",
       "HasInboxMoney": "b|n|U",
-      "IsCODEnabled": "b||",
       "IsCommandPending": "b||",
       "SetOpeningAll": "|b|U"
     },
@@ -23006,7 +23003,7 @@
     "table.getcountinfo": "SecretWhenLuaTableHasSecretKeys",
     "table.isempty": "SecretWhenLuaTableHasSecretKeys"
   },
-  "source": "wow-ui-source, branch forever, commit 734f0653",
+  "source": "wow-ui-source, branch forever, 1.60.1 (70938), commit bebcb6bf",
   "structures": {
     "AccountStoreCategoryInfo": {
       "icon": "n",
@@ -23537,7 +23534,6 @@
       "factionName": "s?",
       "gameAccountID": "n",
       "hasFocus": "b",
-      "hasRealmInfo": "b",
       "isAppearOffline": "b",
       "isGameAFK": "b",
       "isGameBusy": "b",
