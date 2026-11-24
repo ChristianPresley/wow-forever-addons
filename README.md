@@ -126,7 +126,7 @@ git push origin manager-v0.2.0
 
 `https://github.com/ChristianPresley/wow-forever-addons/releases/download/marketplace/index.json`
 
-The publish workflow runs the lint, the conformance check and the addon tests first, and uploads nothing if one of them fails. The manager finds an update by the version of an addon. So the workflow also fails if the files of an addon changed and its version did not: raise `## Version` in the `.toc` file with each change to an addon. `cargo dev marketplace --published <folder>` makes this check against a copy of the published marketplace in `<folder>`.
+The publish workflow runs the lint and the conformance check first, and uploads nothing if one of them fails. It tests each addon on its own. An addon whose tests fail is held back: it keeps the version that is published, the others are published, and the run ends red so the held addon is seen. The manager finds an update by the version of an addon. So the workflow also fails if the files of an addon changed and its version did not: raise `## Version` in the `.toc` file with each change to an addon. `cargo dev marketplace --published <folder>` makes this check against a copy of the published marketplace in `<folder>`.
 
 A development build of the manager uses the local `dist/marketplace/index.json` when that file exists. You can also set a different source in the app, or with the `WFAM_SOURCE` environment variable.
 

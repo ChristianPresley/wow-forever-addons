@@ -47,6 +47,8 @@ Commands:
   marketplace             build dist/marketplace: one ZIP for each addon, and index.json
                           --published <folder>  fail if an addon has the version of the
                           marketplace copy in <folder>, with other files
+                          --hold <a,b>         leave these addons out; each keeps its
+                          published entry (needs --published)
   icon <out.png>          draw the source image of the app icon
   track-icon              draw the symbols of Forever Quests (Media/Track.tga, Media/Compass.tga)";
 
@@ -75,13 +77,17 @@ fn run() -> Result<bool, String> {
         (Some("marketplace"), _) => {
             let addons = addons::read_addons(&root.join("addons"))?;
             let out_dir = root.join("dist").join("marketplace");
-            for line in marketplace::build(&addons, &out_dir)? {
+            let value_of = |flag: &str| args.iter().position(|arg| arg == flag).and_then(|index| args.get(index + 1)).cloned();
+            // `--published <folder>` names a copy of the marketplace that is published now.
+            let published = value_of("--published");
+            // `--hold a,b` leaves those addons out: they keep the version that is published.
+            let held: Vec<String> = value_of("--hold").unwrap_or_default().split(',').filter(|folder| !folder.is_empty()).map(str::to_string).collect();
+            for line in marketplace::build_holding(&addons, &out_dir, &held, published.as_deref().map(Path::new))? {
                 println!("{line}");
             }
             println!("-> {}", out_dir.display());
-            // `--published <folder>` names a copy of the marketplace that is published now.
-            if let Some(published) = args.iter().position(|arg| arg == "--published").and_then(|index| args.get(index + 1)) {
-                println!("{}", marketplace::check_published(&out_dir, Path::new(published))?);
+            if let Some(published) = published {
+                println!("{}", marketplace::check_published(&out_dir, Path::new(&published))?);
             }
             Ok(true)
         }

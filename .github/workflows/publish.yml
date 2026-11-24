@@ -32,7 +32,17 @@ jobs:
       # as in the CI run first.
       - run: cargo dev lint
       - run: cargo dev conformance
-      - run: cargo dev test
+      # Each addon is tested on its own. An addon whose tests fail is held back: it keeps the
+      # version that is published now, and the other addons are published.
+      - name: Test each addon
+        run: |
+          : > held.txt
+          for dir in addons/*/; do
+            folder=$(basename "$dir")
+            if ! cargo dev test "$folder"; then
+              echo "$folder" >> held.txt
+            fi
+          done
       - name: Fetch the marketplace that is published now
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,8 +59,10 @@ jobs:
             done
           fi
       # Fails if the files of an addon changed and its version did not: the manager finds
-      # an update by the version, so that change would not reach anyone.
-      - run: cargo dev marketplace --published published
+      # an update by the version, so that change would not reach anyone. A held addon is
+      # left out and keeps its published entry.
+      - name: Build the marketplace
+        run: cargo dev marketplace --published published --hold "$(paste -sd, held.txt)"
       - name: Upload to the marketplace release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,3 +84,11 @@ jobs:
             echo "Removing $package"
             gh release delete-asset marketplace "$package" --yes
           done
+      # The other addons are published above. This step makes the run fail, so the held addon
+      # is seen in the list of runs.
+      - name: Report the addons that were held back
+        run: |
+          if [ -s held.txt ]; then
+            echo "::error::Held back because its tests failed: $(paste -sd' ' held.txt). The others were published."
+            exit 1
+          fi

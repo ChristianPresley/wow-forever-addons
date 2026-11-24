@@ -47,8 +47,16 @@ fn iso_time(seconds: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rest / 3_600, rest % 3_600 / 60, rest % 60)
 }
 
-/// Writes the packages and the index. Returns one line of report for each file written.
+/// Writes the packages and the index, with no addon held back.
+#[cfg(test)]
 pub fn build(addons: &[Addon], out_dir: &Path) -> Result<Vec<String>, String> {
+    build_holding(addons, out_dir, &[], None)
+}
+
+/// Like `build`, but the addons whose folders are in `held` are not built. Each one keeps the
+/// entry and the package that `published_dir` has for it, so the marketplace still offers the
+/// version that was published before. A held addon that was never published is left out.
+pub fn build_holding(addons: &[Addon], out_dir: &Path, held: &[String], published_dir: Option<&Path>) -> Result<Vec<String>, String> {
     let io = |error: std::io::Error| format!("Cannot write to {}: {error}", out_dir.display());
     if out_dir.exists() {
         fs::remove_dir_all(out_dir).map_err(io)?;
@@ -58,6 +66,10 @@ pub fn build(addons: &[Addon], out_dir: &Path) -> Result<Vec<String>, String> {
     let mut report = Vec::new();
     let mut entries = Vec::new();
     for addon in addons {
+        if held.contains(&addon.folder) {
+            report.push(format!("{} held back: its tests failed", addon.folder));
+            continue;
+        }
         let (Some(toc), Some(meta)) = (&addon.toc, &addon.meta) else {
             return Err(format!("{} is incomplete. Run \"cargo dev lint\".", addon.folder));
         };
@@ -79,6 +91,26 @@ pub fn build(addons: &[Addon], out_dir: &Path) -> Result<Vec<String>, String> {
             folders: vec![addon.folder.clone()],
             download: Download { url: file_name, sha256: format!("{:x}", Sha256::digest(&zip)), size: zip.len() as u64 },
         });
+    }
+
+    if let Some(published_dir) = published_dir {
+        // The first publish has no index yet, so every held addon is new.
+        let index_path = published_dir.join("index.json");
+        let published: Vec<MarketAddon> = if index_path.is_file() {
+            load_index(&index_path.to_string_lossy()).map_err(|error| format!("Cannot read the published index: {error}"))?.addons
+        } else {
+            Vec::new()
+        };
+        for folder in held {
+            let Some(old) = published.iter().find(|old| old.folders.contains(folder)) else {
+                report.push(format!("{folder} has no published version yet, so it is not in the marketplace"));
+                continue;
+            };
+            let zip = fs::read(published_dir.join(&old.download.url)).map_err(|error| format!("Cannot read the published {}: {error}", old.download.url))?;
+            fs::write(out_dir.join(&old.download.url), &zip).map_err(io)?;
+            report.push(format!("{}  kept from the published marketplace ({} held back)", old.download.url, folder));
+            entries.push(old.clone());
+        }
     }
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_secs()).unwrap_or(0);
@@ -197,6 +229,38 @@ mod tests {
         assert_eq!(iso_time(0), "1970-01-01T00:00:00Z");
         assert_eq!(iso_time(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(iso_time(1_794_735_005), "2026-11-15T09:30:05Z");
+    }
+
+    #[test]
+    fn a_held_addon_keeps_its_published_entry_and_package() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("addons");
+        write_addon(&source, "Demo", "demo", "print(1)\n");
+        write_addon(&source, "Other", "other", "print(1)\n");
+        let published = tmp.path().join("published");
+        build(&read_addons(&source).unwrap(), &published).unwrap();
+
+        // Both change. Demo's tests fail, so Demo is held back; Other is published.
+        write_addon(&source, "Demo", "demo", "print(2)\n");
+        write_addon(&source, "Other", "other", "print(2)\n");
+        let out = tmp.path().join("out");
+        let held = ["Demo".to_string()];
+        let report = build_holding(&read_addons(&source).unwrap(), &out, &held, Some(&published)).unwrap();
+        assert!(report.iter().any(|line| line.contains("Demo held back")), "{report:?}");
+
+        let index = load_index(&out.join("index.json").to_string_lossy()).unwrap();
+        let old = load_index(&published.join("index.json").to_string_lossy()).unwrap();
+        let demo = index.addons.iter().find(|addon| addon.folders == ["Demo"]).unwrap();
+        let old_demo = old.addons.iter().find(|addon| addon.folders == ["Demo"]).unwrap();
+        assert_eq!(demo.download.sha256, old_demo.download.sha256);
+        assert_eq!(fs::read(out.join(&demo.download.url)).unwrap(), fs::read(published.join(&old_demo.download.url)).unwrap());
+        let other = index.addons.iter().find(|addon| addon.folders == ["Other"]).unwrap();
+        let old_other = old.addons.iter().find(|addon| addon.folders == ["Other"]).unwrap();
+        assert_ne!(other.download.sha256, old_other.download.sha256);
+
+        // A held addon that was never published is left out instead of failing the build.
+        let fresh = build_holding(&read_addons(&source).unwrap(), &tmp.path().join("fresh"), &held, Some(&tmp.path().join("nothing"))).unwrap();
+        assert!(fresh.iter().any(|line| line.contains("no published version")), "{fresh:?}");
     }
 
     #[test]
