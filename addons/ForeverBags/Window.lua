@@ -99,21 +99,10 @@ local function updateButton(button, bag, slot, info)
   local texture = info and info.iconFileID
   local quality = info and info.quality
   callGlobal("ClearItemButtonOverlay", button)
-  call(button, "SetHasItem", texture)
   call(button, "SetItemButtonTexture", texture)
-  call(button, "SyncAppearanceWithHasItem")
   callGlobal("SetItemButtonQuality", button, quality, info and info.hyperlink, false, info and info.isBound)
   callGlobal("SetItemButtonCount", button, info and info.stackCount)
   callGlobal("SetItemButtonDesaturated", button, info and info.isLocked)
-  call(button, "UpdateExtended")
-  local okQuest, quest = pcall(C_Container.GetContainerItemQuestInfo, bag, slot)
-  if okQuest and type(quest) == "table" then
-    call(button, "UpdateQuestItem", quest.isQuestItem, quest.questID, quest.isActive)
-  end
-  call(button, "UpdateNewItem", quality)
-  call(button, "UpdateJunkItem", quality, info and info.hasNoValue)
-  call(button, "UpdateCooldown", texture)
-  call(button, "SetReadable", info and info.isReadable)
   -- Weapons and armor: the item level, and red when the character's level is too low to use it.
   local level, tooLow
   if info and info.itemID then
