@@ -15,6 +15,7 @@ local function help()
   print("  /fgear check [item link] - what the gear list says about an item, in chat")
   print("  /fgear tooltip - the gear list lines in tooltips, on or off")
   print("  /fgear upgrade - the upgrade line in tooltips, on or off")
+  print("  /fgear audit - compare the gear data with the game, in chat")
   print("  /fgear resetpos - put the window back at its first place")
   print("  /fgear options - open the options page")
 end
@@ -93,6 +94,22 @@ local function check(rest)
   end
 end
 
+local AUDIT_LINES = 40
+
+local function audit()
+  local problems, waiting, total = ns.Audit()
+  for index = 1, math.min(#problems, AUDIT_LINES) do
+    print("  " .. problems[index])
+  end
+  if #problems > AUDIT_LINES then
+    print("  ... and " .. (#problems - AUDIT_LINES) .. " more.")
+  end
+  ns.Print(string.format("audit: %d of %d items differ from the game.", #problems, total))
+  if waiting > 0 then
+    ns.Print(string.format("the game has not loaded the name of %d items yet. Type /fgear audit again in a moment.", waiting))
+  end
+end
+
 SLASH_FOREVERGEAR1 = "/fgear"
 SLASH_FOREVERGEAR2 = "/forevergear"
 SlashCmdList["FOREVERGEAR"] = function(input)
@@ -121,6 +138,8 @@ SlashCmdList["FOREVERGEAR"] = function(input)
     toggle("tooltipList", "the gear list lines in tooltips are")
   elseif command == "upgrade" then
     toggle("tooltipUpgrade", "the upgrade line in tooltips is")
+  elseif command == "audit" then
+    audit()
   elseif command == "resetpos" then
     ns.ResetPositions()
     ns.Print("the window is back at its first place.")

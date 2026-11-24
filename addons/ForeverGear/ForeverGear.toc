@@ -2,8 +2,8 @@
 ## Title: Forever Gear
 ## Notes: Pre-raid gear lists for each class and role, a dungeon loot browser, and upgrade lines in item tooltips.
 ## Author: Christian Presley
-## Version: 0.1.0
-## Category: Combat
+## Version: 0.2.0
+## Category: Gear & Loot
 ## SavedVariables: ForeverGearDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons
 

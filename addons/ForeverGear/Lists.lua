@@ -12,10 +12,20 @@ function ns.Item(itemID)
   return byID[itemID]
 end
 
--- Whether a class can wear an item: its armour type is at most the class's heaviest.
+-- Whether a class can use an item: the item is for the class, the class can use the weapon type
+-- and hold it in that hand, and the armour type is at most the class's heaviest.
 function ns.CanWear(item, class)
   if item.classes and not item.classes[class] then
     return false
+  end
+  local weapons = ns.WEAPONS_OF_CLASS[class]
+  if item.weapon and item.weapon ~= "held" and weapons then
+    if not weapons[item.weapon] then
+      return false
+    end
+    if item.slot == "OFFHAND" and item.weapon ~= "shield" and not ns.DUAL_WIELD[class] then
+      return false
+    end
   end
   if not item.armor then
     return true
@@ -66,6 +76,49 @@ function ns.LootOf(instanceKey)
     return a.id < b.id
   end)
   return list
+end
+
+---------------------------------------------------------------------------------------------------
+-- The data against the game
+
+-- What the game says otherwise about an item of the data, as a text, or nil. The second result
+-- is true when the game has not loaded the name yet.
+function ns.AuditItem(item)
+  local label = item.id .. (item.name and (" (" .. item.name .. ")") or "")
+  local ok, itemID, _, _, equipLoc = pcall(C_Item.GetItemInfoInstant, item.id)
+  if not ok or not itemID then
+    return label .. ": the game has no item with this ID"
+  end
+  local problems = {}
+  local slot = ns.EQUIP_LOCATIONS[equipLoc or ""]
+  -- A one-hand weapon goes in either hand: the list can have it in the off hand.
+  if slot ~= item.slot and not (equipLoc == "INVTYPE_WEAPON" and item.slot == "OFFHAND") then
+    local here = ns.SLOT_BY_KEY[item.slot].name:lower()
+    problems[#problems + 1] = slot and ("fits " .. ns.SLOT_BY_KEY[slot].name:lower() .. " in the game, " .. here .. " here") or ("is not equipment in the game, " .. here .. " here")
+  end
+  local name = C_Item.GetItemNameByID(item.id)
+  if type(name) == "string" and item.name and name ~= item.name then
+    problems[#problems + 1] = "is named " .. name .. " in the game"
+  end
+  if #problems > 0 then
+    return label .. ": " .. table.concat(problems, "; ")
+  end
+  return nil, type(name) ~= "string"
+end
+
+-- Every item of the data. Returns the texts of the differences, the number of items whose name
+-- the game has not loaded yet, and the number of items.
+function ns.Audit()
+  local problems, waiting = {}, 0
+  for _, item in ipairs(ns.ITEMS) do
+    local problem, noName = ns.AuditItem(item)
+    if problem then
+      problems[#problems + 1] = problem
+    elseif noName then
+      waiting = waiting + 1
+    end
+  end
+  return problems, waiting, #ns.ITEMS
 end
 
 ---------------------------------------------------------------------------------------------------

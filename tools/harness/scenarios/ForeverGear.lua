@@ -31,9 +31,60 @@ expect(#ns.ListOf("melee", "ROGUE") < #ns.ListOf("melee", "WARRIOR"), "the rogue
 expect(ns.CanWear(ns.Item(16693), "PRIEST") and not ns.CanWear(ns.Item(16693), "DRUID"), "the priest's set helm is for a priest, not a druid")
 for _, class in ipairs({ "PALADIN", "SHAMAN", "DRUID" }) do
   for _, entry in ipairs(ns.ListOf("healer", class)) do
-    expect(not entry.item.classes, "the healer list of " .. class .. " has no item of another class: " .. entry.item.id)
+    expect(not entry.item.classes or entry.item.classes[class], "the healer list of " .. class .. " has no item of another class: " .. entry.item.id)
   end
 end
+
+-- Every role of every class has an item for every slot that every class fills.
+local ids = {}
+for _, item in ipairs(ns.ITEMS) do
+  expect(not ids[item.id], "item " .. item.id .. " is in the data once")
+  ids[item.id] = true
+  expect(not item.weapon or item.weapon == "held" or ns.WEAPONS_OF_CLASS.WARRIOR[item.weapon] or item.weapon == "wand", "item " .. item.id .. " has a known weapon type")
+  expect((item.slot == "MAINHAND" or item.slot == "OFFHAND" or item.slot == "RANGED") == (item.weapon ~= nil), "item " .. item.id .. " has a weapon type when it is for a hand, and only then")
+end
+for class, roles in pairs(ns.CLASS_ROLES) do
+  for _, role in ipairs(roles) do
+    local filled = {}
+    for _, entry in ipairs(ns.ListOf(role, class)) do
+      filled[entry.item.slot] = true
+    end
+    for _, slot in ipairs(ns.SLOTS) do
+      if slot.key ~= "OFFHAND" and slot.key ~= "RANGED" then
+        expect(filled[slot.key], class .. " " .. role .. " has an item for " .. slot.name)
+      end
+    end
+  end
+end
+
+-- Weapons: a class sees the types it can use, and a weapon in the off hand only when it can hold one there.
+expect(ns.CanWear(ns.Item(18348), "WARRIOR") and not ns.CanWear(ns.Item(18348), "DRUID"), "a sword is for a warrior, not a druid")
+for _, entry in ipairs(ns.ListOf("tank", "DRUID")) do
+  expect(entry.item.weapon ~= "sword" and entry.item.weapon ~= "shield", "the druid tank list has no " .. tostring(entry.item.weapon) .. ": " .. entry.item.id)
+end
+expect(ns.CanWear(ns.Item(12939), "ROGUE") and not ns.CanWear(ns.Item(12939), "PALADIN"), "a sword in the off hand is for a rogue, not a paladin")
+expect(ns.CanWear(ns.Item(12602), "PALADIN") and not ns.CanWear(ns.Item(12602), "ROGUE"), "a shield is for a paladin, not a rogue")
+expect(ns.CanWear(ns.Item(22253), "PRIEST") and ns.CanWear(ns.Item(22253), "DRUID"), "an off-hand item that is no weapon is for every class")
+expect(ns.CanWear(ns.Item(13938), "MAGE") and not ns.CanWear(ns.Item(13938), "SHAMAN"), "a wand is for a mage, not a shaman")
+
+-- Other sources: the loot browser has the group, with the world drops.
+local other = ns.LootOf("OTHER")
+local hasEdgemasters
+for _, item in ipairs(other) do
+  hasEdgemasters = hasEdgemasters or item.id == 14551
+end
+expect(hasEdgemasters, "the other sources have the world-drop gloves")
+
+-- The audit. The world has item 2211, a shield by name that the stand-in gives no equip location.
+local missing = ns.AuditItem({ id = 999999, name = "No such thing", slot = "HEAD" })
+expect(missing and missing:find("no item with this ID", 1, true), "the audit names an ID that the game does not have, got " .. tostring(missing))
+local wrongName = ns.AuditItem({ id = 2211, name = "Round Shield", slot = "OFFHAND" })
+expect(wrongName and wrongName:find("is named Bent Large Shield in the game", 1, true), "the audit names another name, got " .. tostring(wrongName))
+expect(wrongName and wrongName:find("is not equipment in the game, off hand here", 1, true), "the audit names another slot, got " .. tostring(wrongName))
+local problems, _, total = ns.Audit()
+expect(total == #ns.ITEMS and #problems == total, "the stand-in has none of the items, so the audit lists each one")
+T.slash("/fgear", "audit")
+expect(T.printed("audit: " .. total .. " of " .. total .. " items differ"), "/fgear audit prints the count")
 expect(ns.Judge(14152, "caster", "WARLOCK").rank == nil and ns.Judge(14152, "caster", "MAGE").rank == 1, "the mage's robe has a rank for a mage only")
 -- The role: the first role of the class by default. The character of the world is a warrior.
 expect(ns.GetRole() == "melee", "a warrior starts with the melee list, got " .. tostring(ns.GetRole()))
