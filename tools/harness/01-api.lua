@@ -1253,7 +1253,7 @@ function geterrorhandler()
       pcall(ScriptErrorsFrame.DisplayMessageInternal, ScriptErrorsFrame, err, 0, debugstack(2), "<none>")
     end
     if H.onError then
-      H.onError("error handler", err)
+      H.onError(H.errorWhere or "error handler", err)
     end
   end
 end

@@ -591,6 +591,14 @@ set("C_Container", "GetContainerItemInfo", function(bag, slot)
     itemID = entry[1], isBound = entry[1] == 6948, itemName = item.name,
   }
 end)
+-- C_Container.UseContainerItem uses the item of a slot (the game's own code calls it in
+-- Blizzard_FrameXML/SecureTemplates.lua). The stand-in records the request in H.did and does
+-- nothing else: what the game does with an invalid slot (bag 99) is the probe's case in
+-- ForeverProbe, and it has no answer yet. The game's refusal of an addon's click
+-- (ADDON_ACTION_FORBIDDEN) is not modelled.
+set("C_Container", "UseContainerItem", function(bag, slot)
+  did("use container item", bag, slot)
+end)
 set("C_Container", "GetContainerItemID", function(bag, slot)
   local entry = BAG_CONTENTS[bag] and BAG_CONTENTS[bag].slots[slot]
   return entry and entry[1] or nil

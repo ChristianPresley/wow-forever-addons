@@ -99,3 +99,8 @@ GetInventorySlotInfo('RangedSlot') (the global, not in the documentation) = ok: 
 C_PaperDollInfo.GetInventorySlotInfo('RangedSlot') = ok: 18, 136520, true
 GetInventoryItemID('player', 18): the item in the ranged slot = ok: 263412
 The weapons in the bags: name, subclass, equip location = ok: 6256 Fishing Pole INVTYPE_2HWEAPON
+# Build 71037 (the game client 1.60.1, saved 2026-11-24 03:24). The auction cases below: pcall saw no error, but the
+# game fired ADDON_ACTION_BLOCKED for PlaceBid ("ForeverProbe was blocked from PlaceBid()") and PostItem ("...from PostItem()"),
+# as Forever Trace recorded (00:04:53, 00:04:54, 03:13:55). The probe run that saved them was reloaded before its timer ended.
+the auction house window is shown = ok: false
+C_AuctionHouse.PlaceBid(0, 0) from a timer, no click = ok: ran

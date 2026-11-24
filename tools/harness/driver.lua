@@ -33,8 +33,22 @@ local function clean(err)
   return (err:gsub("%[string \"([^\"]+)\"%]", "%1"))
 end
 
+-- Errors that an addon raises on purpose (a test command of the addon): H.expectError(text)
+-- names a text; an error whose text contains it is counted in H.expectedErrors, not a failure.
+-- The registration holds for the whole run: every phase, the sweeps included.
+H.expectedErrors = { texts = {}, count = 0 }
+function H.expectError(text)
+  H.expectedErrors.texts[#H.expectedErrors.texts + 1] = text
+end
+
 local function fail(where, err)
   local text = clean(err)
+  for _, expected in ipairs(H.expectedErrors.texts) do
+    if text:find(expected, 1, true) then
+      H.expectedErrors.count = H.expectedErrors.count + 1
+      return
+    end
+  end
   -- Two different places with the same message are two failures.
   local key = phase .. "\0" .. where .. "\0" .. text
   if not seenFailure[key] then
@@ -44,7 +58,9 @@ local function fail(where, err)
 end
 H.onError = fail
 
--- Runs fn and records an error as a failure.
+-- Runs fn and records an error as a failure. The error goes through the game's error handler
+-- first (geterrorhandler, as the game calls it): ScriptErrorsFrame sees it with its stack, and then
+-- the handler records it as a failure (H.onError), named by `where`.
 function H.call(where, fn, ...)
   -- An addon that did not come to an end twice is not called again (see the line hook below).
   if H.stuck and H.stuck() then
@@ -52,7 +68,9 @@ function H.call(where, fn, ...)
   end
   local ok, err = realPcall(fn, ...)
   if not ok then
-    fail(where, err)
+    H.errorWhere = where
+    geterrorhandler()(err)
+    H.errorWhere = nil
   end
   return ok
 end
@@ -784,6 +802,15 @@ if addon.savedSource then
   else
     fail("saved variables", err)
   end
+end
+
+-- The errors that an addon raises on purpose, by its test command (H.expectError). They are
+-- named here, not only in its scenario: a run after a reload does not run the scenario.
+local EXPECTED_ERRORS = {
+  ForeverTrace = { "raised on purpose by /ftrace test" },
+}
+for _, text in ipairs(EXPECTED_ERRORS[addon.name] or {}) do
+  H.expectError(text)
 end
 
 phase = "login"

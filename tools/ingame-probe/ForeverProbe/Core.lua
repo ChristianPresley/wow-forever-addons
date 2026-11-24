@@ -202,30 +202,48 @@ local auctionCases = {
     C_AuctionHouse.SendBrowseQuery({ searchString = "", sorts = {}, filters = {} })
     return "ran"
   end },
+  -- A slot that does not exist (bag 99): the game refuses or ignores it, and the events say which.
+  { "C_Container.UseContainerItem(99, 99) from a timer, no click", function()
+    C_Container.UseContainerItem(99, 99)
+    return "ran"
+  end },
+  -- The same call from a button of the addon that the probe clicks itself: the path of the Bags
+  -- window, where Blizzard's click code calls UseContainerItem after the addon's own code ran.
+  { "C_Container.UseContainerItem(99, 99) from an addon's own OnClick, clicked by the probe", function()
+    local button = CreateFrame("Button", nil, UIParent)
+    button:SetScript("OnClick", function()
+      C_Container.UseContainerItem(99, 99)
+    end)
+    button:Click()
+    return "ran"
+  end },
 }
 
--- One auction case after another, a second apart, so that the events of each one are its own.
-local function runAuctionCase(index)
-  local probe = auctionCases[index]
-  if not probe then
-    for line = #lines - #auctionCases + 1, #lines do
-      printLine(lines[line])
-    end
-    print("|cff66ccffForever Probe|r all cases ran; lines with 'error' are the game's answers, not faults")
-    return
-  end
-  -- The list of this case is its own: another run of the probe may start its cases meanwhile.
-  local events = {}
-  captured = events
-  case(probe[1], probe[2], lines)
-  C_Timer.After(1, function()
+-- The auction cases and the item case, one after another in the same timer, so that the probe
+-- can be reloaded two seconds later. The events of a call come during the call (recorded in
+-- its line); an event that comes later is added to the last line after one second.
+local function runAuctionCases()
+  for _, probe in ipairs(auctionCases) do
+    local events = {}
+    captured = events
+    case(probe[1], probe[2], lines)
+    captured = nil
     if #events > 0 then
       lines[#lines] = lines[#lines] .. " | the game fired: " .. table.concat(events, "; ")
     end
-    if captured == events then
-      captured = nil
+  end
+  local late = {}
+  captured = late
+  C_Timer.After(1, function()
+    captured = nil
+    if #late > 0 then
+      lines[#lines] = lines[#lines] .. " | later, the game fired: " .. table.concat(late, "; ")
     end
-    runAuctionCase(index + 1)
+    local first = #lines - #auctionCases + 1
+    for line = first, #lines do
+      printLine(lines[line])
+    end
+    print("|cff66ccffForever Probe|r all cases ran; lines with 'error' are the game's answers, not faults. Wait two seconds before /reload.")
   end)
 end
 
@@ -455,9 +473,7 @@ local function run()
   -- auction 0, no item at an empty location, and a browse query with no search. Nothing is bought,
   -- sold or posted. A line says what the call returned, then the events the game fired (a refused
   -- call from an addon, or an error message of the game) during the second after the call.
-  C_Timer.After(0.5, function()
-    runAuctionCase(1)
-  end)
+  C_Timer.After(0.5, runAuctionCases)
 
   -- The cases of a fight of this session or an earlier one stay.
   local fight = ForeverProbeDB and ForeverProbeDB.fight
