@@ -58,6 +58,7 @@ T.fire("LOOT_OPENED", false, false)
 local questTotal, questCounts = ns.CountNodes()
 expect(questTotal == 4 and questCounts.quest == 1 and questCounts.treasure == nil, "a thing with a quest item as loot is a quest object and no treasure")
 expect(last().result == "recorded as quest objects on map 37", "the last cast says that it was recorded as a quest object, got " .. tostring(last().result))
+expect(last().kind == "quest" and last().target == "Deepmoss Eggs", "the cast in the history has the kind that the loot told")
 expect(ns.KIND.quest and ns.GetOption("quest") == true, "quest objects are a kind that shows from the start")
 ns.SetOption("quest", false)
 expect(#ns.VisibleNodes(37) == 3, "hidden quest objects do not show")
@@ -126,6 +127,59 @@ expect(ns.CountNodes() == before, "a chest on such a map adds no node")
 C_Map.GetBestMapForUnit = bestMap
 H.world.loot = {}
 expect(ns.MapTooLarge(13) and ns.MapTooLarge(947) and not ns.MapTooLarge(37), "a continent and the world are too large for a node, a zone is not")
+
+-- One cast is one line of the history: its end is written into the line of its start.
+local lines = #ForeverGatherDB.history
+T.fire("UNIT_SPELLCAST_SENT", "player", "Copper Vein", "Cast-24", 2575)
+expect(#ForeverGatherDB.history == lines + 1 and last().result:find("did not end yet"), "a cast that started is a line of the history")
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-24", 2575)
+expect(#ForeverGatherDB.history == lines + 1 and last().result == "recorded as ore on map 37", "the end of the cast is the same line, got " .. tostring(last().result))
+H.world.loot = { { name = "Troll Charm", quest = true } }
+T.fire("UNIT_SPELLCAST_SENT", "player", "Troll Chest", "Cast-25", 3365)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-25", 3365)
+T.fire("LOOT_READY", false)
+expect(#ForeverGatherDB.history == lines + 2 and last().result == "recorded as quest objects on map 37", "a quest object that was opened is one line too")
+ns.Forget("quest")
+H.world.loot = {}
+
+-- Where the maps of two zones overlap, a cave is a place of the zone that the player came from.
+-- The rectangles are those of two zones whose maps share a strip of the continent.
+local rectOnMap, infoAt = C_Map.GetMapRectOnMap, C_Map.GetMapInfoAtPosition
+C_Map.GetMapRectOnMap = function(zone)
+  if zone == 9001 then
+    return 0.38, 0.56, 0.18, 0.36
+  end
+  return 0.42, 0.58, 0.33, 0.49
+end
+C_Map.GetMapInfoAtPosition = function() return { mapID = 9001 } end
+local zone, zx, zy = ns.ZoneAt(13, 0.44, 0.346)
+expect(zone == 9001 and math.abs(zy - 0.9222) < 1e-3, "with no zone that the player came from, the zone that the game names has the place")
+zone, zx, zy = ns.ZoneAt(13, 0.44, 0.346, 9002)
+expect(zone == 9002 and math.abs(zx - 0.125) < 1e-6 and math.abs(zy - 0.1) < 1e-6, "the zone that the player came from has the place when it is on its map")
+zone = ns.ZoneAt(13, 0.40, 0.20, 9002)
+expect(zone == 9001, "a place that is not on the map of the zone that the player came from is of the zone that the game names")
+-- The nodes of 0.5.0 in such a strip move once: a place that was worked out from the continent,
+-- in the outer tenth of its map, goes to the other zone whose map has it. A place that the
+-- game gave (a single float) stays.
+C_Map.GetMapRectOnMap = function(zone)
+  if zone == 37 then
+    return 0.38, 0.56, 0.18, 0.36
+  end
+  return 0.42, 0.58, 0.33, 0.49
+end
+local own37, own52 = ForeverGatherDB.nodes[37], ForeverGatherDB.nodes[52]
+ForeverGatherDB.nodes[37] = {
+  { kind = "quest", name = "Sapphire", x = 0.3164023152017831, y = 0.9224205656863054, count = 1, first = 1, last = 1 },
+  { kind = "quest", name = "At the edge", x = 0.5, y = 0.9375, count = 1, first = 1, last = 1 },
+  { kind = "quest", name = "In the middle", x = 0.4000000000000001, y = 0.5000000000000001, count = 1, first = 1, last = 1 },
+}
+ForeverGatherDB.nodes[52] = nil
+expect(ns.MoveCaveNodes() == 1 and #ForeverGatherDB.nodes[37] == 2, "one node of a cave moves, the node that the game placed and the node in the middle stay")
+local cave = ForeverGatherDB.nodes[52] and ForeverGatherDB.nodes[52][1]
+expect(cave and cave.name == "Sapphire" and math.abs(cave.x - 0.1060) < 1e-3 and math.abs(cave.y - 0.1002) < 1e-3, "the node is at the same place on the map of the other zone")
+ForeverGatherDB.nodes[37], ForeverGatherDB.nodes[52] = own37, own52
+C_Map.GetMapRectOnMap, C_Map.GetMapInfoAtPosition = rectOnMap, infoAt
+expect(ns.LastZone() == 37, "the zone of the last gather on a zone map is kept")
 
 -- Nodes of the earlier version on the map of a continent go at login.
 ForeverGatherDB.nodes[13] = {

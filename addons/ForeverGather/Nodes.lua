@@ -492,21 +492,34 @@ end
 -- The gathering casts and what came of each, kept in the saved data for /fgather status and
 -- /fgather history. The newest is the last.
 local HISTORY = 20
-local function note(spellID, target, kind, result)
+-- The entry of the cast that started and did not end yet. Its end writes into this entry, so
+-- one cast is one line.
+local started
+local function note(spellID, target, kind, result, start)
   local history = ForeverGatherDB and ForeverGatherDB.history
   if not history then
     return
   end
-  history[#history + 1] = { spell = spellID, spellName = spellID and spellName(spellID) or nil, target = target, kind = kind, result = result, at = time() }
+  local entry = started
+  started = nil
+  if entry and not start and entry.spell == spellID and history[#history] == entry then
+    entry.target, entry.kind, entry.result, entry.at = target or entry.target, kind, result, time()
+    return
+  end
+  entry = { spell = spellID, spellName = spellID and spellName(spellID) or nil, target = target, kind = kind, result = result, at = time() }
+  history[#history + 1] = entry
   while #history > HISTORY do
     table.remove(history, 1)
   end
+  started = start and entry or nil
 end
-local function noteResult(result)
+-- The result of the newest cast, and the kind when the loot told it.
+local function noteResult(result, kind)
   local history = ForeverGatherDB and ForeverGatherDB.history
   local gather = history and history[#history]
   if gather then
     gather.result = result
+    gather.kind = kind or gather.kind
   end
 end
 -- The last cast at a target that is no gathering spell here. When a gather is not recognized,
@@ -567,7 +580,7 @@ local function lootShows()
   else
     -- A quest item in the loot: a quest object. Else a chest.
     local node, mapID = ns.Record(loot == "quest" and "quest" or "treasure", thing.name, thing.mapID, thing.x, thing.y)
-    noteResult(node and recorded(node, mapID) or ("not recorded: " .. mapID))
+    noteResult(node and recorded(node, mapID) or ("not recorded: " .. mapID), node and node.kind)
     if node then
       ns.CountLoot(node)
     end
@@ -590,7 +603,7 @@ local handlers = {
       castGUID = ns.PlainString(castGUID) and castGUID or nil,
       time = GetTime(),
     }
-    note(spellID, pending.name, kind, "the cast started and did not end yet")
+    note(spellID, pending.name, kind, "the cast started and did not end yet", true)
   end,
   UNIT_SPELLCAST_SUCCEEDED = function(unit, castGUID, spellID)
     if not ns.PlainString(unit) or unit ~= "player" then

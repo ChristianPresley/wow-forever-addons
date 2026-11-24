@@ -170,8 +170,8 @@ local function dropOldTreasure(db)
 end
 ns.DropOldTreasure = dropOldTreasure
 
--- What validate dropped, for one line at login: { treasure = n, misplaced = n }.
-local dropped = { treasure = 0, misplaced = 0 }
+-- What validate dropped or moved, for one line each at login.
+local dropped = { treasure = 0, misplaced = 0, moved = 0 }
 
 local function validate()
   local db = ForeverGatherDB
@@ -205,6 +205,17 @@ local function validate()
   end
   ForeverGatherDB = db
   dropped.misplaced = ns.DropMisplaced()
+  if db.caves ~= 1 then
+    dropped.moved = ns.MoveCaveNodes()
+    db.caves = 1
+  end
+end
+
+-- The last map of a zone that the player stood on. A cave without a map of its own lies under
+-- the zone that the player walked in from, also where the maps of two zones overlap.
+local lastZone
+function ns.LastZone()
+  return lastZone
 end
 
 -- The player's map and position on it. Without a place for a node: nil and the reason, for
@@ -228,19 +239,19 @@ function ns.PlayerPosition()
   if ns.MapTooLarge(mapID) then
     -- Outside an instance the game gives the continent where a place has no map of its own
     -- (a cave). The zone under that point of the continent is the map of the node.
-    local zone, zx, zy = ns.ZoneAt(mapID, x, y)
+    local zone, zx, zy = ns.ZoneAt(mapID, x, y, lastZone)
     if not zone then
       return nil, string.format("the game gave only the map of a continent (map %d), with no zone at your place", mapID)
     end
     return zone, zx, zy
   end
+  lastZone = mapID
   return mapID, x, y
 end
 
--- The zone under a point of a larger map, and the point on the map of that zone, or nil.
-function ns.ZoneAt(mapID, x, y)
-  local info = C_Map.GetMapInfoAtPosition(mapID, x, y)
-  local zone = info and info.mapID
+-- The point of a larger map on the map of a zone: the zone and the point, or nil when the
+-- point is not on that map.
+local function onZone(zone, mapID, x, y)
   if not ns.Usable(zone) or zone == mapID or ns.MapTooLarge(zone) then
     return nil
   end
@@ -253,6 +264,84 @@ function ns.ZoneAt(mapID, x, y)
     return nil
   end
   return zone, zx, zy
+end
+
+-- The zone under a point of a larger map, and the point on the map of that zone, or nil.
+-- The maps of two zones can overlap: the preferred zone wins when the point is on its map.
+function ns.ZoneAt(mapID, x, y, preferred)
+  if preferred then
+    local zone, zx, zy = onZone(preferred, mapID, x, y)
+    if zone then
+      return zone, zx, zy
+    end
+  end
+  local info = C_Map.GetMapInfoAtPosition(mapID, x, y)
+  return onZone(info and info.mapID, mapID, x, y)
+end
+
+-- True for a number that the game gave as a position: it has the 24 bits of a single float.
+-- A place that was worked out from a point of a continent has more.
+local function single(value)
+  if value <= 0 or value >= 1 then
+    return true
+  end
+  while value < 8388608 do
+    value = value * 2
+  end
+  return value == math.floor(value)
+end
+
+local function fromEdge(x, y)
+  return math.min(x, 1 - x, y, 1 - y)
+end
+
+-- Once, for the nodes of 0.5.0: it stored a cave on the zone that the game names at that point
+-- of the continent, and where two maps overlap that is the wrong one. A node that was worked
+-- out from the continent and lies in the outer tenth of its map moves to the other zone whose
+-- map has the place. Returns how many moved.
+function ns.MoveCaveNodes()
+  local moves = {}
+  for mapID, list in pairs(ForeverGatherDB.nodes) do
+    local info = type(list) == "table" and C_Map.GetMapInfo(mapID)
+    local parent = info and info.parentMapID
+    local minX, maxX, minY, maxY
+    if ns.Usable(parent) and parent ~= 0 then
+      minX, maxX, minY, maxY = C_Map.GetMapRectOnMap(mapID, parent)
+    end
+    if ns.Usable(minX) and ns.Usable(maxX) and ns.Usable(minY) and ns.Usable(maxY) and maxX > minX and maxY > minY then
+      local zones = C_Map.GetMapChildrenInfo(parent, Enum.UIMapType.Zone) or {}
+      for index = #list, 1, -1 do
+        local node = list[index]
+        local x, y = type(node) == "table" and node.x, type(node) == "table" and node.y
+        if type(x) == "number" and type(y) == "number" and not (single(x) and single(y)) and fromEdge(x, y) < 0.1 then
+          local px, py = minX + x * (maxX - minX), minY + y * (maxY - minY)
+          local best, bestX, bestY, bestEdge
+          for _, other in ipairs(zones) do
+            if other.mapID ~= mapID then
+              local zone, zx, zy = onZone(other.mapID, parent, px, py)
+              if zone and (not best or fromEdge(zx, zy) > bestEdge) then
+                best, bestX, bestY, bestEdge = zone, zx, zy, fromEdge(zx, zy)
+              end
+            end
+          end
+          if best then
+            table.remove(list, index)
+            node.x, node.y = bestX, bestY
+            moves[#moves + 1] = { map = best, node = node }
+          end
+        end
+      end
+    end
+  end
+  for _, move in ipairs(moves) do
+    local list = ForeverGatherDB.nodes[move.map]
+    if type(list) ~= "table" then
+      list = {}
+      ForeverGatherDB.nodes[move.map] = list
+    end
+    list[#list + 1] = move.node
+  end
+  return #moves
 end
 
 -- The player's rank in a skill line by its name, or nil.
@@ -273,6 +362,18 @@ function ns.SkillRank(skillName)
   return nil
 end
 
+-- The zone is kept as the player moves, so that it is known inside a cave.
+local zoneFrame = CreateFrame("Frame")
+zoneFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+zoneFrame:RegisterEvent("ZONE_CHANGED")
+zoneFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+zoneFrame:SetScript("OnEvent", function()
+  local mapID = C_Map.GetBestMapForUnit("player")
+  if ns.Usable(mapID) and not IsInInstance() and not ns.MapTooLarge(mapID) then
+    lastZone = mapID
+  end
+end)
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
@@ -285,6 +386,9 @@ frame:SetScript("OnEvent", function(self, event, name)
     self:UnregisterEvent("PLAYER_LOGIN")
     if dropped.treasure > 0 then
       ns.Print(string.format("dropped %d treasure nodes of the earlier version: it stored quest objects as treasure. Chests are learned again as you open them.", dropped.treasure))
+    end
+    if dropped.moved > 0 then
+      ns.Print(string.format("moved %d |4node:nodes; of a cave to the map of the zone that the cave is in.", dropped.moved))
     end
     if dropped.misplaced > 0 then
       ns.Print(string.format("dropped %d nodes that were stored on the map of a continent, at a wrong place.", dropped.misplaced))
