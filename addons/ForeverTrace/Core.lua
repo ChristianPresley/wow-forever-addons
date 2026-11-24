@@ -17,7 +17,8 @@ local ADDON, ns = ...
 --       forever = the first Forever addon in them, ours = true if there is one,
 --       count, first = stamp, last = stamp, version = the version of `forever` when the error was
 --       seen last (all versions of a session are in sessions), early = true if it happened before
---       this addon loaded, shot = the time in the name of the screenshot, test = true for the
+--       this addon loaded, shot = the time in the name of the screenshot, shots = each name that
+--       the file can have if the screenshot took more than one second, test = true for the
 --       error of /ftrace test }
 --   events   = the last events, the oldest first:
 --     stamp + { kind = "login"|"reload"|"world"|"zone"|"fight"|"log"|"mark"|"error"|..., addon, text,
@@ -25,7 +26,7 @@ local ADDON, ns = ...
 --     A "zone" line has from = the zone before; n counts the crossings of one border.
 --     A "fight" line is written when the fight ends, with seconds; fights with nothing between
 --     them are one line: n fights, seconds in all, till = the end of the last one.
---   marks    = the markers of the player, the oldest first: stamp + { text, shot }. They are in
+--   marks    = the markers of the player, the oldest first: stamp + { text, shot, shots }. They are in
 --     the events too, but here no other event pushes them out.
 --   internal = { count, last }: errors of Forever Trace itself, which it caught
 -- A stamp is { t = time(), at = "2026-11-23 14:02:11", session, map, zone, fight }.

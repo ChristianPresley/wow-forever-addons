@@ -102,7 +102,7 @@ local function marks(count)
   ns.Print("your markers:")
   for index = #stored, math.max(1, #stored - count + 1), -1 do
     local mark = stored[index]
-    print(string.format("  %s, %s: %s%s", tostring(mark.at or "?"), mark.zone or "?", firstLine(mark.text, 200), mark.shot and (" (screenshot " .. mark.shot .. ")") or ""))
+    print(string.format("  %s, %s: %s%s", tostring(mark.at or "?"), mark.zone or "?", firstLine(mark.text, 200), mark.shot and (" (screenshot " .. (mark.shots and table.concat(mark.shots, " or ") or mark.shot) .. ")") or ""))
   end
 end
 

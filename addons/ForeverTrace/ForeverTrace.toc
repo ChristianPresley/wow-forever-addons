@@ -2,7 +2,7 @@
 ## Title: Forever Trace
 ## Notes: For developers: keeps a record of Lua errors, blocked actions and recent events, to read after /reload.
 ## Author: Christian Presley
-## Version: 0.2.0
+## Version: 0.2.1
 ## Category: Development Tools
 ## SavedVariables: ForeverTraceDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons

@@ -238,7 +238,80 @@ T.fire("SCREENSHOT_SUCCEEDED")
 local mark = db.marks[#db.marks]
 expect(mark.text == "the bag window looks wrong" and mark.zone == "Elwynn Forest" and mark.session == 1 and type(mark.shot) == "string" and mark.shot:find("^%d%d%d%d%d%d_%d%d%d%d%d%d$"), "the marker is in its own list, with the place and the name of its screenshot")
 T.slash("/ftrace", "marks")
-expect(T.printed("Elwynn Forest: the bag window looks wrong %(screenshot %d+_%d+%)"), "/ftrace marks lists the markers")
+expect(T.printed("Elwynn Forest: the bag window looks wrong %(screenshot %d+_%d+"), "/ftrace marks lists the markers")
+
+-- Which screenshot belongs to which entry.
+local function lastMarks(count)
+  local out = {}
+  for position = #db.marks - count + 1, #db.marks do
+    out[#out + 1] = db.marks[position]
+  end
+  return unpack(out)
+end
+-- Two markers before the screenshot is taken: one screenshot, and both have its name.
+local shotsBefore = shots
+ns.Mark("first of two")
+ns.Mark("second of two")
+T.advance(1)
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+local one, two = lastMarks(2)
+expect(shots == shotsBefore + 1 and one.shot ~= nil and one.shot ~= "failed" and one.shot == two.shot, "two markers before one screenshot both have its name")
+-- Two screenshots on the way at the same time: each entry gets the result of its own.
+ns.Mark("the first call")
+T.advance(1)
+ns.Mark("the second call")
+T.advance(1)
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+T.fire("SCREENSHOT_FAILED")
+one, two = lastMarks(2)
+expect(shots == shotsBefore + 3 and one.shot ~= nil and one.shot ~= "failed" and two.shot == "failed", "two screenshots on the way: the first entry has the first result, the second the second")
+-- The player presses Print Screen before the addon's own call: the marker does not take that one.
+ns.Mark("the player was faster")
+local eventsNow = #db.events
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+one = lastMarks(1)
+expect(one.shot == nil and #db.events == eventsNow, "a screenshot of the player before the addon's call is not given to the marker")
+T.advance(1)
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+expect(shots == shotsBefore + 4 and one.shot ~= nil and one.shot ~= "failed", "the marker gets the addon's own screenshot")
+-- A screenshot of the player while the addon's one is on the way: the order of the starts decides.
+ns.Mark("the player was second")
+T.advance(1)
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+one = lastMarks(1)
+eventsNow = #db.events
+T.fire("SCREENSHOT_FAILED")
+expect(one.shot ~= nil and one.shot ~= "failed" and #db.events == eventsNow, "a screenshot of the player after the addon's start does not change the marker")
+-- The clock goes on between the call and the end: all names that the file can have are stored.
+local realTime = time
+local late = 0
+time = function() return realTime() + late end
+ns.Mark("a slow screenshot")
+T.advance(1)
+T.fire("SCREENSHOT_STARTED")
+late = 1
+T.fire("SCREENSHOT_SUCCEEDED")
+time = realTime
+one = lastMarks(1)
+expect(type(one.shots) == "table" and #one.shots >= 2 and one.shots[1] == one.shot and one.shots[2] ~= one.shot and lastEvent().text == table.concat(one.shots, " or "), "a screenshot over more than one second has each name that the file can have: " .. tostring(one.shot) .. " / " .. tostring(one.shots and table.concat(one.shots, ",")) .. " / " .. tostring(lastEvent().text))
+expect(two.shots == nil, "a screenshot within one second has one name")
+-- The game says nothing after the call: the entry does not wait for ever.
+ns.Mark("no answer")
+T.advance(1)
+one = lastMarks(1)
+expect(one.shot == nil, "before the game answers the marker has no name")
+T.advance(15)
+expect(one.shot == "failed", "a call that the game does not answer is stored as failed")
+eventsNow = #db.events
+T.fire("SCREENSHOT_SUCCEEDED")
+expect(#db.events == eventsNow, "a later screenshot of the player is still not an event")
 T.slash("/ftrace", "screenshots")
 Screenshot = realShot
 
@@ -246,7 +319,7 @@ Screenshot = realShot
 T.slash("/ftrace", "status")
 expect(T.printed("session 1, recording .+ errors stored %(%d+ of Forever addons%), %d+ events"), "/ftrace status has the counts")
 expect(T.printed("last: #%d+ error in ForeverQuests, 1 times"), "/ftrace status has the last error")
-T.slash("/ftrace", "show 3")
+T.slash("/ftrace", "show 50")
 expect(T.printed("mark: the bag window looks wrong"), "/ftrace show lists the last events")
 T.slash("/ftrace", "errors")
 expect(T.printed("in Questie %(not ours%)"), "/ftrace errors marks the errors of other addons")
@@ -299,7 +372,7 @@ local inRing = false
 for _, entry in ipairs(db.events) do
   inRing = inRing or entry.kind == "mark"
 end
-expect(not inRing and #db.marks >= 2 and db.marks[#db.marks].text == "the bag window looks wrong", "the events pushed the markers out of the ring, not out of their list")
+expect(not inRing and #db.marks >= 2 and db.marks[#db.marks].text == "no answer", "the events pushed the markers out of the ring, not out of their list")
 for number = 1, 200 do
   ns.Mark("marker " .. number)
 end

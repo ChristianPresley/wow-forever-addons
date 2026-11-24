@@ -13,26 +13,109 @@ local ADDON, ns = ...
 -- Blocked actions and warnings come as events.
 
 local SHOT_DELAY = 0.5 -- the error window of the game is on the screen by then
+local SHOT_WAIT = 10 -- seconds until a call of Screenshot() that the game did not answer is "failed"
+local SHOT_NAMES = 3 -- seconds after the call whose names are stored at most
 local SETTLE_SECONDS = 1 -- after a zone event the game gives the right map by then
 local BORDER_SECONDS = 60 -- a crossing back within this time is the same border
 
 ---------------------------------------------------------------------------------------------------
 -- Screenshots
 
-local lastShot = nil -- GetTime() of the last one
-local pending = nil -- { entry = the error it is for, test = true for /ftrace shot, name = ... }
+-- One call of Screenshot() is one batch: { entries = the errors and markers it is for,
+-- test = true for /ftrace shot, from = time() of the call, done }. An entry that asks while a
+-- batch waits for its call joins that batch, so no entry loses its screenshot to the next one.
+--
+-- Which screenshot of the game is which batch: the game says SCREENSHOT_STARTED and then
+-- SCREENSHOT_SUCCEEDED or SCREENSHOT_FAILED for each screenshot, in the order of the calls. A
+-- start that no call of this addon waits for is a screenshot of the player (the Print Screen
+-- key): it is followed to its end, and no entry gets it.
+local lastShot = nil -- GetTime() of the last request
+local waiting = nil -- the batch of the next call
+local called = {} -- the batches whose call is made and which the game has not started, the oldest first
+local started = {} -- the screenshots that the game has started, the oldest first: a batch, or false for one of the player
 
 -- The time in the file name of a screenshot: Screenshots/WoWScrnShot_MMDDYY_HHMMSS.jpg.
-local function shotName()
-  return date("%m%d") .. date("%Y"):sub(3) .. "_" .. date("%H%M%S")
+local function shotName(t)
+  return date("%m%d", t) .. date("%Y", t):sub(3) .. "_" .. date("%H%M%S", t)
+end
+
+local function drop(list, batch)
+  for position = #list, 1, -1 do
+    if list[position] == batch then
+      table.remove(list, position)
+    end
+  end
+end
+
+-- The end of a batch. The game takes the time for the file name at some moment between the call
+-- and the end. Mostly that is one second, and `shot` is the name. If the clock went on in
+-- between, the file has one of the names in `shots`.
+local function finish(batch, ok)
+  if batch.done then
+    return
+  end
+  batch.done = true
+  local name, names = "failed", nil
+  if ok then
+    local from, to = batch.from, time()
+    if to < from or to - from > SHOT_NAMES then
+      to = from + SHOT_NAMES
+    end
+    name = shotName(from)
+    if to > from then
+      names = {}
+      for t = from, to do
+        names[#names + 1] = shotName(t)
+      end
+    end
+  end
+  for _, entry in ipairs(batch.entries) do
+    entry.shot, entry.shots = name, names
+  end
+  ns.Push("screenshot", nil, names and table.concat(names, " or ") or name)
+  if batch.test then
+    if ok then
+      ns.Print("the screenshot worked: WoWScrnShot_" .. name .. ".jpg in the Screenshots folder. /ftrace screenshots turns them on for new errors.")
+    else
+      ns.Print("the game did not take the screenshot.")
+    end
+  end
+  ns.Changed()
+end
+
+-- The game said nothing about a call for SHOT_WAIT seconds: its entries do not wait for ever.
+local function expire(batch)
+  drop(called, batch)
+  drop(started, batch)
+  finish(batch, false)
+end
+
+local function take(batch)
+  if waiting == batch then
+    waiting = nil
+  end
+  batch.from = time()
+  called[#called + 1] = batch
+  C_Timer.After(SHOT_WAIT, function()
+    ns.Safely(expire, batch)
+  end)
+  Screenshot()
 end
 
 local function shoot(entry, test)
-  pending = { entry = entry, test = test }
   lastShot = GetTime()
-  C_Timer.After(test and 0 or SHOT_DELAY, function()
-    ns.Safely(Screenshot)
-  end)
+  local batch = waiting
+  if not batch then
+    batch = { entries = {} }
+    waiting = batch
+    C_Timer.After(test and 0 or SHOT_DELAY, function()
+      ns.Safely(take, batch)
+    end)
+  end
+  if entry then
+    batch.entries[#batch.entries + 1] = entry
+  end
+  batch.test = batch.test or test or nil
 end
 
 -- A screenshot for a new error, if the option is on and the last one is long enough ago.
@@ -52,23 +135,20 @@ function ns.TestShot()
   shoot(nil, true)
 end
 
+local function shotStarted()
+  started[#started + 1] = table.remove(called, 1) or false
+end
+
 local function shotDone(ok)
-  local shot = pending
-  pending = nil
-  if not shot then
-    return -- a screenshot of the player
+  local batch
+  if #started > 0 then
+    batch = table.remove(started, 1)
+  else
+    -- An end without a start: of a call of this addon, if one waits.
+    batch = table.remove(called, 1)
   end
-  local name = ok and (shot.name or shotName()) or "failed"
-  if shot.entry then
-    shot.entry.shot = name
-  end
-  ns.Push("screenshot", nil, name)
-  if shot.test then
-    if ok then
-      ns.Print("the screenshot worked: WoWScrnShot_" .. name .. ".jpg in the Screenshots folder. /ftrace screenshots turns them on for new errors.")
-    else
-      ns.Print("the game did not take the screenshot.")
-    end
+  if batch then
+    finish(batch, ok)
   end
 end
 
@@ -329,11 +409,7 @@ function handlers.LUA_WARNING(text)
   recorded(ns.Record(text:find("[Tt]aint") and "taint" or "warning", text, "", nil, nil))
 end
 
-function handlers.SCREENSHOT_STARTED()
-  if pending then
-    pending.name = shotName()
-  end
-end
+handlers.SCREENSHOT_STARTED = shotStarted
 
 function handlers.SCREENSHOT_SUCCEEDED()
   shotDone(true)
