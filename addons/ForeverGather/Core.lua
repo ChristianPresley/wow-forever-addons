@@ -2,10 +2,13 @@ local _, ns = ...
 
 -- Saved data, in ForeverGatherDB (for all characters):
 --   version = 2   (1 had quest objects as treasure: its treasure nodes are dropped)
---   options = { herb, ore, fish, treasure, quest, worldMap, minimap, hideTrivial, minSkill, size }
---   nodes   = { [mapID] = { { kind = s, name = s, x = n, y = n, count = n, first = n, last = n }, ... } }
+--   options = { herb, ore, fish, treasure, quest, worldMap, minimap, hideTrivial, minSkill, size,
+--               alert, alertSound, alertYards, dimMinutes, skillColours }
+--   nodes   = { [mapID] = { { kind = s, name = s, x = n, y = n, count = n, first = n, last = n,
+--               loot = { [item] = n }, looted = n, imported = true }, ... } }
 --             x, y from 0 to 1. first, last: time() of the first and the last gather (nil for a
---             node of a version before 0.3.0)
+--             node of a version before 0.3.0). loot: what the node gave, summed over looted loot
+--             windows. imported with count 0: a node from an import that was not gathered yet.
 --   names   = { [name] = { kind = s, skill = n } }   skill: the lowest skill rank seen at a gather
 --   history = { { spell = n, spellName = s, target = s, kind = s, result = s, at = n }, ... }
 --             the last gathering casts and what came of each, the newest last, for
@@ -59,10 +62,17 @@ ns.OPTION_DEFAULTS = {
   hideTrivial = false, -- hide nodes that the skill has outgrown (no more skill ups)
   minSkill = 0, -- hide nodes learned at a skill below this
   size = 14, -- pixels, of a pin on the minimap; world map pins are a little larger
+  alert = true, -- say when a learned node comes near
+  alertSound = true, -- with a sound
+  alertYards = 60, -- near is within this many yards
+  dimMinutes = 5, -- a pin is dim for this long after its gather; 0: never
+  skillColours = true, -- a dot on the pin in the colour of the difficulty for your skill
 }
 ns.OPTION_LIMITS = {
   minSkill = { 0, 300 },
   size = { 8, 32 },
+  alertYards = { 20, 200 },
+  dimMinutes = { 0, 30 },
 }
 
 local listeners = {}

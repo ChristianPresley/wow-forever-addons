@@ -68,12 +68,12 @@ function ns.OnOtherMap(fromMap, x, y, toMap)
 end
 
 -- The nodes that can show on the minimap of a player on mapID, each with its place on that
--- map: { { node = node, x = n, y = n }, ... }. The nodes of the map itself, and the nodes of
--- the other zones of its continent.
+-- map: { { node = node, mapID = n, x = n, y = n }, ... }. The nodes of the map itself, and the
+-- nodes of the other zones of its continent.
 function ns.NodesAround(mapID)
   local out = {}
   for _, node in ipairs(ns.VisibleNodes(mapID)) do
-    out[#out + 1] = { node = node, x = node.x, y = node.y }
+    out[#out + 1] = { node = node, mapID = mapID, x = node.x, y = node.y }
   end
   for otherMap in pairs(ForeverGatherDB and ForeverGatherDB.nodes or {}) do
     if otherMap ~= mapID and ns.Usable(otherMap) and not ns.MapTooLarge(otherMap) then
@@ -82,12 +82,29 @@ function ns.NodesAround(mapID)
         if not x then
           break -- the map has no place on this continent
         end
-        out[#out + 1] = { node = node, x = x, y = y }
+        out[#out + 1] = { node = node, mapID = otherMap, x = x, y = y }
       end
     end
   end
   return out
 end
+
+-- The same list, kept until the nodes or the options change, the player is on another map, or
+-- LIST_SECONDS passed. The second result is a number that changes with each new list.
+local list, listMap, listTime
+local listDirty, listNumber = true, 0
+function ns.NearList(mapID)
+  local now = GetTime()
+  if listDirty or mapID ~= listMap or now - listTime > LIST_SECONDS then
+    list, listMap, listTime = ns.NodesAround(mapID), mapID, now
+    listDirty = false
+    listNumber = listNumber + 1
+  end
+  return list, listNumber
+end
+ns.OnChange(function()
+  listDirty = true
+end)
 
 -- Where a node is on the minimap, in pixels from its centre (right, up), or nil off the minimap.
 -- facing is the player's facing in radians when the minimap turns with the player, else nil.
@@ -124,7 +141,6 @@ end
 
 -- What the pins were last placed for. Nothing is done while none of it changes.
 local last = {}
-local list, listMap, listTime
 local dirty = true
 
 local function draw()
@@ -163,19 +179,16 @@ local function draw()
   end
   local size = ns.GetOption("size")
   local square = isSquare()
-  local now = GetTime()
-  local stale = dirty or mapID ~= listMap or now - listTime > LIST_SECONDS
-  if not stale and last.px == px and last.py == py and last.radius == radius and last.half == half
-    and last.facing == facing and last.size == size and last.square == square then
+  local near, number = ns.NearList(mapID)
+  if not dirty and last.number == number and last.px == px and last.py == py and last.radius == radius
+    and last.half == half and last.facing == facing and last.size == size and last.square == square then
     return
   end
-  if stale then
-    list, listMap, listTime = ns.NodesAround(mapID), mapID, now
-    dirty = false
-  end
+  dirty = false
+  last.number = number
   last.px, last.py, last.radius, last.half, last.facing, last.size, last.square = px, py, radius, half, facing, size, square
   local count = 0
-  for _, entry in ipairs(list) do
+  for _, entry in ipairs(near) do
     local x, y = ns.MinimapOffset(entry, px, py, width, height, radius, half, facing or nil, square)
     if x then
       count = count + 1
@@ -184,10 +197,7 @@ local function draw()
         pin = ns.NewPin(layer)
         pins[count] = pin
       end
-      if pin.node ~= entry.node or pin.size ~= size then
-        ns.SetPinNode(pin, entry.node, size)
-        pin.size = size
-      end
+      ns.SetPinNode(pin, entry.node, size, entry.mapID)
       pin:ClearAllPoints()
       pin:SetPoint("CENTER", layer, "CENTER", x, y)
       pin:Show()

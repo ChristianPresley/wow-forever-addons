@@ -41,6 +41,55 @@ local function history()
   end
 end
 
+local function sessionReport()
+  local session = ns.Session()
+  if session.total == 0 then
+    ns.Print("No gather in this session yet.")
+    return
+  end
+  local hours = math.max(GetTime() - session.start, 60) / 3600
+  ns.Print(string.format("This session: %d |4gather:gathers;, %.0f for each hour.", session.total, session.total / hours))
+  for _, kind in ipairs(ns.KINDS) do
+    local count = session.kinds[kind.key]
+    if count then
+      ns.Print(string.format("  %s: %d", kind.name, count))
+    end
+  end
+  local names = {}
+  for name, count in pairs(session.names) do
+    names[#names + 1] = { name = name, count = count }
+  end
+  table.sort(names, function(a, b)
+    if a.count ~= b.count then
+      return a.count > b.count
+    end
+    return a.name < b.name
+  end)
+  for index = 1, math.min(#names, 8) do
+    ns.Print(string.format("  %s: %d", names[index].name, names[index].count))
+  end
+end
+
+local function zoneReport()
+  local mapID, reason = ns.PlayerPosition()
+  if not mapID then
+    ns.Print("No list: " .. reason .. ".")
+    return
+  end
+  local list = ns.ZoneList(mapID)
+  local info = C_Map.GetMapInfo(mapID)
+  local zone = info and info.name or ("map " .. mapID)
+  if #list == 0 then
+    ns.Print("Nothing is learned in " .. zone .. " yet.")
+    return
+  end
+  ns.Print(string.format("Learned in %s, the lowest skill first:", zone))
+  for _, entry in ipairs(list) do
+    local skill = entry.skill and string.format(", gathered at %s %d", ns.KIND[entry.kind].skill, entry.skill) or ""
+    ns.Print(string.format("  %s (%s): %d |4place:places;, %d |4gather:gathers;%s", entry.name, ns.KIND[entry.kind].name:lower(), entry.nodes, entry.gathers, skill))
+  end
+end
+
 local function status()
   local total, counts = ns.CountNodes()
   ns.Print(string.format("%d nodes learned.", total))
@@ -73,6 +122,10 @@ end
 local function help()
   ns.Print("/fgather status - what is learned, the settings, and the last gathering cast with what came of it")
   ns.Print("/fgather history - the last gathering casts and what came of each")
+  ns.Print("/fgather zone - what is learned in this zone, by name")
+  ns.Print("/fgather session - the gathers of this session; /fgather session reset starts again")
+  ns.Print("/fgather export | import - the nodes as text, for another player")
+  ns.Print("/fgather alert - say when a learned node comes near, or not")
   ns.Print("/fgather herb | ore | fish | treasure | quest - show or hide a kind")
   ns.Print("/fgather map | minimap - show or hide the pins there")
   ns.Print("/fgather trivial - hide nodes that give no more skill")
@@ -83,7 +136,7 @@ local function help()
   ns.Print("/fgather forget here - forget the node nearest to you")
 end
 
-local TOGGLES = { map = "worldMap", minimap = "minimap", trivial = "hideTrivial" }
+local TOGGLES = { map = "worldMap", minimap = "minimap", trivial = "hideTrivial", alert = "alert" }
 
 SLASH_FOREVERGATHER1 = "/fgather"
 SlashCmdList.FOREVERGATHER = function(text)
@@ -106,6 +159,19 @@ SlashCmdList.FOREVERGATHER = function(text)
     ns.OpenSettings()
   elseif command == "history" then
     history()
+  elseif command == "zone" then
+    zoneReport()
+  elseif command == "session" then
+    if rest == "reset" then
+      ns.ResetSession()
+      ns.Print("The count of this session starts again.")
+    else
+      sessionReport()
+    end
+  elseif command == "export" then
+    ns.ShowExport()
+  elseif command == "import" then
+    ns.ShowImport()
   elseif command == "forget" and rest == "here" then
     local node, reason = ns.ForgetHere()
     ns.Print(node and ("Forgot " .. node.name .. ".") or ("Nothing forgotten: " .. reason .. "."))

@@ -27,6 +27,11 @@ local NAMED_BY = { [2366] = "herb", [2575] = "ore", [7620] = "fish", [3365] = "t
 -- Two nodes of the same name nearer than this (a part of the map) are one node. Fish are caught
 -- anywhere along a shore, so their places merge over a wider span.
 local SAME = { herb = 0.004, ore = 0.004, treasure = 0.004, quest = 0.004, fish = 0.012 }
+ns.SAME = SAME
+-- The loot of a fishing cast shows when the fish bites: up to this long after the cast.
+local FISH_LOOT_SECONDS = 35
+-- A node keeps the counts of at most this many different items.
+local LOOT_ITEMS = 12
 -- A cast that does not succeed within this many seconds is forgotten.
 local PENDING_SECONDS = 30
 -- The loot of an opened thing shows within this many seconds of the cast.
@@ -91,20 +96,15 @@ function ns.Record(kind, name, mapID, x, y)
   local nodes = ForeverGatherDB.nodes
   nodes[mapID] = nodes[mapID] or {}
   local list = nodes[mapID]
-  local same = SAME[kind]
-  local found
-  for _, node in ipairs(list) do
-    if node.kind == kind and node.name == name and math.abs(node.x - x) < same and math.abs(node.y - y) < same then
-      found = node
-      break
-    end
-  end
+  local found = ns.FindNode(list, kind, name, x, y)
   if found then
-    -- The place moves toward the average of the gathers there.
+    -- The place moves toward the average of the gathers there. The first gather of an imported
+    -- node puts it where the player stands.
     local count = found.count + 1
     found.x = found.x + (x - found.x) / count
     found.y = found.y + (y - found.y) / count
     found.count = count
+    found.first = found.first or time()
     found.last = time()
   else
     found = { kind = kind, name = name, x = x, y = y, count = 1, first = time(), last = time() }
@@ -119,8 +119,148 @@ function ns.Record(kind, name, mapID, x, y)
   if rank and (not entry.skill or rank < entry.skill) then
     entry.skill = rank
   end
+  ns.CountInSession(kind, name)
   ns.Changed()
   return found, mapID
+end
+
+-- The node of a list with this kind and name at this place, or nil.
+function ns.FindNode(list, kind, name, x, y)
+  local same = SAME[kind]
+  for _, node in ipairs(list) do
+    if node.kind == kind and node.name == name and math.abs(node.x - x) < same and math.abs(node.y - y) < same then
+      return node
+    end
+  end
+  return nil
+end
+
+-- The gathers since the first one after login: { start = GetTime(), total = n, kinds = { [kind] = n },
+-- names = { [name] = n } }. Not saved.
+local session = { total = 0, kinds = {}, names = {} }
+function ns.CountInSession(kind, name)
+  session.start = session.start or GetTime()
+  session.total = session.total + 1
+  session.kinds[kind] = (session.kinds[kind] or 0) + 1
+  session.names[name] = (session.names[name] or 0) + 1
+end
+function ns.Session()
+  return session
+end
+function ns.ResetSession()
+  session = { total = 0, kinds = {}, names = {} }
+end
+
+-- Adds the items of the loot window to what the node gave.
+function ns.CountLoot(node)
+  local count = GetNumLootItems()
+  if not ns.Usable(count) then
+    return
+  end
+  local loot = node.loot or {}
+  local different = 0
+  for _ in pairs(loot) do
+    different = different + 1
+  end
+  local any = false
+  for slot = 1, count do
+    local _, item, quantity = GetLootSlotInfo(slot)
+    -- Money has the quantity 0.
+    if ns.PlainString(item) and ns.Usable(quantity) and quantity > 0 then
+      if loot[item] or different < LOOT_ITEMS then
+        if not loot[item] then
+          different = different + 1
+        end
+        loot[item] = (loot[item] or 0) + quantity
+        any = true
+      end
+    end
+  end
+  if any then
+    node.loot = loot
+    node.looted = (node.looted or 0) + 1
+  end
+end
+
+-- What a node gave, the most first: { { item = s, count = n }, ... }.
+function ns.LootOf(node)
+  local out = {}
+  for item, count in pairs(type(node.loot) == "table" and node.loot or {}) do
+    out[#out + 1] = { item = item, count = count }
+  end
+  table.sort(out, function(a, b)
+    if a.count ~= b.count then
+      return a.count > b.count
+    end
+    return a.item < b.item
+  end)
+  return out
+end
+
+-- How hard a node is for the player's skill: a word and a colour, or nil where it is not known.
+-- The skill that the node was first gathered at stands for the skill that it needs.
+function ns.Difficulty(node)
+  local learned = ns.LearnedSkill(node.name)
+  local rank = ns.SkillRank(ns.KIND[node.kind].skill)
+  if not learned or not rank then
+    return nil
+  end
+  local over = rank - learned
+  if over < 0 then
+    return "needs more skill", 1, 0.1, 0.1
+  elseif over < 25 then
+    return "orange", 1, 0.5, 0.25
+  elseif over < 50 then
+    return "yellow", 1, 1, 0
+  elseif over < 100 then
+    return "green", 0.25, 0.75, 0.25
+  end
+  return "grey", 0.5, 0.5, 0.5
+end
+
+-- True for a node that was gathered within the minutes of the option "dimMinutes".
+function ns.RecentlyGathered(node)
+  local minutes = ns.GetOption("dimMinutes")
+  return minutes > 0 and type(node.last) == "number" and time() - node.last < minutes * 60
+end
+
+-- What is known on a map, by name: { { name, kind, nodes, gathers, skill }, ... }, the lowest
+-- skill first, then by name.
+function ns.ZoneList(mapID)
+  local byName, out = {}, {}
+  local list = ForeverGatherDB and ForeverGatherDB.nodes[mapID]
+  for _, node in ipairs(type(list) == "table" and list or {}) do
+    local key = node.kind .. ":" .. node.name
+    local entry = byName[key]
+    if not entry then
+      entry = { name = node.name, kind = node.kind, nodes = 0, gathers = 0, skill = ns.LearnedSkill(node.name) }
+      byName[key] = entry
+      out[#out + 1] = entry
+    end
+    entry.nodes = entry.nodes + 1
+    entry.gathers = entry.gathers + node.count
+  end
+  table.sort(out, function(a, b)
+    local sa, sb = a.skill or 1000, b.skill or 1000
+    if sa ~= sb then
+      return sa < sb
+    end
+    return a.name < b.name
+  end)
+  return out
+end
+
+-- Forgets one node of a map. Returns true when it was there.
+function ns.ForgetNode(mapID, node)
+  local list = ForeverGatherDB and ForeverGatherDB.nodes[mapID]
+  for index, other in ipairs(type(list) == "table" and list or {}) do
+    if other == node then
+      table.remove(list, index)
+      ns.Changed()
+      return true
+    end
+  end
+  return false
 end
 
 -- The skill that a node name was first seen gathered at, or nil.
@@ -285,10 +425,16 @@ end
 local pending
 -- The thing that was opened and waits for its loot: { name, mapID, x, y, time }.
 local opened
+-- The node that was gathered and whose loot comes: { node, time, seconds }.
+local gathered
 
 local function lootShows()
-  local thing = opened
-  opened = nil
+  local thing, from = opened, gathered
+  opened, gathered = nil, nil
+  if from and GetTime() - from.time <= from.seconds then
+    ns.CountLoot(from.node)
+    return
+  end
   if not thing or GetTime() - thing.time > LOOT_SECONDS then
     return
   end
@@ -299,6 +445,9 @@ local function lootShows()
     -- A quest item in the loot: a quest object. Else a chest.
     local node, mapID = ns.Record(loot == "quest" and "quest" or "treasure", thing.name, thing.mapID, thing.x, thing.y)
     noteResult(node and recorded(node, mapID) or ("not recorded: " .. mapID))
+    if node then
+      ns.CountLoot(node)
+    end
   end
 end
 
@@ -343,12 +492,14 @@ local handlers = {
         note(spellID, name, kind, "not recorded: " .. x)
         return
       end
-      opened = { name = name, mapID = mapID, x = x, y = y, time = GetTime() }
+      opened, gathered = { name = name, mapID = mapID, x = x, y = y, time = GetTime() }, nil
       note(spellID, name, kind, "not recorded: no loot window came after it, so it is no chest and no quest object with loot")
       return
     end
     local node, mapID = ns.Record(kind, name)
     note(spellID, name, kind, node and recorded(node, mapID) or ("not recorded: " .. mapID))
+    opened = nil
+    gathered = node and { node = node, time = GetTime(), seconds = kind == "fish" and FISH_LOOT_SECONDS or LOOT_SECONDS } or nil
   end,
   UNIT_SPELLCAST_FAILED = function(unit)
     if ns.PlainString(unit) and unit == "player" and pending then

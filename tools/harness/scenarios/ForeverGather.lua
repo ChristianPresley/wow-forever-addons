@@ -208,6 +208,147 @@ expect(sx and math.abs(sx - 56) < 1e-6 and math.abs(sy - 56) < 1e-6, "a node in 
 corner.x = 0.53
 expect(ns.MinimapOffset(corner, 0.42, 0.65, 1000, 1000, 100, 70, nil, true) == nil, "a node 110 yards east is off a square minimap too")
 
+-- What a node gave: the loot window after a gather is counted on the node.
+local peacebloom = ns.VisibleNodes(37)[1]
+expect(peacebloom.name == "Peacebloom" and peacebloom.loot == nil, "the herb has no loot yet")
+H.world.loot = { { name = "Peacebloom", quest = false }, { name = "Earthroot", quest = false } }
+local gathersBefore = peacebloom.count
+T.fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "Cast-50", 2366)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-50", 2366)
+T.fire("LOOT_READY", false)
+T.fire("LOOT_OPENED", false, false)
+expect(peacebloom.count == gathersBefore + 1 and peacebloom.loot and peacebloom.loot["Peacebloom"] == 1 and peacebloom.loot["Earthroot"] == 1 and peacebloom.looted == 1,
+  "the loot of the gather is counted once on the node")
+H.world.loot = { { name = "Peacebloom", quest = false } }
+T.fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "Cast-51", 2366)
+T.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-51", 2366)
+T.fire("LOOT_READY", false)
+local gave = ns.LootOf(peacebloom)
+expect(peacebloom.looted == 2 and #gave == 2 and gave[1].item == "Peacebloom" and gave[1].count == 2 and gave[2].item == "Earthroot", "the node names what it gave, the most first")
+T.fire("LOOT_READY", false)
+expect(peacebloom.looted == 2 and peacebloom.loot["Peacebloom"] == 2, "a loot window without a gather before it counts nothing")
+H.world.loot = {}
+
+-- The gathers of the session, and /fgather session.
+local session = ns.Session()
+expect(session.total >= 6 and session.kinds.herb >= 4 and session.names["Peacebloom"] >= 4, "the session counts the gathers by kind and by name")
+T.slash("/fgather", "session")
+expect(T.printed("This session: " .. session.total .. " |4gather:gathers;, ") and T.printed("  Peacebloom: " .. session.names["Peacebloom"]), "/fgather session says the gathers of the session")
+T.slash("/fgather", "session reset")
+expect(ns.Session().total == 0, "/fgather session reset starts the count again")
+T.slash("/fgather", "session")
+expect(T.printed("No gather in this session yet"), "after the reset the session has no gather")
+
+-- /fgather zone: what is known in the zone, by name.
+local zoneList = ns.ZoneList(37)
+local zoneHerb
+for _, entry in ipairs(zoneList) do
+  if entry.name == "Peacebloom" then
+    zoneHerb = entry
+  end
+end
+expect(#zoneList == 4 and zoneHerb and zoneHerb.nodes == 1 and zoneHerb.gathers == peacebloom.count, "the list of the zone has the four names, the herb with its gathers")
+T.slash("/fgather", "zone")
+expect(T.printed("Learned in Elwynn Forest") and T.printed("  Peacebloom %(herbs%): 1 |4place:places;, " .. peacebloom.count .. " |4gather"), "/fgather zone lists the zone")
+
+-- The difficulty of a node for the player's skill, from the skill that it was learned at.
+-- The player of the stand-in has no profession: for these checks the rank in Herbalism is 150.
+local skillRank = ns.SkillRank
+local herbalism = 150
+ns.SkillRank = function(skill) return skill == "Herbalism" and herbalism or nil end
+local learnedAt = ForeverGatherDB.names["Peacebloom"].skill
+ForeverGatherDB.names["Peacebloom"].skill = herbalism
+expect(ns.Difficulty(peacebloom) == "orange", "a node learned at the player's skill is orange")
+ForeverGatherDB.names["Peacebloom"].skill = herbalism - 30
+expect(ns.Difficulty(peacebloom) == "yellow", "30 points over the node is yellow")
+ForeverGatherDB.names["Peacebloom"].skill = herbalism - 60
+expect(ns.Difficulty(peacebloom) == "green", "60 points over the node is green")
+ForeverGatherDB.names["Peacebloom"].skill = herbalism - 100
+expect(ns.Difficulty(peacebloom) == "grey", "100 points over the node is grey")
+ForeverGatherDB.names["Peacebloom"].skill = herbalism + 10
+expect(ns.Difficulty(peacebloom) == "needs more skill", "a node learned by another character at a higher skill needs more skill")
+ForeverGatherDB.names["Peacebloom"].skill = learnedAt
+expect(ns.Difficulty({ kind = "treasure", name = "Treasure" }) == nil, "a chest has no difficulty")
+ns.SkillRank = skillRank
+expect(ns.Difficulty(peacebloom) == nil, "without a rank in the skill the difficulty is not known")
+
+-- A node is dim for some minutes after its gather.
+expect(ns.RecentlyGathered(peacebloom), "the herb that was gathered now is recent")
+expect(not ns.RecentlyGathered({ last = time() - 600 }), "a gather ten minutes ago is not recent")
+ns.SetOption("dimMinutes", 0)
+expect(not ns.RecentlyGathered(peacebloom), "with 0 minutes no node is recent")
+ns.SetOption("dimMinutes", 5)
+
+-- The alert: a node that comes near is said once for a visit. The nodes at the player were
+-- gathered now and are not said.
+expect(ns.DirectionWord(0, 10) == "north" and ns.DirectionWord(10, -10) == "south-east" and ns.DirectionWord(-10, 0) == "west", "the direction has its word")
+local silver = { kind = "ore", name = "Silver Vein", x = 0.45, y = 0.65, count = 1, first = time() - 3600, last = time() - 3600 }
+table.insert(ForeverGatherDB.nodes[37], silver)
+ns.Changed()
+local alertsBefore = ns.AlertCount()
+expect(ns.CheckNearby() == 1 and ns.AlertCount() == alertsBefore + 1, "the node 30 yards away is said, the nodes gathered now are not")
+expect(T.printed("Silver Vein is 30 yards to the east"), "the alert says the name, the distance and the direction")
+expect(ns.CheckNearby() == 0, "the node is not said again in the same visit")
+local mapPosition = C_Map.GetPlayerMapPosition
+C_Map.GetPlayerMapPosition = function() return CreateVector2D(0.9, 0.65) end
+expect(ns.CheckNearby() == 0, "450 yards away nothing is near")
+C_Map.GetPlayerMapPosition = mapPosition
+expect(ns.CheckNearby() == 1, "back at the node it is said again: a new visit")
+C_Map.GetPlayerMapPosition = function() return CreateVector2D(0.9, 0.65) end
+ns.CheckNearby()
+C_Map.GetPlayerMapPosition = mapPosition
+ns.SetOption("alert", false)
+expect(ns.CheckNearby() == 0, "with the alert off nothing is said")
+T.slash("/fgather", "alert")
+expect(ns.GetOption("alert") == true, "/fgather alert turns the alert on again")
+ns.SetOption("alertYards", 20)
+expect(ns.CheckNearby() == 0, "with 20 yards the node 30 yards away is not near")
+ns.SetOption("alertYards", 60)
+
+-- The map pin of the game on a node, and forget one node: the two entries of the menu of a pin.
+local canPin, setPin = C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint
+C_Map.CanSetUserWaypointOnMap = function() return false end
+expect(ns.SetWaypoint(37, silver):find("takes no map pin"), "where the game takes no map pin, the player is told")
+C_Map.CanSetUserWaypointOnMap = function() return true end
+C_Map.SetUserWaypoint = function(point) H.gatherPin = point return true end
+expect(ns.SetWaypoint(37, silver) == "the map pin is on Silver Vein.", "the map pin goes on the node")
+expect(H.gatherPin and H.gatherPin.uiMapID == 37 and math.abs(H.gatherPin.position.x - 0.45) < 1e-6, "the map pin is at the place of the node")
+C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint = canPin, setPin
+local withSilver = ns.CountNodes()
+expect(ns.ForgetNode(37, silver) and ns.CountNodes() == withSilver - 1, "one node is forgotten, the others stay")
+expect(not ns.ForgetNode(37, silver), "a node that is not there is not forgotten twice")
+
+-- Export and import as text.
+local exported, exportCount = ns.ExportNodes()
+expect(exportCount == ns.CountNodes() and exported:find("^FG1\n") and exported:find("\n37;herb;4200;6500;Peacebloom"), "the export has a line for each node, got " .. exported)
+local read, added = ns.ImportNodes(exported)
+expect(read == exportCount and added == 0, "an import of the own export adds nothing")
+read, added = ns.ImportNodes("FG1\r\n52;ore;1234;5678;Jacob's Vein; the big one\n37;herb;4200;6500;Peacebloom\n\n")
+local importedNode = ForeverGatherDB.nodes[52] and ForeverGatherDB.nodes[52][1]
+expect(read == 2 and added == 1 and importedNode and importedNode.name == "Jacob's Vein; the big one", "an import adds the node that is not known, with its whole name")
+expect(importedNode and importedNode.count == 0 and importedNode.imported == true and math.abs(importedNode.x - 0.1234) < 1e-9 and math.abs(importedNode.y - 0.5678) < 1e-9, "the imported node has its place and no gather")
+expect(ns.CountNodes() == exportCount + 1, "the import added one node")
+local nothing, why = ns.ImportNodes("hello")
+expect(nothing == nil and why:find("not an export"), "a text that is no export is refused")
+nothing, why = ns.ImportNodes("FG1\n52;ore;1;1;Good Vein\n37;gems;1;1;Ruby")
+expect(nothing == nil and why:find("line 3") and #ForeverGatherDB.nodes[52] == 1, "a text with a wrong line is refused whole")
+read, added = ns.ImportNodes("FG1\n13;herb;5000;5000;Serpentbloom")
+expect(read == 0 and added == 0 and ForeverGatherDB.nodes[13] == nil, "a node on the map of a continent is not imported")
+ForeverGatherDB.nodes[52] = nil
+ForeverGatherDB.names["Jacob's Vein; the big one"] = nil
+ns.Changed()
+-- The window.
+T.slash("/fgather", "export")
+expect(ForeverGatherShare:IsShown() and ForeverGatherShare.box:GetText() == exported, "/fgather export shows the export in its window")
+T.slash("/fgather", "import")
+expect(ForeverGatherShare.mode == "import" and ForeverGatherShare.box:GetText() == "", "/fgather import shows an empty box")
+ForeverGatherShare.box:SetText("FG1\n52;herb;100;200;Briarthorn")
+ForeverGatherShare.action:GetScript("OnClick")(ForeverGatherShare.action)
+expect(T.printed("1 |4node:nodes; read, 1 of them new") and not ForeverGatherShare:IsShown() and #ForeverGatherDB.nodes[52] == 1, "the button Import adds the node and closes the window")
+ForeverGatherDB.nodes[52] = nil
+ForeverGatherDB.names["Briarthorn"] = nil
+ns.Changed()
+
 -- Filters by kind.
 ns.SetOption("herb", false)
 expect(#ns.VisibleNodes(37) == 3, "hidden herbs do not show")

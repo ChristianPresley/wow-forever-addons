@@ -9,18 +9,68 @@ local active, pool = {}, {}
 local shownMap, shownWidth, shownHeight
 local dirty = true
 
-local function fillTooltip(tooltip, node)
+local TOOLTIP_LOOT = 3 -- the items of a node that its tooltip names
+
+local function fillTooltip(tooltip, node, withMenu)
   tooltip:AddLine(node.name)
   tooltip:AddLine(ns.KIND[node.kind].name, 0.8, 0.8, 0.8)
-  tooltip:AddLine(string.format("Gathered %d |4time:times;", node.count), 1, 1, 1)
+  if node.count == 0 then
+    tooltip:AddLine("From an import, not gathered yet", 1, 1, 1)
+  else
+    tooltip:AddLine(string.format("Gathered %d |4time:times;", node.count), 1, 1, 1)
+  end
   local skill = ns.LearnedSkill(node.name)
   if skill then
     tooltip:AddLine(string.format("Gathered at %s %d", ns.KIND[node.kind].skill, skill), 1, 1, 1)
+    local word, r, g, b = ns.Difficulty(node)
+    if word then
+      tooltip:AddLine("For your skill: " .. word, r, g, b)
+    end
   end
   local days = ns.DaysSince(node.last)
   if days then
     tooltip:AddLine(days == 0 and "Last gathered today" or string.format("Last gathered %d |4day:days; ago", days), 0.8, 0.8, 0.8)
   end
+  for index, entry in ipairs(ns.LootOf(node)) do
+    if index > TOOLTIP_LOOT then
+      break
+    end
+    tooltip:AddLine(string.format("%s: %d, %.1f for each gather", entry.item, entry.count, entry.count / math.max(1, node.looted or 1)), 0.6, 0.8, 1)
+  end
+  if withMenu then
+    tooltip:AddLine("Right-click: map pin, forget", 0.5, 0.5, 0.5)
+  end
+end
+
+-- Puts the map pin of the game on a node. Returns a line for the player.
+function ns.SetWaypoint(mapID, node)
+  if not C_Map.CanSetUserWaypointOnMap(mapID) then
+    return "the game takes no map pin on this map."
+  end
+  if not C_Map.SetUserWaypoint({ uiMapID = mapID, position = CreateVector2D(node.x, node.y) }) then
+    return "the game refused the map pin."
+  end
+  C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+  return "the map pin is on " .. node.name .. "."
+end
+
+-- The menu of a pin: a map pin on the node, and forget the node.
+function ns.PinMenu(pin)
+  local node, mapID = pin.node, pin.mapID
+  if not node or not mapID then
+    return
+  end
+  MenuUtil.CreateContextMenu(pin, function(_, root)
+    root:CreateTitle(node.name)
+    root:CreateButton("Put the map pin here", function()
+      ns.Print(ns.SetWaypoint(mapID, node))
+    end)
+    root:CreateButton("Forget this node", function()
+      if ns.ForgetNode(mapID, node) then
+        ns.Print("Forgot " .. node.name .. ".")
+      end
+    end)
+  end)
 end
 
 -- Whole days since a time() value, or nil without one.
@@ -36,7 +86,7 @@ local function showTooltip(pin)
     return
   end
   GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
-  fillTooltip(GameTooltip, pin.node)
+  fillTooltip(GameTooltip, pin.node, pin.clicks)
   GameTooltip:Show()
 end
 
@@ -51,17 +101,51 @@ function ns.NewPin(parent)
   local pin = CreateFrame("Frame", nil, parent)
   pin.icon = pin:CreateTexture(nil, "ARTWORK")
   pin.icon:SetAllPoints()
+  -- The dot of the difficulty, in the lower right corner.
+  pin.dot = pin:CreateTexture(nil, "OVERLAY")
+  pin.dot:SetPoint("BOTTOMRIGHT", 1, -1)
+  pin.dot:Hide()
   pin:SetMouseClickEnabled(false)
   pin:SetMouseMotionEnabled(true)
   pin:SetScript("OnEnter", showTooltip)
   pin:SetScript("OnLeave", hideTooltip)
+  pin:SetScript("OnMouseUp", function(self, button)
+    if button == "RightButton" then
+      ns.PinMenu(self)
+    end
+  end)
   return pin
 end
 
-function ns.SetPinNode(pin, node, size)
+-- The right button of a pin opens its menu; the left button goes on to the map under the pin.
+-- The game refuses this change of a frame in a fight, so a pin made in a fight gets it later.
+local function takeClicks(pin)
+  if pin.clicks or InCombatLockdown() then
+    return
+  end
+  pin:SetMouseClickEnabled(true)
+  pin:SetPassThroughButtons("LeftButton", "MiddleButton", "Button4", "Button5")
+  pin.clicks = true
+end
+
+function ns.SetPinNode(pin, node, size, mapID)
   pin.node = node
+  pin.mapID = mapID
   pin.icon:SetTexture(ns.KIND[node.kind].icon)
   pin:SetSize(size, size)
+  pin:SetAlpha(ns.RecentlyGathered(node) and 0.4 or 1)
+  local word, r, g, b
+  if ns.GetOption("skillColours") then
+    word, r, g, b = ns.Difficulty(node)
+  end
+  if word then
+    pin.dot:SetSize(size * 0.4, size * 0.4)
+    pin.dot:SetColorTexture(r, g, b, 1)
+    pin.dot:Show()
+  else
+    pin.dot:Hide()
+  end
+  takeClicks(pin)
 end
 
 local function release()
@@ -94,7 +178,7 @@ local function draw()
   local size = (ns.GetOption("size") + 2) / scale
   for _, node in ipairs(ns.VisibleNodes(shownMap)) do
     local pin = table.remove(pool) or ns.NewPin(layer)
-    ns.SetPinNode(pin, node, size)
+    ns.SetPinNode(pin, node, size, shownMap)
     pin:ClearAllPoints()
     pin:SetPoint("CENTER", layer, "TOPLEFT", node.x * width, -node.y * height)
     pin:Show()
