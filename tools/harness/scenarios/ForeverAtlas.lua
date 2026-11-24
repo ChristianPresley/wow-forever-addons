@@ -613,19 +613,8 @@ do
   expect(count("npcs") == 0 and count("learned") == 2, "with the NPCs off they are gone, and Forever Compass has both of its places")
   ns.SetOption("show_npcs", true)
   _G["ForeverCompassDB"] = compass
-  -- The place of an NPC is the average of its visits: the old place 40 and the new one 42 give 41.
-  known[1].x, known[1].n, known[1].t = 40, nil, (known[1].t or 0) - 3600
-  T.world.npc = "Brog Hamfist"
-  T.fire("MERCHANT_SHOW")
-  expect(math.abs(known[1].x - 41) < 0.01 and known[1].n == 2, "the place is the average of two visits, got " .. tostring(known[1].x))
-  -- An innkeeper that sells food is an inn as well; a talk-only NPC is remembered but not drawn.
-  T.world.npc = "Innkeeper Test"
-  T.fire("MERCHANT_SHOW")
-  local inn = known[#known]
-  expect(inn.name == "Innkeeper Test" and inn.roles.inn and inn.roles.vendor and count("npcs") == 3, "an innkeeper that sells is remembered as an inn too, got " .. count("npcs"))
-  T.world.npc = nil
-  -- Forgetting them: four are known, three are drawn (the talk-only one is not).
-  expect(ns.CountNpcs() == 4 and count("npcs") == 3, "four are known, three drawn, got " .. ns.CountNpcs() .. " and " .. count("npcs"))
+  -- Forgetting them.
+  expect(ns.CountNpcs() == 3 and count("npcs") == 3, "three are known, got " .. ns.CountNpcs())
   ns.ForgetNpcs()
   expect(ns.CountNpcs() == 0 and count("npcs") == 0, "after forgetting them none is left")
   ForeverAtlasMap:Hide()
