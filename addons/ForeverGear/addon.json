@@ -1,0 +1,6 @@
+{
+  "id": "forever-gear",
+  "category": "Combat",
+  "summary": "Pre-raid gear lists for your class and role, a dungeon loot browser, and upgrade lines in item tooltips.",
+  "description": "Forever Gear shows a pre-raid gear list for each class and role, slot by slot, with where each item comes from, and the loot of each dungeon. Click an item to put it on your own list. Item tooltips say where an item stands on your list and whether it is an upgrade over what you wear. Type /fgear for commands."
+}

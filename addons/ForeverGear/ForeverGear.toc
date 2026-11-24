@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: Forever Gear
+## Notes: Pre-raid gear lists for each class and role, a dungeon loot browser, and upgrade lines in item tooltips.
+## Author: Christian Presley
+## Version: 0.1.0
+## Category: Combat
+## SavedVariables: ForeverGearDB
+## X-Website: https://github.com/ChristianPresley/wow-forever-addons
+
+Core.lua
+Data.lua
+Lists.lua
+Tooltip.lua
+Window.lua
+SettingsKit.lua
+Settings.lua
+Commands.lua
