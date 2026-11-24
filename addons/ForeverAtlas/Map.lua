@@ -53,6 +53,8 @@ local NEIGHBOURS_REACH = 1.25 -- as far as this part of the map past each edge
 local TERRAIN_MOST = 1500 -- no terrain for a map that needs more images than this
 local TERRAIN_PAST = 0.5 -- the terrain goes on this far past each edge of the map, as a part of the map
 local CROSS_SLACK = 0.05 -- the middle of the window goes this far past the edge before the next zone is looked for
+local PAINT_SHARP = 1.2 -- the painting of the continent is clear while one of its pixels is this many screen units or fewer
+local PAINT_BLUR = 2.5 -- and it is gone from this many: past that it is only blocks of colour
 
 -- The options of the map window. Opacity and scale are in percent.
 ns.defaults.mapOpacity = 100
@@ -232,11 +234,18 @@ local function fit()
 end
 
 -- Zooms by a number of notches toward a place of the viewport (the middle if left out).
+local goUpAt -- set below: zooms out from a zone to its continent
+
 local function zoomAt(notches, px, py)
   local width, height = viewportSize()
   px, py = px or width / 2, py or height / 2
   limits()
-  view.target = math.min(view.maxScale, math.max(view.minScale, view.target * ZOOM_STEP ^ notches))
+  local wanted = view.target * ZOOM_STEP ^ notches
+  -- Past the whole of the zone, the map goes out to the continent with the zone where it was.
+  if notches < 0 and wanted < view.minScale and goUpAt and goUpAt(px, py) then
+    return
+  end
+  view.target = math.min(view.maxScale, math.max(view.minScale, wanted))
   local mapX, mapY = toMap(px, py)
   anchor = { px = px, py = py, mapX = mapX, mapY = mapY }
 end
@@ -850,6 +859,15 @@ local function place()
   if terrainFrame and view.terrain then
     terrainFrame:SetAlpha(terrainAlpha())
   end
+  -- The painting of the continent goes soft as the map zooms in: one of its pixels grows past
+  -- the sharp size, and past the blur size it is not drawn, so that no block of colour shows.
+  local paint = 1
+  if view.paintPixel then
+    paint = math.min(1, math.max(0, (PAINT_BLUR - view.paintPixel * view.scale) / (PAINT_BLUR - PAINT_SHARP)))
+  end
+  for _, tile in ipairs(neighbourTiles) do
+    tile:SetAlpha(paint)
+  end
   local mapWidth, mapHeight = view.width * view.scale, view.height * view.scale
   for _, pin in ipairs(pins) do
     pin:ClearAllPoints()
@@ -957,7 +975,7 @@ end
 -- and what the character has uncovered of the zones beside it. With them the map goes from
 -- zone to zone without a break: the land of the next zone is there before the map changes.
 local function drawNeighbours()
-  view.neighbours, view.surround, view.stitched = {}, nil, false
+  view.neighbours, view.surround, view.stitched, view.paintPixel = {}, nil, false, nil
   local pan = view.pan
   local usedTiles, usedOverlays = 0, 0
   if pan then
@@ -996,6 +1014,7 @@ local function drawNeighbours()
       local wide, tall = pan.right - pan.left, pan.bottom - pan.top
       local originX, originY = -pan.left / wide * view.width, -pan.top / tall * view.height
       local scaleX, scaleY = view.width / wide / info.layerWidth, view.height / tall / info.layerHeight
+      view.paintPixel = scaleX -- how wide one of its pixels is on the canvas: see place
       local columns = math.ceil(info.layerWidth / info.tileWidth)
       for tileIndex, file in ipairs(files) do
         local column, row = (tileIndex - 1) % columns, math.floor((tileIndex - 1) / columns)
@@ -1087,6 +1106,34 @@ local function setMap(mapID)
   if window:IsShown() then
     place()
   end
+  return true
+end
+
+-- Zooming out past the whole of a zone goes out to its continent, with the zone at the same size
+-- and under the same point of the window, so that the map does not jump. Returns true if the
+-- map changed; a zone with no continent, or a map that is already a continent, does not.
+goUpAt = function(px, py)
+  local from = view.pan
+  local parent = parentOf(view.mapID)
+  if not (from and parent) then
+    return false
+  end
+  local oldScale, oldWidth = view.scale, view.width
+  local mapX, mapY = toMap(px, py)
+  local before = view.mapID
+  if not setMap(parent) then
+    return false
+  end
+  local wide, tall = from.right - from.left, from.bottom - from.top
+  -- The zone keeps its size on the screen: its width on the continent is `wide` of the width.
+  local scale = math.min(view.maxScale, math.max(view.minScale, oldScale * oldWidth / (wide * view.width)))
+  local onX, onY = from.left + mapX * wide, from.top + mapY * tall
+  view.scale, view.target, anchor = scale, scale, nil
+  view.x = px - onX * view.width * scale
+  view.y = py - onY * view.height * scale
+  clampView()
+  view.crossNote = string.format("zoomed out from map %s to map %s (%s)", tostring(before), tostring(parent), ns.MapName(parent))
+  dirty = true
   return true
 end
 

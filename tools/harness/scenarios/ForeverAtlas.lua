@@ -87,7 +87,11 @@ ns.ZoomMap(-3, 0.5, 0.5)
 expect(#H.frames == framesBefore, "zooming makes no new frame")
 -- The finer layer fades in on the way to 2.5 times closer (the zoom numbers of the game), and
 -- is fully there from then on.
+-- Zooming out past the whole of the zone goes out to its continent, with the zone kept in size.
 ns.ZoomMap(-100)
+expect(ns.MapView().mapID == 13 and ns.MapView().pan == nil, "zooming out past the whole zone goes out to its continent (13), got " .. tostring(ns.MapView().mapID))
+expect(ns.MapView().scale >= ns.MapView().minScale and ns.MapView().scale <= ns.MapView().maxScale, "the continent opens at the size of the zone, got " .. tostring(ns.MapView().scale))
+ns.ShowMap(37)
 ns.ZoomMap(3, 0.5, 0.5) -- 1.73 times closer: before the fade starts at 1.975
 expect(ns.MapLayers()[2] == 0, "at 1.7 times closer the finer layer does not show yet, got " .. tostring(ns.MapLayers()[2]))
 ns.ZoomMap(1, 0.5, 0.5) -- 2.07 times closer
@@ -99,7 +103,9 @@ expect(#H.frames == framesBefore, "the change of the layer makes no new frame")
 ns.ZoomMap(100)
 expect(view.scale == view.maxScale, "the zoom stops at its greatest scale")
 ns.ZoomMap(-100)
-expect(view.scale == view.minScale, "the zoom stops with the whole map in the window")
+expect(ns.MapView().mapID == 13, "the zoom out from the zone goes to the continent, got " .. tostring(ns.MapView().mapID))
+ns.ShowMap(37)
+expect(ns.MapView().scale == ns.MapView().minScale, "the zone opens with the whole map in the window")
 -- The pins: the quests of the log, the note and the waypoint of before.
 local quests, others = 0, 0
 for _, pin in ipairs(ns.MapPins()) do
@@ -139,7 +145,8 @@ expect(#view.layers == 2 and view.layers[2].ratio == 2 and view.layers[2].images
 expect(math.abs(view.layers[2].start - 1.8) < 0.001 and view.maxScale >= 6, "without zoom numbers the finer layer starts 1.8 times closer, and the zoom goes in to three times its pixels")
 ns.ZoomMap(100)
 expect(ns.MapLayers()[2] == 1, "zoomed all the way in, the finer layer shows")
-ns.ZoomMap(-100)
+ns.ShowMap(13)
+ns.ShowMap(52)
 expect(ns.ClickMap("LeftButton", 0.5, 0.5) == false and view.mapID == 52, "a click on a zone with no map under it changes nothing")
 -- Alt-click adds a note there.
 T.world.alt = true
@@ -222,7 +229,9 @@ local over = ns.HoverMap(0.42, 0.64)
 expect(over ~= nil and over.kind == "areaPOIs" and not over:IsMouseEnabled(), "the tooltip of the town shows under the pointer, and the pin does not take the mouse")
 expect(ns.HoverMap(0.9, 0.9) == nil, "away from every pin there is no tooltip")
 expect(pinNamed("links").frame:IsMouseEnabled(), "a pin with a click takes the mouse")
-ns.ZoomMap(-100)
+-- Back to the whole zone: zooming out past it would go to the continent.
+ns.ShowMap(13)
+ns.ShowMap(37)
 -- Each kind can be turned off.
 ns.SetOption("show_flight", false)
 expect(count("flight") == 0 and count("areaPOIs") == 2, "with flight masters off they are gone, and the rest stays")
@@ -641,9 +650,14 @@ do
   T.fire("MERCHANT_SHOW")
   local inn = known[#known]
   expect(inn.name == "Innkeeper Test" and inn.roles.inn and inn.roles.vendor and count("npcs") == 3, "an innkeeper that sells is remembered as an inn too, got " .. count("npcs"))
+  -- A quest giver that is only that is remembered, but not drawn: it would look like an open quest.
+  T.world.npc = "Quest Giver Test"
+  T.fire("QUEST_GREETING")
+  local giver = known[#known]
+  expect(giver.name == "Quest Giver Test" and giver.roles.quests and count("npcs") == 3 and not tooltipOf(pinOf("npcs")):find("Quest Giver Test", 1, true), "a quest giver that is only that is remembered and not drawn, got " .. count("npcs"))
   T.world.npc = nil
-  -- Forgetting them: four are known, three are drawn (the talk-only one is not).
-  expect(ns.CountNpcs() == 4 and count("npcs") == 3, "four are known, three drawn, got " .. ns.CountNpcs() .. " and " .. count("npcs"))
+  -- Forgetting them: five are known, three are drawn (the talk-only and the quest-only one are not).
+  expect(ns.CountNpcs() == 5 and count("npcs") == 3, "five are known, three drawn, got " .. ns.CountNpcs() .. " and " .. count("npcs"))
   ns.ForgetNpcs()
   expect(ns.CountNpcs() == 0 and count("npcs") == 0, "after forgetting them none is left")
   ForeverAtlasMap:Hide()
