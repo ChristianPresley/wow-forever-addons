@@ -205,10 +205,11 @@ local function validate()
   end
   ForeverGatherDB = db
   dropped.misplaced = ns.DropMisplaced()
-  if db.caves ~= 1 then
+  if db.caves ~= 2 then
     dropped.moved = ns.MoveCaveNodes()
-    db.caves = 1
+    db.caves = 2
   end
+  ns.DropEmptyMaps()
 end
 
 -- The last map of a zone that the player stood on. A cave without a map of its own lies under
@@ -291,17 +292,18 @@ local function single(value)
   return value == math.floor(value)
 end
 
-local function fromEdge(x, y)
-  return math.min(x, 1 - x, y, 1 - y)
-end
-
--- Once, for the nodes of 0.5.0: it stored a cave on the zone that the game names at that point
--- of the continent, and where two maps overlap that is the wrong one. A node that was worked
--- out from the continent and lies in the outer tenth of its map moves to the other zone whose
--- map has the place. Returns how many moved.
+-- Once, for the nodes of a cave where the maps of two zones overlap. 0.5.0 stored them on the
+-- zone that the game names at that point of the continent, and the first move of 0.5.1 guessed
+-- the zone from the place alone; both can be the wrong zone. The proof of the right zone is a
+-- newer node of the same thing in the same cave, stored on the zone that the player came from.
+-- So a node that was worked out from the continent moves to the map of a newer node with its
+-- kind and name, when its place on that map is within a tenth of the map of that node.
+-- Returns how many moved.
+local NEAR = 0.1
 function ns.MoveCaveNodes()
+  local nodes = ForeverGatherDB.nodes
   local moves = {}
-  for mapID, list in pairs(ForeverGatherDB.nodes) do
+  for mapID, list in pairs(nodes) do
     local info = type(list) == "table" and C_Map.GetMapInfo(mapID)
     local parent = info and info.parentMapID
     local minX, maxX, minY, maxY
@@ -309,39 +311,54 @@ function ns.MoveCaveNodes()
       minX, maxX, minY, maxY = C_Map.GetMapRectOnMap(mapID, parent)
     end
     if ns.Usable(minX) and ns.Usable(maxX) and ns.Usable(minY) and ns.Usable(maxY) and maxX > minX and maxY > minY then
-      local zones = C_Map.GetMapChildrenInfo(parent, Enum.UIMapType.Zone) or {}
       for index = #list, 1, -1 do
         local node = list[index]
         local x, y = type(node) == "table" and node.x, type(node) == "table" and node.y
-        if type(x) == "number" and type(y) == "number" and not (single(x) and single(y)) and fromEdge(x, y) < 0.1 then
+        if type(x) == "number" and type(y) == "number" and not (single(x) and single(y)) then
           local px, py = minX + x * (maxX - minX), minY + y * (maxY - minY)
-          local best, bestX, bestY, bestEdge
-          for _, other in ipairs(zones) do
-            if other.mapID ~= mapID then
-              local zone, zx, zy = onZone(other.mapID, parent, px, py)
-              if zone and (not best or fromEdge(zx, zy) > bestEdge) then
-                best, bestX, bestY, bestEdge = zone, zx, zy, fromEdge(zx, zy)
+          local best, bestX, bestY, bestFirst
+          for otherMap, others in pairs(nodes) do
+            local otherInfo = otherMap ~= mapID and type(others) == "table" and C_Map.GetMapInfo(otherMap)
+            if otherInfo and otherInfo.parentMapID == parent then
+              local zone, zx, zy = onZone(otherMap, parent, px, py)
+              for _, other in ipairs(zone and others or {}) do
+                local newer = type(other) == "table" and other.kind == node.kind and other.name == node.name and (other.first or 0) > (node.first or 0)
+                if newer and type(other.x) == "number" and type(other.y) == "number" and math.abs(other.x - zx) < NEAR and math.abs(other.y - zy) < NEAR then
+                  if not best or other.first > bestFirst then
+                    best, bestX, bestY, bestFirst = zone, zx, zy, other.first
+                  end
+                end
               end
             end
           end
           if best then
-            table.remove(list, index)
-            node.x, node.y = bestX, bestY
-            moves[#moves + 1] = { map = best, node = node }
+            moves[#moves + 1] = { from = list, map = best, node = node, x = bestX, y = bestY }
           end
         end
       end
     end
   end
+  -- The nodes move after the search, so that each is judged by the data as it was.
   for _, move in ipairs(moves) do
-    local list = ForeverGatherDB.nodes[move.map]
-    if type(list) ~= "table" then
-      list = {}
-      ForeverGatherDB.nodes[move.map] = list
+    for index, node in ipairs(move.from) do
+      if node == move.node then
+        table.remove(move.from, index)
+        break
+      end
     end
-    list[#list + 1] = move.node
+    move.node.x, move.node.y = move.x, move.y
+    table.insert(nodes[move.map], move.node)
   end
   return #moves
+end
+
+-- Drops the maps that have no node left.
+function ns.DropEmptyMaps()
+  for mapID, list in pairs(ForeverGatherDB.nodes) do
+    if type(list) ~= "table" or next(list) == nil then
+      ForeverGatherDB.nodes[mapID] = nil
+    end
+  end
 end
 
 -- The player's rank in a skill line by its name, or nil.

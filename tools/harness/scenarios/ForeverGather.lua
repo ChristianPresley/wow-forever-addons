@@ -158,9 +158,10 @@ zone, zx, zy = ns.ZoneAt(13, 0.44, 0.346, 9002)
 expect(zone == 9002 and math.abs(zx - 0.125) < 1e-6 and math.abs(zy - 0.1) < 1e-6, "the zone that the player came from has the place when it is on its map")
 zone = ns.ZoneAt(13, 0.40, 0.20, 9002)
 expect(zone == 9001, "a place that is not on the map of the zone that the player came from is of the zone that the game names")
--- The nodes of 0.5.0 in such a strip move once: a place that was worked out from the continent,
--- in the outer tenth of its map, goes to the other zone whose map has it. A place that the
--- game gave (a single float) stays.
+-- A node of a cave on the wrong one of two maps that overlap moves once, to the map of a newer
+-- node of the same thing near it: that one was stored on the zone that the player came from.
+-- A place that the game gave (a single float) stays, and so does a node with no newer one near.
+-- The newer node itself stays: no node near it is newer.
 C_Map.GetMapRectOnMap = function(zone)
   if zone == 37 then
     return 0.38, 0.56, 0.18, 0.36
@@ -171,12 +172,19 @@ local own37, own52 = ForeverGatherDB.nodes[37], ForeverGatherDB.nodes[52]
 ForeverGatherDB.nodes[37] = {
   { kind = "quest", name = "Sapphire", x = 0.3164023152017831, y = 0.9224205656863054, count = 1, first = 1, last = 1 },
   { kind = "quest", name = "At the edge", x = 0.5, y = 0.9375, count = 1, first = 1, last = 1 },
-  { kind = "quest", name = "In the middle", x = 0.4000000000000001, y = 0.5000000000000001, count = 1, first = 1, last = 1 },
+  { kind = "quest", name = "Sapphire", x = 0.3164023152017832, y = 0.5000000000000001, count = 1, first = 1, last = 1 },
+  { kind = "quest", name = "Other thing", x = 0.3164023152017831, y = 0.9224205656863054, count = 1, first = 1, last = 1 },
 }
-ForeverGatherDB.nodes[52] = nil
-expect(ns.MoveCaveNodes() == 1 and #ForeverGatherDB.nodes[37] == 2, "one node of a cave moves, the node that the game placed and the node in the middle stay")
-local cave = ForeverGatherDB.nodes[52] and ForeverGatherDB.nodes[52][1]
-expect(cave and cave.name == "Sapphire" and math.abs(cave.x - 0.1060) < 1e-3 and math.abs(cave.y - 0.1002) < 1e-3, "the node is at the same place on the map of the other zone")
+ForeverGatherDB.nodes[52] = {
+  { kind = "quest", name = "Sapphire", x = 0.1321655106099081, y = 0.1282111468634372, count = 1, first = 5, last = 5 },
+}
+ForeverGatherDB.nodes[9999] = {}
+expect(ns.MoveCaveNodes() == 1 and #ForeverGatherDB.nodes[37] == 3, "the older node of the cave moves; the node that the game placed, the node far from the newer one and the other thing stay")
+local cave = ForeverGatherDB.nodes[52][2]
+expect(cave and cave.first == 1 and math.abs(cave.x - 0.1060) < 1e-3 and math.abs(cave.y - 0.1002) < 1e-3, "the node is at the same place on the map of the newer node")
+expect(ns.MoveCaveNodes() == 0, "a second run moves nothing")
+ns.DropEmptyMaps()
+expect(ForeverGatherDB.nodes[9999] == nil and ForeverGatherDB.nodes[52], "a map with no node left is dropped")
 ForeverGatherDB.nodes[37], ForeverGatherDB.nodes[52] = own37, own52
 C_Map.GetMapRectOnMap, C_Map.GetMapInfoAtPosition = rectOnMap, infoAt
 expect(ns.LastZone() == 37, "the zone of the last gather on a zone map is kept")
