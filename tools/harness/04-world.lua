@@ -48,11 +48,15 @@ local ITEMS = {
   [5001] = { name = "Gnoll Paw", quality = 1, class = 12, sell = 0, icon = 133721, bind = 4 },
   [5002] = { name = "Baxtan: On Destructive Magics", quality = 1, class = 12, sell = 0, icon = 133733, bind = 1 },
   -- The item that the quest 176 gives to use. It is not in the bags.
-  [5003] = { name = "Stormwind Hunting Horn", quality = 1, class = 12, sell = 0, icon = 133706, bind = 4 },
+  -- A gem of the item class Gem (Enum.ItemClass.Gem = 3 in the snapshot). Its ID and icon are
+  -- made up: no file of the game in the sources gives a gem's ID here, so the icon is that of
+  -- Tough Jerky. It is in bag 0, slot 6.
+  [5004] = { name = "Test Gem", quality = 1, class = 3, sell = 0, icon = 134004 },
+  [5003] ={ name = "Stormwind Hunting Horn", quality = 1, class = 12, sell = 0, icon = 133706, bind = 4 },
 }
 H.items = ITEMS
 local BAG_CONTENTS = {
-  [0] = { size = 16, slots = { [1] = { 6948, 1 }, [2] = { 2589, 12 }, [3] = { 117, 5 }, [5] = { 2211, 1 } } },
+  [0] = { size = 16, slots = { [1] = { 6948, 1 }, [2] = { 2589, 12 }, [3] = { 117, 5 }, [5] = { 2211, 1 }, [6] = { 5004, 1 } } },
   [1] = { size = 6, slots = { [1] = { 769, 8 }, [2] = { 2589, 20 }, [3] = { 5001, 3 }, [4] = { 5002, 1 } } },
 }
 local function itemLink(itemID)
@@ -1283,6 +1287,55 @@ setGlobal("GetLootSlotInfo", function(slot)
   end
   return "Interface\\Icons\\INV_Misc_Note_01", item.name, 1, nil, 1, false, item.quest or false, item.questID, false, false
 end, LOOT_FRAME)
+-- The equipment sets of the character: H.world.equipmentSets is the list, each { id, name, icon,
+-- items }. The default is one set with the two items of the world (2589 and 2211). The game's
+-- own code calls these functions (EquipmentManager.lua, ActionBarEditFrame.lua,
+-- SecureTemplates.lua), and they are documented in EquipmentManagerDocumentation.lua. The
+-- driver fires EQUIPMENT_SETS_CHANGED with the other events that an addon registers.
+H.world.equipmentSets = { { id = 1, name = "Tank", icon = 133, items = { 2589, 2211 } } }
+local function equipmentSet(id)
+  for _, set in ipairs(H.world.equipmentSets) do
+    if set.id == id then
+      return set
+    end
+  end
+  return nil
+end
+set("C_EquipmentSet", "GetEquipmentSetIDs", function()
+  local ids = {}
+  for _, entry in ipairs(H.world.equipmentSets) do
+    ids[#ids + 1] = entry.id
+  end
+  return ids
+end)
+set("C_EquipmentSet", "GetNumEquipmentSets", function() return #H.world.equipmentSets end)
+set("C_EquipmentSet", "GetEquipmentSetID", function(name)
+  for _, entry in ipairs(H.world.equipmentSets) do
+    if entry.name == name then
+      return entry.id
+    end
+  end
+  return nil
+end)
+set("C_EquipmentSet", "GetEquipmentSetInfo", function(id)
+  local entry = equipmentSet(id)
+  if not entry then
+    return nil
+  end
+  -- name, iconFileID, setID, isEquipped, numItems, numEquipped, numInInventory, numLost, numIgnored
+  return entry.name, entry.icon, entry.id, false, #entry.items, 0, #entry.items, 0, 0
+end)
+set("C_EquipmentSet", "GetItemIDs", function(id)
+  local entry = equipmentSet(id)
+  if not entry then
+    return nil
+  end
+  local items = {}
+  for index, item in ipairs(entry.items) do
+    items[index] = item
+  end
+  return items
+end)
 -- The mail window (Blizzard_MailFrame/MailFrame.xml), hidden until the mailbox opens.
 MailFrame = CreateFrame("Frame", "MailFrame", UIParent)
 MailFrame:Hide()
