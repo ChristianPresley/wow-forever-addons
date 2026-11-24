@@ -29,8 +29,36 @@ local function changed()
   end
 end
 
+-- The realm as the game names it, the text of the keys. The game gives an empty text now and then
+-- (on some servers, for GetRealmName), so the normalized name is the second choice. nil if both are empty.
+function ns.RealmName()
+  local realm = GetRealmName and GetRealmName()
+  if type(realm) == "string" and realm ~= "" then
+    return realm
+  end
+  realm = GetNormalizedRealmName and GetNormalizedRealmName()
+  if type(realm) == "string" and realm ~= "" then
+    return realm
+  end
+  return nil
+end
+
+-- The realm that a stored record of this name has, for a time when the game gives none.
+local function knownRealm(name)
+  if not ForeverBagsDB or type(ForeverBagsDB.characters) ~= "table" then
+    return nil
+  end
+  for _, record in pairs(ForeverBagsDB.characters) do
+    if type(record) == "table" and record.name == name and type(record.realm) == "string" and record.realm ~= "" and record.realm ~= "?" then
+      return record.realm
+    end
+  end
+  return nil
+end
+
 function ns.CharacterKey()
-  return (UnitName("player") or "?") .. "-" .. (GetRealmName() or "?")
+  local name = UnitName("player") or "?"
+  return name .. "-" .. (ns.RealmName() or knownRealm(name) or "?")
 end
 
 -- The record of this character. Made at the first call.
@@ -43,7 +71,7 @@ function ns.Me()
     characters[key] = me
   end
   me.name = UnitName("player") or "?"
-  me.realm = GetRealmName() or "?"
+  me.realm = ns.RealmName() or knownRealm(me.name) or "?"
   me.class = select(2, UnitClass("player"))
   me.level = UnitLevel("player")
   for _, part in ipairs({ "bags", "bank", "equipped" }) do
@@ -247,7 +275,54 @@ local function schedule()
   end
 end
 
+-- The record that an empty realm made: "Name-" with no realm. It is moved to the key with the
+-- realm of this character, and merged with the record of that key if there is one. The newer
+-- record decides each field; the bank is the one that was seen last.
+local function merged(old, current)
+  if not current then
+    return old
+  end
+  local base, other = old, current
+  if (current.updated or 0) >= (old.updated or 0) then
+    base, other = current, old
+  end
+  local result = {}
+  for field, value in pairs(base) do
+    result[field] = value
+  end
+  for field, value in pairs(other) do
+    if result[field] == nil then
+      result[field] = value
+    end
+  end
+  if (other.bankSeen or 0) > (base.bankSeen or 0) then
+    result.bank, result.bankSeen = other.bank, other.bankSeen
+  end
+  return result
+end
+
+function ns.MigrateOwnRecord()
+  local name, realm = UnitName("player"), ns.RealmName()
+  if not (name and realm and ForeverBagsDB and type(ForeverBagsDB.characters) == "table") then
+    return false
+  end
+  local characters = ForeverBagsDB.characters
+  local bare = name .. "-"
+  local old = characters[bare]
+  if type(old) ~= "table" then
+    return false
+  end
+  local key = name .. "-" .. realm
+  local record = merged(old, characters[key])
+  record.name, record.realm = name, realm
+  characters[key] = record
+  characters[bare] = nil
+  changed()
+  return true
+end
+
 ns.OnLogin(function()
+  pcall(ns.MigrateOwnRecord)
   local events = CreateFrame("Frame")
   for _, event in ipairs({
     "BAG_UPDATE_DELAYED", "PLAYER_MONEY", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD",

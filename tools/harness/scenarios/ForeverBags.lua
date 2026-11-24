@@ -206,3 +206,26 @@ T.advance(1)
 expect(tester.bank[1] == nil, "a bank of the character that can be read is counted again")
 T.fire("BANKFRAME_CLOSED")
 T.advance(1)
+
+-- A record under the empty realm ("Tester-") is merged into the record of the realm, and the newer
+-- record decides. The bank is kept from the record that saw it last.
+ForeverBagsDB.characters["Tester-"] = { name = "Tester", realm = "", class = "WARRIOR", level = 25, money = 1, updated = 9e9,
+  bags = { [2589] = 5 }, bank = { [1] = 9 }, equipped = {}, bankSeen = 9e9 }
+expect(ns.MigrateOwnRecord() == true, "the record under the empty realm is moved")
+local moved = ForeverBagsDB.characters["Tester-TestRealm"]
+expect(ForeverBagsDB.characters["Tester-"] == nil and moved.realm == "TestRealm", "the empty-realm record is gone and the record has the realm")
+expect(moved.level == 25 and moved.bags[2589] == 5, "the newer record decides the level and the bags")
+expect(moved.bank[1] == 9 and moved.bankSeen == 9e9, "the bank that was seen last is kept, here the one of the empty realm")
+expect(ns.MigrateOwnRecord() == false, "a second migration has nothing to move")
+
+-- The game gives an empty realm: the key of this character stays the same, and no record is made
+-- under the empty realm.
+T.world.realmEmpty = true
+T.fire("BAG_UPDATE_DELAYED")
+T.advance(1)
+expect(ns.RealmName() == nil and ns.CharacterKey() == "Tester-TestRealm", "with an empty realm the key is the one with the realm, got " .. ns.CharacterKey())
+expect(ForeverBagsDB.characters["Tester-"] == nil and ns.Me() == ForeverBagsDB.characters["Tester-TestRealm"], "no record is made under the empty realm, and the record is the same")
+T.world.realmEmpty = nil
+T.fire("BAG_UPDATE_DELAYED")
+T.advance(1)
+expect(ns.RealmName() == "TestRealm", "when the realm comes back it is read again")
