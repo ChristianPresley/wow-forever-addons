@@ -63,6 +63,14 @@ pub fn build_holding(addons: &[Addon], out_dir: &Path, held: &[String], publishe
     }
     fs::create_dir_all(out_dir).map_err(io)?;
 
+    // The published index, if there is one. The first publish has none, so every addon is new.
+    let published: Vec<MarketAddon> = match published_dir {
+        Some(dir) if dir.join("index.json").is_file() => {
+            load_index(&dir.join("index.json").to_string_lossy()).map_err(|error| format!("Cannot read the published index: {error}"))?.addons
+        }
+        _ => Vec::new(),
+    };
+    let mut held: Vec<String> = held.to_vec();
     let mut report = Vec::new();
     let mut entries = Vec::new();
     for addon in addons {
@@ -74,6 +82,16 @@ pub fn build_holding(addons: &[Addon], out_dir: &Path, held: &[String], publishe
             return Err(format!("{} is incomplete. Run \"cargo dev lint\".", addon.folder));
         };
         let zip = package(addon)?;
+        // The manager finds an update by the version alone. Files that differ from the published
+        // package of the same version would reach nobody, so the addon is held back instead.
+        if let (Some(dir), Some(old)) = (published_dir, published.iter().find(|old| old.id == meta.id && old.version == toc.version)) {
+            let old_bytes = fs::read(dir.join(&old.download.url)).map_err(|error| format!("Cannot read the published {}: {error}", old.download.url))?;
+            if format!("{:x}", Sha256::digest(&zip)) != old.download.sha256 && zip_files(old_bytes, dir)? != zip_files(zip.clone(), dir)? {
+                report.push(format!("{} held back: its files changed without a new version", addon.folder));
+                held.push(addon.folder.clone());
+                continue;
+            }
+        }
         let file_name = format!("{}-{}.zip", addon.folder, toc.version);
         fs::write(out_dir.join(&file_name), &zip).map_err(io)?;
         report.push(format!("{file_name}  {} bytes", zip.len()));
@@ -94,14 +112,7 @@ pub fn build_holding(addons: &[Addon], out_dir: &Path, held: &[String], publishe
     }
 
     if let Some(published_dir) = published_dir {
-        // The first publish has no index yet, so every held addon is new.
-        let index_path = published_dir.join("index.json");
-        let published: Vec<MarketAddon> = if index_path.is_file() {
-            load_index(&index_path.to_string_lossy()).map_err(|error| format!("Cannot read the published index: {error}"))?.addons
-        } else {
-            Vec::new()
-        };
-        for folder in held {
+        for folder in &held {
             let Some(old) = published.iter().find(|old| old.folders.contains(folder)) else {
                 report.push(format!("{folder} has no published version yet, so it is not in the marketplace"));
                 continue;
@@ -125,8 +136,13 @@ pub fn build_holding(addons: &[Addon], out_dir: &Path, held: &[String], publishe
 
 /// The files of a package, by name.
 fn package_files(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let bytes = fs::read(path).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
+    zip_files(bytes, path)
+}
+
+/// The files of a ZIP package, by name. `path` names the package in the error text.
+fn zip_files(bytes: Vec<u8>, path: &Path) -> Result<BTreeMap<String, Vec<u8>>, String> {
     let problem = |error: &dyn std::fmt::Display| format!("Cannot read {}: {error}", path.display());
-    let bytes = fs::read(path).map_err(|error| problem(&error))?;
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|error| problem(&error))?;
     let mut files = BTreeMap::new();
     for index in 0..archive.len() {
@@ -240,9 +256,8 @@ mod tests {
         let published = tmp.path().join("published");
         build(&read_addons(&source).unwrap(), &published).unwrap();
 
-        // Both change. Demo's tests fail, so Demo is held back; Other is published.
+        // Demo changes. Its tests fail, so Demo is held back; Other is unchanged and published.
         write_addon(&source, "Demo", "demo", "print(2)\n");
-        write_addon(&source, "Other", "other", "print(2)\n");
         let out = tmp.path().join("out");
         let held = ["Demo".to_string()];
         let report = build_holding(&read_addons(&source).unwrap(), &out, &held, Some(&published)).unwrap();
@@ -254,13 +269,37 @@ mod tests {
         let old_demo = old.addons.iter().find(|addon| addon.folders == ["Demo"]).unwrap();
         assert_eq!(demo.download.sha256, old_demo.download.sha256);
         assert_eq!(fs::read(out.join(&demo.download.url)).unwrap(), fs::read(published.join(&old_demo.download.url)).unwrap());
-        let other = index.addons.iter().find(|addon| addon.folders == ["Other"]).unwrap();
-        let old_other = old.addons.iter().find(|addon| addon.folders == ["Other"]).unwrap();
-        assert_ne!(other.download.sha256, old_other.download.sha256);
+        assert!(index.addons.iter().any(|addon| addon.folders == ["Other"]));
 
         // A held addon that was never published is left out instead of failing the build.
         let fresh = build_holding(&read_addons(&source).unwrap(), &tmp.path().join("fresh"), &held, Some(&tmp.path().join("nothing"))).unwrap();
         assert!(fresh.iter().any(|line| line.contains("no published version")), "{fresh:?}");
+    }
+
+    #[test]
+    fn an_addon_whose_files_changed_without_a_new_version_is_held_back_alone() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("addons");
+        write_addon(&source, "Demo", "demo", "print(1)\n");
+        write_addon(&source, "Other", "other", "print(1)\n");
+        let published = tmp.path().join("published");
+        build(&read_addons(&source).unwrap(), &published).unwrap();
+
+        // Demo changes but keeps its version; Other changes and keeps its version too.
+        write_addon(&source, "Demo", "demo", "print(2)\n");
+        let out = tmp.path().join("out");
+        let report = build_holding(&read_addons(&source).unwrap(), &out, &[], Some(&published)).unwrap();
+        assert!(report.iter().any(|line| line.contains("Demo held back: its files changed")), "{report:?}");
+
+        let index = load_index(&out.join("index.json").to_string_lossy()).unwrap();
+        let old = load_index(&published.join("index.json").to_string_lossy()).unwrap();
+        let demo = index.addons.iter().find(|addon| addon.folders == ["Demo"]).unwrap();
+        let old_demo = old.addons.iter().find(|addon| addon.folders == ["Demo"]).unwrap();
+        assert_eq!(demo.download.sha256, old_demo.download.sha256, "Demo keeps its published package");
+        // Other is unchanged, so it is published as it is.
+        assert!(index.addons.iter().any(|addon| addon.folders == ["Other"]));
+        // The index now agrees with the published copy, so the version check passes.
+        assert!(check_published(&out, &published).is_ok());
     }
 
     #[test]
