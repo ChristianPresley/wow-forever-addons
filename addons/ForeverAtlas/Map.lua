@@ -666,7 +666,9 @@ end
 -- game's own map draws (Blizzard_SharedMapDataProviders/QuestBlobDataProvider.lua), from a frame
 -- of the game that draws them for a map. False where this client cannot make that frame.
 local questBlob
+local lastAreaScale -- the scale the quest areas were last drawn at
 local function drawQuestAreas()
+  lastAreaScale = view.scale
   view.questAreas = 0
   if questBlob == nil then
     local ok, frame = pcall(CreateFrame, "QuestPOIFrame", nil, canvas)
@@ -694,6 +696,9 @@ local function drawQuestAreas()
     questBlob:Hide()
     return
   end
+  -- The frame takes the size of the canvas now: the game works out the shapes from it, so they
+  -- are drawn again at each new size of the map, not only when the pins are read.
+  questBlob:SetAllPoints(canvas)
   questBlob:SetMapID(view.mapID)
   questBlob:Show()
   local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, view.mapID)
@@ -849,6 +854,13 @@ end
 -- Puts the canvas and the pins where the view says.
 local function place()
   dirty = false
+  -- The quest areas are drawn for the scale they have: a new scale draws them again.
+  if questBlob and lastAreaScale ~= view.scale then
+    local ok, err = pcall(drawQuestAreas)
+    if not ok then
+      report("the quest areas", err)
+    end
+  end
   canvas:SetScale(view.scale)
   canvas:ClearAllPoints()
   canvas:SetPoint("TOPLEFT", viewport, "TOPLEFT", view.x / view.scale, -view.y / view.scale)
