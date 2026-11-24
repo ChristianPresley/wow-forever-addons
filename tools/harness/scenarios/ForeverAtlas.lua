@@ -241,7 +241,7 @@ expect(count("flight") == 1, "and back with the option on")
 H.menus = {}
 H.click(ForeverAtlasMap.show, "LeftButton", false)
 -- The title and seven more checkboxes, and the choices of the two lists of percents (opacity: 5, size: 7).
-expect(#H.menus == 1 and #H.menus[1] == #ns.MAP_KINDS + 8 + 12, "the menu has a checkbox for each kind, eight more and the two lists of percents, got " .. tostring(H.menus[1] and #H.menus[1]))
+expect(#H.menus == 1 and #H.menus[1] == #ns.MAP_KINDS + 7 + 12, "the menu has a checkbox for each kind, seven more and the two lists of percents, got " .. tostring(H.menus[1] and #H.menus[1]))
 H.menus = {}
 -- In a party: the member. As a ghost: the corpse.
 T.world.group = "party"

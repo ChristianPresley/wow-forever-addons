@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Forever Atlas
-## Notes: A map window with smooth zoom in the place of the world map, coordinates on the map and on screen, waypoints with a direction arrow, map notes, and pins for every area you have visited.
+## Notes: A map window with smooth zoom in the place of the world map, coordinates on the map and on screen, waypoints with a direction arrow, map notes, and the quest and NPC pins of the game.
 ## Author: Christian Presley
-## Version: 0.5.14
+## Version: 0.5.15
 ## Category: Map
 ## SavedVariables: ForeverAtlasDB
 ## SavedVariablesPerCharacter: ForeverAtlasCharDB
@@ -14,7 +14,6 @@ Coords.lua
 Explore.lua
 Waypoints.lua
 Hud.lua
-Visited.lua
 Notes.lua
 MapKinds.lua
 TerrainData.lua

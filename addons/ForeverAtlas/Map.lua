@@ -1358,7 +1358,6 @@ local function showMenu(owner)
       check(kind.name, ns.MapKindOption(kind.key))
     end
     check("Your notes", "notes")
-    check("Visited areas", "pins")
     check("Names of the zones", "zoneNames")
     check("Light up the zone under the pointer", "zoneHighlight")
     check("Terrain when zoomed in", "terrainDetail")

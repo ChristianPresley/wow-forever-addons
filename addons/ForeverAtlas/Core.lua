@@ -63,7 +63,6 @@ ns.defaults = {
   hud = true,
   hudArea = true,
   hudLock = false,
-  pins = true,
   notes = true,
   mapKey = true, -- the key of the world map opens the Forever Atlas map
   arrow = true, -- the direction arrow of the newest waypoint

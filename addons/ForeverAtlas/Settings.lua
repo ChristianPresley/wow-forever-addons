@@ -73,7 +73,6 @@ local function build()
 
   page:Header("World map of the game")
   check("coords", "Coordinates on the world map", "Player and cursor coordinates in the corner of the world map.")
-  check("pins", "Visited-area pins", "A pin on the world map for each area this character has visited.")
   check("notes", "Map notes", "Shows your notes on the world map. Alt-click the map to add one.")
   check("announce", "First-visit chat messages", "A chat message when you enter an area for the first time.")
 
@@ -146,7 +145,7 @@ local function build()
     },
     {
       label = "Forget visited areas",
-      hint = "Deletes the record of the areas this character has visited, and their pins.",
+      hint = "Deletes the record of the areas this character has visited (the /fatlas list and zone counts).",
       confirm = "Delete the record of the areas this character has visited?",
       click = function()
         wipe(ForeverAtlasCharDB.zones)

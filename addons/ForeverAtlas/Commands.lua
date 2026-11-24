@@ -17,7 +17,6 @@ local function help()
   print("  /fatlas arrow - turn the waypoint arrow on or off")
   print("  /fatlas arrive 10 - remove a waypoint when you are within 10 yards")
   print("  /fatlas reset - put the read-out and the arrow back where they were at first")
-  print("  /fatlas pins - turn the visited-area pins on the world map on or off")
   print("  /fatlas notes - show or hide your map notes")
   print("  /fatlas coords - turn the world map coordinates on or off")
   print("  /fatlas announce - turn the first-visit chat message on or off")
@@ -65,7 +64,6 @@ local TOGGLES = {
   announce = { "announce", "first-visit messages" },
   hud = { "hud", "on-screen coordinates" },
   lock = { "hudLock", "frame lock" },
-  pins = { "pins", "visited-area pins" },
   notes = { "notes", "map notes" },
   arrow = { "arrow", "waypoint arrow" },
 }
