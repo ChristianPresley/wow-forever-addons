@@ -99,8 +99,13 @@ GetInventorySlotInfo('RangedSlot') (the global, not in the documentation) = ok: 
 C_PaperDollInfo.GetInventorySlotInfo('RangedSlot') = ok: 18, 136520, true
 GetInventoryItemID('player', 18): the item in the ranged slot = ok: 263412
 The weapons in the bags: name, subclass, equip location = ok: 6256 Fishing Pole INVTYPE_2HWEAPON
-# Build 71037 (the game client 1.60.1, saved 2026-11-24 03:24). The auction cases below: pcall saw no error, but the
-# game fired ADDON_ACTION_BLOCKED for PlaceBid ("ForeverProbe was blocked from PlaceBid()") and PostItem ("...from PostItem()"),
-# as Forever Trace recorded (00:04:53, 00:04:54, 03:13:55). The probe run that saved them was reloaded before its timer ended.
+# Build 71091 (the game client 1.60.1, the /foreverprobe run of 2026-11-24 10:46, saved 13:29). The auction cases below: pcall
+# saw no error, but the game refused PlaceBid and PostItem to addon code with no click: it fired ADDON_ACTION_BLOCKED with the
+# addon and the function ("ForeverProbe PlaceBid()"), and did nothing. The UseContainerItem cases ran with no event, from a
+# timer and from an addon's own OnClick. Forever Trace recorded the two blocked calls (errors 5 and 6, The Barrens).
 the auction house window is shown = ok: false
-C_AuctionHouse.PlaceBid(0, 0) from a timer, no click = ok: ran
+C_AuctionHouse.PlaceBid(0, 0) from a timer, no click = ok: ran | the game fired: ADDON_ACTION_BLOCKED ForeverProbe PlaceBid()
+C_AuctionHouse.PostItem({}, 0, 0) from a timer, no click = ok: ran | the game fired: ADDON_ACTION_BLOCKED ForeverProbe PostItem()
+C_AuctionHouse.SendBrowseQuery({ searchString = '' }) from a timer, no click = ok: ran
+C_Container.UseContainerItem(99, 99) from a timer, no click = ok: ran
+C_Container.UseContainerItem(99, 99) from an addon's own OnClick, clicked by the probe = ok: ran

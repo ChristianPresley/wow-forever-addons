@@ -283,6 +283,8 @@ local function fire(event, ...)
   end
   return #targets
 end
+-- The stand-in fires an event of the game from its own functions (04-world.lua, ADDON_ACTION_BLOCKED).
+H.fire = fire
 
 local function runMenus()
   -- An action of a menu can open a menu: a few rounds, with a limit.

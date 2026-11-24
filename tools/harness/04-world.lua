@@ -591,11 +591,42 @@ set("C_Container", "GetContainerItemInfo", function(bag, slot)
     itemID = entry[1], isBound = entry[1] == 6948, itemName = item.name,
   }
 end)
+-- The game refuses C_AuctionHouse.PlaceBid and PostItem to addon code, with no click, from a
+-- timer too: it fires ADDON_ACTION_BLOCKED with the addon and the function, and does nothing
+-- else (tools/ingame-probe/answers.txt, build 71091). From the game's own code the call runs.
+-- The addon's name is the first part of its chunk name: "=<addon>/<file>".
+local function addonCaller()
+  local level = 2
+  while true do
+    local info = H.debug.getinfo(level, "Sl")
+    if not info then
+      return nil
+    end
+    if info.what ~= "C" and info.currentline > 0 and not info.source:find("^=harness/") then
+      return info.source:match("^=([^/]+)/")
+    end
+    level = level + 1
+  end
+end
+-- `refused` is what the call gives when the game refuses it: the probe does not print what it
+-- gives, so for PostItem (which the documentation says returns a boolean) it is false, as if
+-- nothing was posted. PlaceBid returns nothing in the documentation.
+local function blockedForAddon(name, refused)
+  return function(...)
+    local addon = addonCaller()
+    if addon then
+      H.fire("ADDON_ACTION_BLOCKED", addon, name .. "()")
+      return refused
+    end
+    did(name, ...)
+  end
+end
+set("C_AuctionHouse", "PlaceBid", blockedForAddon("PlaceBid"))
+set("C_AuctionHouse", "PostItem", blockedForAddon("PostItem", false))
 -- C_Container.UseContainerItem uses the item of a slot (the game's own code calls it in
 -- Blizzard_FrameXML/SecureTemplates.lua). The stand-in records the request in H.did and does
--- nothing else: what the game does with an invalid slot (bag 99) is the probe's case in
--- ForeverProbe, and it has no answer yet. The game's refusal of an addon's click
--- (ADDON_ACTION_FORBIDDEN) is not modelled.
+-- nothing else. The probe (build 71091) shows no refusal from addon code, from a timer or from
+-- an addon's click, and no event: so the stand-in does not refuse it either.
 set("C_Container", "UseContainerItem", function(bag, slot)
   did("use container item", bag, slot)
 end)
