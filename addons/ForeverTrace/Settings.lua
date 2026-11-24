@@ -44,7 +44,7 @@ local function build()
   slider("errors", "Different errors to keep", "A repeat of an error raises its count. When the list is full, the error that was seen longest ago goes.", 10, "errors")
 
   page:Header("Screenshots")
-  check("screenshots", "Take a screenshot for a new error", "Also for /ftrace mark. Off until you have tried the test button: the screenshot is in the Screenshots folder of the game at once, without a /reload.")
+  check("screenshots", "Take a screenshot for a new error", "Also for /ftrace mark, at once. For an error half a second later, so that the error window of the game is in the picture. Off until you have tried the test button: the screenshot is in the Screenshots folder of the game at once, without a /reload.")
   slider("shotGap", "Time between two screenshots", "No screenshot for an error that comes sooner than this after the last screenshot.", 5, "seconds")
 
   page:Info(function()

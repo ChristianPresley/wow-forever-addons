@@ -248,8 +248,27 @@ local function lastMarks(count)
   end
   return unpack(out)
 end
--- Two markers before the screenshot is taken: one screenshot, and both have its name.
+-- The screenshot of a marker is taken on the next frame; the one of an error waits half a second.
 local shotsBefore = shots
+ns.Mark("at once")
+T.advance(0.05)
+expect(shots == shotsBefore + 1, "the screenshot of a marker is taken on the next frame")
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+T.advance(ns.GetOption("shotGap"))
+raise("Interface/AddOns/ForeverQuests/Core.lua:6: with the error window", "")
+ns.Mark("while an error waits")
+T.advance(0.05)
+expect(shots == shotsBefore + 2 and lastError().shot == nil, "the screenshot of an error waits, the one of a marker does not wait with it")
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+expect(db.marks[#db.marks].shot ~= nil and lastError().shot == nil, "the first screenshot is the marker's")
+T.advance(1)
+T.fire("SCREENSHOT_STARTED")
+T.fire("SCREENSHOT_SUCCEEDED")
+expect(shots == shotsBefore + 3 and lastError().shot ~= nil and lastError().shot ~= "failed", "half a second later the error has its own screenshot")
+-- Two markers before the screenshot is taken: one screenshot, and both have its name.
+shotsBefore = shots
 ns.Mark("first of two")
 ns.Mark("second of two")
 T.advance(1)

@@ -30,7 +30,8 @@ local BORDER_SECONDS = 60 -- a crossing back within this time is the same border
 -- start that no call of this addon waits for is a screenshot of the player (the Print Screen
 -- key): it is followed to its end, and no entry gets it.
 local lastShot = nil -- GetTime() of the last request
-local waiting = nil -- the batch of the next call
+local waiting = nil -- the batch of the next call for errors, which waits SHOT_DELAY
+local waitingNow = nil -- the batch of the next call for markers, on the next frame
 local called = {} -- the batches whose call is made and which the game has not started, the oldest first
 local started = {} -- the screenshots that the game has started, the oldest first: a batch, or false for one of the player
 
@@ -94,6 +95,9 @@ local function take(batch)
   if waiting == batch then
     waiting = nil
   end
+  if waitingNow == batch then
+    waitingNow = nil
+  end
   batch.from = time()
   called[#called + 1] = batch
   C_Timer.After(SHOT_WAIT, function()
@@ -102,13 +106,25 @@ local function take(batch)
   Screenshot()
 end
 
-local function shoot(entry, test)
+-- `now` is for a marker and for /ftrace shot: the screenshot is taken on the next frame, of what
+-- the player sees at that moment. A screenshot for an error waits SHOT_DELAY, for the error
+-- window of the game.
+local function shoot(entry, test, now)
   lastShot = GetTime()
-  local batch = waiting
+  local batch
+  if now then
+    batch = waitingNow
+  else
+    batch = waiting
+  end
   if not batch then
     batch = { entries = {} }
-    waiting = batch
-    C_Timer.After(test and 0 or SHOT_DELAY, function()
+    if now then
+      waitingNow = batch
+    else
+      waiting = batch
+    end
+    C_Timer.After(now and 0 or SHOT_DELAY, function()
       ns.Safely(take, batch)
     end)
   end
@@ -126,13 +142,13 @@ function ns.ShootFor(entry)
   if lastShot and GetTime() - lastShot < ns.GetOption("shotGap") then
     return false
   end
-  shoot(entry, false)
+  shoot(entry, false, false)
   return true
 end
 
 -- /ftrace shot: one screenshot now, to see if this client lets an addon take one.
 function ns.TestShot()
-  shoot(nil, true)
+  shoot(nil, true, true)
 end
 
 local function shotStarted()
@@ -471,7 +487,7 @@ function ns.Mark(text)
   end
   local mark = ns.AddMark(text)
   if mark and ns.GetOption("screenshots") then
-    shoot(mark, false)
+    shoot(mark, false, true)
   end
   return mark
 end
