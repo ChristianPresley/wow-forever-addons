@@ -41,7 +41,7 @@ ns.OPTION_DEFAULTS = {
   hideInCombat = false,
   showDegrees = true, -- the heading in degrees, above the bar
   barAlpha = 75, -- percent
-  barWidth = 67, -- percent of the width of the screen
+  barWidth = 50, -- percent of the width of the screen; 50 keeps it clear of the Meter's window at the top left
   fov = 180, -- degrees of the circle that the bar shows at one time
 }
 
