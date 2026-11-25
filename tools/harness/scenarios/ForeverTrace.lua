@@ -123,6 +123,14 @@ T.fire("PLAYER_REGEN_DISABLED")
 T.advance(2)
 T.fire("PLAYER_REGEN_ENABLED")
 expect(#db.events == before + 2 and lastEvent().text == "lasted 2 s" and lastEvent().n == nil, "a fight after another event is a new line")
+-- A fight line says which time it covers: from the start of its first fight to the end of its last.
+do
+  local run = db.events[before]
+  expect(type(run.since) == "string" and run.since <= run.at and run.at <= run.till, "a line of fights has its start, the end of the first fight and the end of the last: " .. tostring(run.since) .. ", " .. tostring(run.at) .. ", " .. tostring(run.till))
+  expect(type(lastEvent().since) == "string" and lastEvent().till == nil, "one fight has its start and no end of a run")
+  T.slash("/ftrace", "show 50")
+  expect(T.printed("4 fights, 18 s in all, from %d+:%d+:%d+ till %d+:%d+:%d+"), "/ftrace show gives the time that a line of fights covers")
+end
 
 T.world.zone = "Westfall"
 T.fire("ZONE_CHANGED_NEW_AREA")

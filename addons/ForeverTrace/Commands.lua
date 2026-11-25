@@ -85,6 +85,9 @@ local function show(count)
     local times = ""
     if entry.kind == "zone" then
       times = (entry.from and (" from " .. entry.from) or "") .. (entry.n and (", " .. entry.n .. " times over this border") or "")
+    elseif entry.kind == "fight" then
+      -- The time at the front is the end of the first fight of the line.
+      times = (entry.since and (", from " .. clock(entry.since)) or "") .. (entry.till and (" till " .. clock(entry.till)) or "")
     elseif entry.n and not entry.seconds then
       times = " (" .. entry.n .. " times)"
     end

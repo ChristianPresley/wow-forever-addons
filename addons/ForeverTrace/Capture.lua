@@ -367,19 +367,24 @@ handlers.ZONE_CHANGED = ns.ReadPlace
 handlers.ZONE_CHANGED_INDOORS = ns.ReadPlace
 
 local fightLine = nil -- the last "fight" line of the ring
+local fightSince = nil -- the clock at the start of the fight that runs
 
 function handlers.PLAYER_REGEN_DISABLED()
   ns.inFight = true
   fightStart = GetTime()
+  fightSince = date("%Y-%m-%d %H:%M:%S")
 end
 
 -- One line for a fight, at its end: what happened in the fight is above it, with fight = true.
 -- A fight directly after a fight line joins that line, so that an hour of fights does not push
--- everything else out of the ring.
+-- everything else out of the ring. The stamp of the line is the end of its first fight: `since`
+-- is the start of that fight and `till` the end of the last one, so the line says which time it
+-- covers.
 function handlers.PLAYER_REGEN_ENABLED()
   ns.inFight = false
   local seconds = fightStart and math.floor(GetTime() - fightStart + 0.5)
-  fightStart = nil
+  local since = fightStart and fightSince
+  fightStart, fightSince = nil, nil
   local line = fightLine
   if seconds and line and line.seconds and line == ns.LastEvent() and ns.GetOption("enabled") then
     line.n = (line.n or 1) + 1
@@ -391,6 +396,7 @@ function handlers.PLAYER_REGEN_ENABLED()
   line = ns.Push("fight", nil, seconds and ("lasted " .. seconds .. " s") or "end")
   if line and seconds and not line.n then
     line.seconds = seconds
+    line.since = since
   end
   fightLine = line
 end
