@@ -104,6 +104,10 @@ local function updateButton(button, bag, slot, info)
   callGlobal("SetItemButtonCount", button, info and info.stackCount)
   callGlobal("SetItemButtonDesaturated", button, info and info.isLocked)
   call(button, "UpdateCooldown", texture)
+  -- An empty slot has no new item, so a New glow left on it from an earlier item goes out.
+  if not info and button.NewItemTexture then
+    button.NewItemTexture:Hide()
+  end
   -- Weapons and armor: the item level, and red when the character's level is too low to use it.
   local level, tooLow
   if info and info.itemID then
