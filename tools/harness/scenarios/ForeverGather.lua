@@ -464,6 +464,12 @@ expect(ns.CountNodes() == beforeSeen + 1, "a thing whose tooltip names no skill 
 underPointer = {}
 T.fire("UI_ERROR_MESSAGE", 50, "Requires Mining 75")
 expect(ForeverGatherDB.last.error.name == "Kobold Vermin", "with nothing under the pointer a red message is not kept")
+-- A player or a creature under the pointer is no thing: its tooltip is not kept.
+underPointer = { type = Enum.TooltipDataType.Unit, lines = { { leftText = "Some Player" }, { leftText = "Guild of Mining" }, { leftText = "Level 38 Undead (Player)" } } }
+T.fire("UI_ERROR_MESSAGE", 50, "Spell is not ready yet.")
+expect(ns.ThingUnderPointer() == nil and ForeverGatherDB.last.error.name == "Kobold Vermin" and ForeverGatherDB.last.error.thing == true, "the tooltip of a unit is not kept with a red message")
+T.fire("UI_ERROR_MESSAGE", 50, "Requires Mining 75")
+expect(ns.CountNodes() == beforeSeen + 1, "a unit whose tooltip has the name of a skill is no node")
 C_TooltipInfo.GetWorldCursor = worldCursor
 T.slash("/fgather", "status")
 expect(T.printed("Last red message with a thing under the pointer.*Requires Herbalism 150.*Kobold Vermin"), "/fgather status has the last red message")

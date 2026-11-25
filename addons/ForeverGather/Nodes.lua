@@ -230,6 +230,11 @@ function ns.ThingUnderPointer()
   if type(lines) ~= "table" then
     return nil
   end
+  -- A player or a creature is no node, and its name and guild are not kept.
+  local unit = Enum.TooltipDataType and Enum.TooltipDataType.Unit
+  if unit and ns.Usable(data.type) and data.type == unit then
+    return nil
+  end
   local texts = {}
   for _, line in ipairs(lines) do
     local text = type(line) == "table" and line.leftText
@@ -655,7 +660,7 @@ local handlers = {
     if not name then
       return
     end
-    ForeverGatherDB.last.error = { message = message, name = name, lines = lines, at = time() }
+    ForeverGatherDB.last.error = { message = message, name = name, lines = lines, at = time(), thing = true }
     if not kind or not message:find(ns.KIND[kind].skill, 1, true) then
       return
     end

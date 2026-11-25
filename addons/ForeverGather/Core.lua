@@ -200,6 +200,9 @@ local function validate()
     db.last = {}
   end
   db.last.gather = nil -- of 0.2.0: the history has it now
+  if type(db.last.error) ~= "table" or not db.last.error.thing then
+    db.last.error = nil -- before 0.5.3 it could hold the tooltip of a player
+  end
   if type(db.history) ~= "table" then
     db.history = {}
   end
