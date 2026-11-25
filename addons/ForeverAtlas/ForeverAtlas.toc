@@ -2,7 +2,7 @@
 ## Title: Forever Atlas
 ## Notes: A map window with smooth zoom in the place of the world map, coordinates on the map and on screen, waypoints with a direction arrow, map notes, and the quest and NPC pins of the game.
 ## Author: Christian Presley
-## Version: 0.5.16
+## Version: 0.5.17
 ## Category: Map
 ## SavedVariables: ForeverAtlasDB
 ## SavedVariablesPerCharacter: ForeverAtlasCharDB

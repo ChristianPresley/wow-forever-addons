@@ -667,7 +667,19 @@ end
 -- of the game that draws them for a map. False where this client cannot make that frame.
 local questBlob
 local lastAreaScale -- the scale the quest areas were last drawn at
+local questAreasWaiting = false -- drawn after the fight: the game's shapes are not drawn in one
 local function drawQuestAreas()
+  -- In a fight the game's quest shapes are not drawn from addon code: a fight error in the
+  -- game's map was traced to this path. They are drawn again when the fight ends.
+  if InCombatLockdown and InCombatLockdown() then
+    questAreasWaiting = true
+    if questBlob then
+      questBlob:Hide()
+    end
+    view.questAreas = 0
+    return
+  end
+  questAreasWaiting = false
   lastAreaScale = view.scale
   view.questAreas = 0
   if questBlob == nil then
@@ -2154,6 +2166,12 @@ ns.OnLogin(function()
     pcall(events.RegisterEvent, events, event)
   end
   events:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_ENABLED" and questAreasWaiting then
+      local ok, err = pcall(drawQuestAreas)
+      if not ok then
+        report("the quest areas", err)
+      end
+    end
     if event == "UPDATE_BINDINGS" or (event == "PLAYER_REGEN_ENABLED" and wanted) then
       bindKeys()
     elseif event ~= "UPDATE_BINDINGS" and event ~= "PLAYER_REGEN_ENABLED" then
