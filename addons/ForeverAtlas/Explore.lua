@@ -39,12 +39,16 @@ local function store(zone, area)
   if zones[zone][area] then
     return
   end
-  local mapID = C_Map.GetBestMapForUnit("player")
-  -- Not for a continent that the game names for a moment at a border: the next reading does it.
-  if not isZoneMap(mapID) then
-    return
+  -- The area is recorded at once; the place on a map only where the map is a zone of the game
+  -- outside. In an instance the map the game names is the zone at its door, not the place of
+  -- the character, so the place is left out there.
+  local mapID, x, y
+  local inInstance = IsInInstance and select(1, IsInInstance())
+  local outside = C_Map.GetBestMapForUnit("player")
+  if not inInstance and isZoneMap(outside) then
+    mapID = outside
+    x, y = ns.PlayerPosition(mapID)
   end
-  local x, y = ns.PlayerPosition(mapID)
   zones[zone][area] = { t = time(), mapID = mapID, x = x, y = y }
   ns.RefreshPins()
   if ForeverAtlasDB.options.announce then
