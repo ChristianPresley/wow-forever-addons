@@ -57,6 +57,23 @@ expect(#ns.Places("vendor") == 1, "the same vendor at the same place is one plac
 expect(names("vendor") == "Brog Hamfist", "a tracker for vendors points to the learned vendor")
 T.fire("MAIL_SHOW")
 expect(#ns.Places("mailbox") == 1, "a mailbox is remembered")
+-- A bank that opens from an object of the world is no banker: its name is not remembered, but a
+-- banker that is a creature still is.
+expect(#ns.Places("bank") == 0, "no banker is known at first")
+local realGUID = UnitGUID
+UnitGUID = function(unit)
+  if unit == "npc" then
+    return "GameObject-0-1-0-0-240-0000000002"
+  end
+  return realGUID(unit)
+end
+T.world.npc = "Uninspected Shipment"
+T.fire("BANKFRAME_OPENED")
+UnitGUID = realGUID
+expect(#ns.Places("bank") == 0 and not T.printed("Uninspected Shipment"), "a bank that opens from an object is not remembered")
+T.world.npc = "Real Banker"
+T.fire("BANKFRAME_OPENED")
+expect(#ns.Places("bank") == 1 and ns.Places("bank")[1].name == "Real Banker", "a banker that is a creature is remembered")
 T.world.npc = nil
 
 -- A place inside an instance is read on the continent map: a continent is not a place, so the

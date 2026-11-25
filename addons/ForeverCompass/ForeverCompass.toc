@@ -2,7 +2,7 @@
 ## Title: Forever Compass
 ## Notes: A compass bar at the top of the screen that scrolls as you turn. Up to four trackers mark the nearest quest giver, quest objective, turn-in, rare enemy, vendor, flight master and more on it.
 ## Author: Christian Presley
-## Version: 0.2.11
+## Version: 0.2.12
 ## Category: Map
 ## SavedVariables: ForeverCompassDB
 ## X-Website: https://github.com/ChristianPresley/wow-forever-addons

@@ -10,7 +10,19 @@ local _, ns = ...
 -- Two places of a kind nearer than this (as a part of the map) are the same place.
 local SAME = 0.004
 
+-- Whether the interaction is with an object of the world, not with a creature. A bank or an
+-- auction house can open from an object: its name is then no banker or auctioneer. An unknown
+-- GUID (a secret value, or none) is taken as a creature, as before.
+local function fromObject()
+  local ok, guid = pcall(UnitGUID, "npc")
+  return ok and type(guid) == "string" and not (issecretvalue and issecretvalue(guid))
+    and guid:find("^GameObject") ~= nil
+end
+
 local function npcName(fallback)
+  if fromObject() then
+    return nil
+  end
   local name = UnitName and UnitName("npc")
   -- The game can hide the name of an NPC. A hidden name cannot be compared, so that test is first.
   if (issecretvalue and issecretvalue(name)) or type(name) ~= "string" or name == "" then
@@ -36,7 +48,7 @@ local function largeMap(mapID)
 end
 
 local function remember(kind, name)
-  if not ForeverCompassDB then
+  if not ForeverCompassDB or not name then
     return
   end
   local mapID = ns.PlayerMap()
